@@ -1,6 +1,7 @@
 import { Container, Graphics } from "pixi.js";
 import { ShapeData } from "../../core/ShapeData";
 import { HarmonicComponent } from "../../core/Harmonic";
+import type { Species } from "./Scenery";
 import { mixColor, PALETTE } from "../../theme";
 
 // Every structure renderer consumes identical ShapeData and only ever
@@ -9,6 +10,8 @@ import { mixColor, PALETTE } from "../../theme";
 // coefficients to individual architectural elements.
 export interface WorldRenderer {
   container: Container;
+  /** which flora species the level dresses this scene with */
+  species: Species;
   update(
     shape: ShapeData,
     target: ShapeData,

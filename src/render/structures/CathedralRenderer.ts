@@ -4,7 +4,7 @@ import { HarmonicComponent } from "../../core/Harmonic";
 import { Accent, mixColor, PALETTE } from "../../theme";
 import { LAYOUT } from "../Layout";
 import { Painter, WorldRenderer, resample } from "./common";
-import { island, pixelTree } from "./Scenery";
+import { Species, flora, island } from "./Scenery";
 
 // Level 4 — "The Harmonic Cathedral".
 //
@@ -37,6 +37,7 @@ export class CathedralRenderer implements WorldRenderer {
   private glass = new Graphics(); // stained glass + glow (not reflected)
   private fx = new Graphics(); // light, motes, gate of light
   private accent: Accent;
+  species: Species = "blossom";
 
   // masonry tonal ramp, resolved once per accent
   private stoneBase = 0;
@@ -269,10 +270,10 @@ export class CathedralRenderer implements WorldRenderer {
 
     // autumn groves on either bank (framing scenery)
     const treeSpan = islandHalf;
-    pixelTree(p, cx - treeSpan + 6, platformTopY - 18, 5.0, this.accent, 4.1);
-    pixelTree(p, cx - treeSpan - 22, platformTopY - 14, 3.6, this.accent, 6.7);
-    pixelTree(p, cx + treeSpan - 6, platformTopY - 18, 5.0, this.accent, 8.8);
-    pixelTree(p, cx + treeSpan + 22, platformTopY - 14, 3.6, this.accent, 10.2);
+    flora(p, cx - treeSpan + 6, platformTopY - 18, 5.0, this.accent, 4.1, this.species);
+    flora(p, cx - treeSpan - 22, platformTopY - 14, 3.6, this.accent, 6.7, this.species);
+    flora(p, cx + treeSpan - 6, platformTopY - 18, 5.0, this.accent, 8.8, this.species);
+    flora(p, cx + treeSpan + 22, platformTopY - 14, 3.6, this.accent, 10.2, this.species);
 
     // the ground line the building rises from sits on the platform
     const baseY = platformTopY - (has0 ? 2 : 0);

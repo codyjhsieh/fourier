@@ -1,6 +1,9 @@
 import { HarmonicComponent, makeHarmonic } from "../core/Harmonic";
 import { ScoreModel } from "../core/Scoring";
 import { ControlConfig } from "../render/ui/HarmonicControls";
+import { ACCENTS } from "../theme";
+import type { Species } from "../render/structures/Scenery";
+import type { TimeOfDay } from "../render/Background";
 
 export type RendererKind = "bridge" | "creature" | "gate" | "cathedral";
 
@@ -16,7 +19,7 @@ export interface LevelDef {
   title: string;
   subtitle: string;
   instructions: string;
-  accentKey: "bridge" | "creature" | "gate" | "cathedral";
+  accentKey: keyof typeof ACCENTS;
   renderer: RendererKind;
   targetWaveStyle: "dotted" | "stroke";
   scoreModel: ScoreModel;
@@ -25,6 +28,9 @@ export interface LevelDef {
   target: HarmonicSpec[];
   start: HarmonicSpec[];
   threshold: number;
+  /** optional per-level dressing — distinct flora + sky for variety */
+  scenery?: Species;
+  time?: TimeOfDay;
 }
 
 // Build a full harmonic list for a palette, applying the given specs.
@@ -176,7 +182,9 @@ export const LEVELS: LevelDef[] = [
     subtitle: "raise two arches across the gorge",
     instructions:
       "tap a stone to add it, then drag it up to grow each hump\nbuild both crests until travellers cross the twin span",
-    accentKey: "bridge",
+    accentKey: "amber",
+    scenery: "pine",
+    time: "dawn",
     renderer: "bridge",
     targetWaveStyle: "dotted",
     scoreModel: "waveform",
@@ -211,7 +219,9 @@ export const LEVELS: LevelDef[] = [
     subtitle: "still the churning current beneath the surface",
     instructions:
       "remove or reduce the high frequencies\nleave only the calm low body to settle the deep",
-    accentKey: "creature",
+    accentKey: "jade",
+    scenery: "palm",
+    time: "dusk",
     renderer: "creature",
     targetWaveStyle: "dotted",
     scoreModel: "calm",
@@ -255,7 +265,9 @@ export const LEVELS: LevelDef[] = [
     subtitle: "five light-threads, five locks — align them all",
     instructions:
       "rotate each phase dial to slide its thread sideways\nstack all five threads onto their ghosts to seal the vault",
-    accentKey: "gate",
+    accentKey: "indigo",
+    scenery: "willow",
+    time: "night",
     renderer: "gate",
     targetWaveStyle: "dotted",
     scoreModel: "phase",
@@ -297,10 +309,12 @@ export const LEVELS: LevelDef[] = [
     subtitle: "strip the false bays from an over-built span",
     instructions:
       "tap the extra stones to remove the spurious humps\nthen drag the rest down until one long arch remains",
-    accentKey: "bridge",
+    accentKey: "slate",
+    scenery: "dead",
+    time: "day",
     renderer: "bridge",
     targetWaveStyle: "dotted",
-    scoreModel: "waveform",
+    scoreModel: "denoise",
     palette: [-2, -1, 0, 1, 2, 3, 4, 5, 6, 7],
     control: {
       indices: [-2, -1, 0, 1, 2, 3, 4, 5, 6, 7],
@@ -342,7 +356,9 @@ export const LEVELS: LevelDef[] = [
     subtitle: "break the storm-swell and turn the tide to glass",
     instructions:
       "remove or reduce every high frequency\nonly the calm low body should remain to turn the tide",
-    accentKey: "creature",
+    accentKey: "crimson",
+    scenery: "crystal",
+    time: "dusk",
     renderer: "creature",
     targetWaveStyle: "dotted",
     scoreModel: "calm",
@@ -390,7 +406,9 @@ export const LEVELS: LevelDef[] = [
     subtitle: "six threads twisted out of true — the final lock",
     instructions:
       "twist every phase dial until its thread rests on its ghost\nonly when all six align does the last seal break",
-    accentKey: "gate",
+    accentKey: "rose",
+    scenery: "crystal",
+    time: "night",
     renderer: "gate",
     targetWaveStyle: "dotted",
     scoreModel: "phase",

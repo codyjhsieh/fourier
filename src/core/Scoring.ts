@@ -9,7 +9,13 @@ export interface ShapeScore {
   finalScore: number; // [0,1]
 }
 
-export type ScoreModel = "waveform" | "calm" | "phase" | "full";
+export type ScoreModel =
+  | "waveform"
+  | "calm"
+  | "phase"
+  | "full"
+  | "denoise"
+  | "symmetry";
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
@@ -125,6 +131,45 @@ export function scoreShape(
       // Level 3: phase dominates.
       finalScore = 0.55 * ph + 0.3 * wf + 0.15 * hc;
       break;
+    case "denoise": {
+      // Level 5: strip decoy/noise harmonics that aren't in the target while
+      // keeping the clean target shape intact.
+      let extraEnergy = 0;
+      let totalEnergyOfCur = 0;
+      for (const c of curHarmonics) {
+        if (!c.enabled) continue;
+        const a2 = c.amplitude * c.amplitude;
+        totalEnergyOfCur += a2;
+        const t = targetHarmonics.find(
+          (h) => h.frequencyIndex === c.frequencyIndex,
+        );
+        if (!t || !t.enabled) extraEnergy += a2;
+      }
+      const extraFraction = extraEnergy / (totalEnergyOfCur + 1e-6);
+      finalScore = 0.6 * (1 - extraFraction) + 0.25 * wf + 0.15 * hc;
+      break;
+    }
+    case "symmetry": {
+      // Level 6: match the target's even/odd parity (phase axis) plus shape.
+      let weight = 0;
+      let acc = 0;
+      for (const t of targetHarmonics) {
+        if (!t.enabled || Math.abs(t.amplitude) < 0.02) continue;
+        if (Math.abs(t.frequencyIndex) === 0) continue;
+        const c = curHarmonics.find(
+          (h) => h.frequencyIndex === t.frequencyIndex,
+        );
+        if (!c || !c.enabled) continue;
+        const w = Math.abs(t.amplitude);
+        weight += w;
+        const d = wrapPhase(c.phase - t.phase);
+        // cos(2·Δφ) rewards being on the same parity axis (even vs odd).
+        acc += w * (Math.cos(2 * d) * 0.5 + 0.5);
+      }
+      const parityMatch = weight < 1e-6 ? 1 : clamp01(acc / weight);
+      finalScore = 0.5 * parityMatch + 0.5 * wf;
+      break;
+    }
     case "full":
     default:
       // Level 4: combined mastery.

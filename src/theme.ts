@@ -65,6 +65,48 @@ export const ACCENTS: Record<string, Accent> = {
     ink: 0x7a6f5c,
     inkSoft: 0xb0a791,
   },
+  amber: {
+    name: "amber",
+    accent: 0xd99a3e,
+    accentSoft: 0xeac68d,
+    ink: 0x83705a,
+    inkSoft: 0xb6a78f,
+  },
+  rose: {
+    name: "rose",
+    accent: 0xcf7d8e,
+    accentSoft: 0xe6b3bd,
+    ink: 0x856069,
+    inkSoft: 0xb89aa1,
+  },
+  jade: {
+    name: "jade",
+    accent: 0x4fa882,
+    accentSoft: 0x97cdb4,
+    ink: 0x5e7a6c,
+    inkSoft: 0x9eb6ab,
+  },
+  indigo: {
+    name: "indigo",
+    accent: 0x5a5ba8,
+    accentSoft: 0x9b9cd0,
+    ink: 0x615f7a,
+    inkSoft: 0x9d9bb4,
+  },
+  slate: {
+    name: "slate",
+    accent: 0x6e85a0,
+    accentSoft: 0xa8b8c9,
+    ink: 0x68707a,
+    inkSoft: 0xa3aab2,
+  },
+  crimson: {
+    name: "crimson",
+    accent: 0xc14b48,
+    accentSoft: 0xdf928f,
+    ink: 0x855854,
+    inkSoft: 0xb8938f,
+  },
 };
 
 export const FONT = {

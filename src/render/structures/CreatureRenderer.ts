@@ -3,7 +3,7 @@ import { ShapeData, aggression } from "../../core/ShapeData";
 import { Accent, mixColor, PALETTE } from "../../theme";
 import { LAYOUT } from "../Layout";
 import { Painter, WorldRenderer, resample } from "./common";
-import { island, pixelTree, shrine } from "./Scenery";
+import { Species, flora, island, shrine } from "./Scenery";
 
 // A living waveform shaped as a serpentine (Loong) dragon: a scaled body with a
 // dorsal mane, a fierce horned head with trailing whiskers, small clawed legs
@@ -17,6 +17,7 @@ export class CreatureRenderer implements WorldRenderer {
   private refl = new Graphics();
   private fx = new Graphics();
   private accent: Accent;
+  species: Species = "blossom";
 
   private readonly segs = 96;
   private readonly left = 76;
@@ -43,10 +44,10 @@ export class CreatureRenderer implements WorldRenderer {
     island(p, this.left - 30, waterY - 6, 40, 30);
     island(p, this.right + 28, waterY - 6, 40, 30);
     shrine(p, this.left - 44, waterY - 28, 50, this.accent);
-    pixelTree(p, this.left - 22, waterY - 28, 4.6, this.accent, 2.2);
-    pixelTree(p, this.left - 48, waterY - 26, 3.6, this.accent, 5.1);
-    pixelTree(p, this.right + 18, waterY - 28, 5.0, this.accent, 7.7);
-    pixelTree(p, this.right + 44, waterY - 26, 3.8, this.accent, 9.3);
+    flora(p, this.left - 22, waterY - 28, 4.6, this.accent, 2.2, this.species);
+    flora(p, this.left - 48, waterY - 26, 3.6, this.accent, 5.1, this.species);
+    flora(p, this.right + 18, waterY - 28, 5.0, this.accent, 7.7, this.species);
+    flora(p, this.right + 44, waterY - 26, 3.8, this.accent, 9.3, this.species);
 
     const agg = aggression(shape); // 0 calm .. 1 agitated
     const wave = resample(shape, this.segs);

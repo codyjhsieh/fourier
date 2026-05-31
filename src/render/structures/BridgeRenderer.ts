@@ -3,7 +3,7 @@ import { ShapeData } from "../../core/ShapeData";
 import { Accent, mixColor, PALETTE } from "../../theme";
 import { LAYOUT } from "../Layout";
 import { Painter, WorldRenderer, resample } from "./common";
-import { pixelTree } from "./Scenery";
+import { Species, flora } from "./Scenery";
 
 // Two mountains joined by a stone arch bridge. The bridge deck is a smooth arch
 // that meets each mountain ledge, so when the span is whole little pixel
@@ -32,6 +32,7 @@ export class BridgeRenderer implements WorldRenderer {
   private refl = new Graphics();
   private people = new Graphics();
   private accent: Accent;
+  species: Species = "blossom";
 
   private walkers: Walker[] = [];
   private spawnT = 0;
@@ -323,7 +324,7 @@ export class BridgeRenderer implements WorldRenderer {
       const y = Math.min(this.mountainTopY(isLeft, x, peakY) + 2, ledgeY + 6);
       if (y > LAYOUT.waterY - 10) return;
       const s = 4.2 + ((i * 7) % 3) * 0.8; // bigger trees
-      pixelTree(p, x, y, s, this.accent, i * 13.7 + (isLeft ? 0 : 60));
+      flora(p, x, y, s, this.accent, i * 13.7 + (isLeft ? 0 : 60), this.species);
     });
   }
 

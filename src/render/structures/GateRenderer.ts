@@ -4,7 +4,7 @@ import { HarmonicComponent, TWO_PI } from "../../core/Harmonic";
 import { Accent, mixColor, PALETTE } from "../../theme";
 import { LAYOUT } from "../Layout";
 import { Painter, WorldRenderer } from "./common";
-import { island, pixelTree, shrine } from "./Scenery";
+import { Species, flora, island, shrine } from "./Scenery";
 
 // LEVEL 3 — "The Harmonic Gate". A sealed gothic doorway whose lock is made of
 // the harmonics themselves, drawn as woven LIGHT-THREADS. This is the PHASE
@@ -31,6 +31,7 @@ export class GateRenderer implements WorldRenderer {
   private body = new Graphics(); // masonry leaves, jambs, voussoirs
   private lock = new Graphics(); // rune-lock rose window + rays
   private accent: Accent;
+  species: Species = "blossom";
 
   constructor(accent: Accent) {
     this.accent = accent;
@@ -73,12 +74,12 @@ export class GateRenderer implements WorldRenderer {
 
     // ============================ SCENERY =============================
     island(p, cx, baseY - 4, 116, 26);
-    pixelTree(p, 42, baseY - 22, 5.0, this.accent, 2.2);
-    pixelTree(p, 74, baseY - 20, 3.8, this.accent, 4.7);
-    pixelTree(p, 100, baseY - 18, 3.2, this.accent, 6.1);
-    pixelTree(p, LAYOUT.W - 40, baseY - 22, 5.0, this.accent, 9.4);
-    pixelTree(p, LAYOUT.W - 72, baseY - 20, 3.8, this.accent, 11.3);
-    pixelTree(p, LAYOUT.W - 98, baseY - 18, 3.2, this.accent, 13.9);
+    flora(p, 42, baseY - 22, 5.0, this.accent, 2.2, this.species);
+    flora(p, 74, baseY - 20, 3.8, this.accent, 4.7, this.species);
+    flora(p, 100, baseY - 18, 3.2, this.accent, 6.1, this.species);
+    flora(p, LAYOUT.W - 40, baseY - 22, 5.0, this.accent, 9.4, this.species);
+    flora(p, LAYOUT.W - 72, baseY - 20, 3.8, this.accent, 11.3, this.species);
+    flora(p, LAYOUT.W - 98, baseY - 18, 3.2, this.accent, 13.9, this.species);
     shrine(p, 120, baseY - 20, 40, this.accent);
     shrine(p, LAYOUT.W - 120, baseY - 20, 40, this.accent);
 

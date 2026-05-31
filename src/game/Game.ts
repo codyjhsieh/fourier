@@ -202,8 +202,10 @@ export class Game {
     this.world = new FourierWorldState(harmonics, target);
 
     this.background = new Background(this.accent);
+    this.background.setTime(this.level.time ?? "day");
     this.targetWave = new TargetWave(this.accent, this.level.targetWaveStyle);
     this.renderer = this.makeRenderer(this.level, this.accent);
+    this.renderer.species = this.level.scenery ?? "blossom";
     this.controls = new HarmonicControls(
       this.world,
       this.level.control,

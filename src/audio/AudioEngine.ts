@@ -188,23 +188,29 @@ export class AudioEngine {
     this.resonance.gain.setTargetAtTime(target, now, 0.2);
   }
 
-  // A tiny click when a control snaps to a discrete value.
+  // A soft, ambient detent when a control snaps to a discrete value — a mellow
+  // low sine with a gentle attack and a long soft release (no hard click).
   tick() {
     if (!this.ctx || !this.master) return;
     const ctx = this.ctx;
     const now = ctx.currentTime;
     const o = ctx.createOscillator();
-    o.type = "triangle";
-    o.frequency.value = 880;
+    o.type = "sine";
+    o.frequency.value = 294; // D4, low and mellow
+    // a touch of lowpass to round off any edge
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 900;
     const g = ctx.createGain();
     g.gain.value = 0;
-    o.connect(g);
+    o.connect(lp);
+    lp.connect(g);
     g.connect(this.master);
     g.gain.setValueAtTime(0, now);
-    g.gain.linearRampToValueAtTime(0.05, now + 0.004);
-    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.05);
+    g.gain.linearRampToValueAtTime(0.018, now + 0.01); // soft attack, quiet
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.18); // long gentle tail
     o.start(now);
-    o.stop(now + 0.06);
+    o.stop(now + 0.2);
   }
 
   // A short confirming chime when a level resolves.
