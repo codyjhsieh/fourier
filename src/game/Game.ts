@@ -14,6 +14,11 @@ import { GateRenderer } from "../render/structures/GateRenderer";
 import { CathedralRenderer } from "../render/structures/CathedralRenderer";
 import { LEVELS, LevelDef, buildHarmonics } from "./Levels";
 import { LAYOUT, recomputeLayout } from "../render/Layout";
+import {
+  quantizeHarmonics, snapAmp, snapPhase, stepAmpToward, stepPhaseToward,
+} from "../core/quantize";
+
+type DemoMove = { index: number; kind: "amp" | "phase"; to: number };
 
 export class Game {
   app!: Application;
@@ -42,6 +47,11 @@ export class Game {
   private completeHold = 0;
   private showcase = false;
   private demo = false;
+  private demoMoves: DemoMove[] = [];
+  private demoMi = 0;
+  private demoStepT = 0;
+  private demoHoldT = 0;
+  private demoStepping = true;
   private banner!: Text;
   private bannerHint!: Text;
   private levelIndex = 0;
@@ -187,14 +197,19 @@ export class Game {
     if (this.unsub) this.unsub();
     this.root.removeChildren();
 
-    const harmonics = buildHarmonics(this.level.palette, this.level.start);
-    const target = buildHarmonics(this.level.palette, this.level.target);
+    const harmonics = quantizeHarmonics(buildHarmonics(this.level.palette, this.level.start));
+    const target = quantizeHarmonics(buildHarmonics(this.level.palette, this.level.target));
     this.world = new FourierWorldState(harmonics, target);
 
     this.background = new Background(this.accent);
     this.targetWave = new TargetWave(this.accent, this.level.targetWaveStyle);
     this.renderer = this.makeRenderer(this.level, this.accent);
-    this.controls = new HarmonicControls(this.world, this.level.control, this.accent);
+    this.controls = new HarmonicControls(
+      this.world,
+      this.level.control,
+      this.accent,
+      () => this.onControlStep(),
+    );
     this.hud = new Hud(this.accent);
     this.hud.setLevel(
       `${this.level.indexLabel}`,
@@ -226,6 +241,7 @@ export class Game {
     if (qp.get("solve") || this.showcase) {
       this.world.solveToTarget();
     }
+    if (this.demo) this.buildDemoMoves();
     this.recomputeScore();
     this.targetWave.draw(this.world.targetShape, this.world.shape);
     this.audio.update(this.world.harmonics);
@@ -293,56 +309,107 @@ export class Game {
     this.goTo(this.levelIndex - 1);
   }
 
-  // Auto-play the most interesting amplitude/phase changes for each level, on a
-  // ~2.4s loop, for the README GIFs (?demo=1). Mutates harmonics directly and
-  // regenerates once per frame.
-  private driveDemo() {
-    const t = this.t;
-    const w = (2 * Math.PI) / 2.4; // one loop period
+  // Tick + haptic when the player clicks a control to a new discrete value.
+  private onControlStep() {
+    this.audio.tick();
+    (navigator as any).vibrate?.(8);
+  }
+
+  // Build a finger-like demo: a sequence of single-value moves (one stone or
+  // dial at a time), each clicked in discrete steps, that builds the structure
+  // up and back so it loops (for the README GIFs).
+  private buildDemoMoves() {
     const kind = this.level.renderer;
-    const put = (k: number, amp: number, phase?: number) => {
-      const h = this.world.ensure(k);
-      h.amplitude = Math.max(-1.4, Math.min(1.4, amp));
-      if (phase !== undefined) h.phase = phase;
-      h.enabled = Math.abs(h.amplitude) > 0.02;
+    const tgt = (k: number) => this.world.target.find((h) => h.frequencyIndex === k);
+    const startAmp = (k: number) =>
+      snapAmp(this.level.start.find((s) => s.index === k)?.amplitude ?? 0);
+    const startPhase = (k: number) =>
+      snapPhase(this.level.start.find((s) => s.index === k)?.phase ?? 0);
+    const moves: DemoMove[] = [];
+    const zero = () => {
+      for (const h of this.world.harmonics) { h.amplitude = 0; h.enabled = false; }
+      this.world.forceUpdate();
     };
 
     if (kind === "bridge") {
-      // amplitude: the span builds from broken to whole and back
-      const s = 0.5 - 0.5 * Math.cos(w * t); // 0..1..0
-      for (const h of this.world.target) {
-        if (h.enabled) put(h.frequencyIndex, h.amplitude * (0.1 + 1.0 * s), h.phase);
-      }
+      zero();
+      const order = [1, 2, 3].filter((k) => tgt(k));
+      for (const k of order) moves.push({ index: k, kind: "amp", to: tgt(k)!.amplitude });
+      for (const k of [...order].reverse()) moves.push({ index: k, kind: "amp", to: 0 });
     } else if (kind === "creature") {
-      // keep the calm low body; pulse the high band so it agitates <-> calms
-      const hi = 0.5 + 0.5 * Math.cos(w * t); // starts agitated
-      for (const s0 of this.level.start) {
-        const amp = Math.abs(s0.index) >= 5 ? (s0.amplitude ?? 0) * hi : s0.amplitude ?? 0;
-        put(s0.index, amp, s0.phase ?? 0);
-      }
+      const highs = this.level.start
+        .filter((s) => Math.abs(s.index) >= 5)
+        .map((s) => s.index)
+        .sort((a, b) => a - b)
+        .slice(0, 3);
+      for (const k of highs) moves.push({ index: k, kind: "amp", to: 0 });           // calm
+      for (const k of [...highs].reverse()) moves.push({ index: k, kind: "amp", to: startAmp(k) }); // re-agitate
     } else if (kind === "gate") {
-      // phase: threads slide through their ghosts; the gate seals at t=0, P, …
-      let i = 0;
-      for (const h of this.world.target) {
-        if (!h.enabled) continue;
-        const m = 1 + (i % 2); // alternate slide rates (still loops)
-        put(h.frequencyIndex, h.amplitude, h.phase + w * t * m);
-        i++;
-      }
+      const ks = this.world.target
+        .filter((h) => h.enabled && h.frequencyIndex > 0)
+        .map((h) => h.frequencyIndex);
+      for (const k of ks) moves.push({ index: k, kind: "phase", to: snapPhase(tgt(k)!.phase) }); // align
+      for (const k of [...ks].reverse()) moves.push({ index: k, kind: "phase", to: startPhase(k) }); // unalign
     } else {
-      // cathedral: elements rise/fall in a travelling wave + the rose spins
-      for (const h of this.world.target) {
-        if (!h.enabled) continue;
-        const s = 0.5 + 0.5 * Math.sin(w * t + h.frequencyIndex * 0.9);
-        put(h.frequencyIndex, h.amplitude * (0.2 + 0.8 * s), h.phase + w * t);
+      zero();
+      const order = [1, 2, 3, 4].filter((k) => tgt(k));
+      for (const k of order) moves.push({ index: k, kind: "amp", to: tgt(k)!.amplitude });
+      if (tgt(3)) moves.push({ index: 3, kind: "phase", to: snapPhase(tgt(3)!.phase + Math.PI) }); // spin rose
+      for (const k of [...order].reverse()) moves.push({ index: k, kind: "amp", to: 0 });
+    }
+
+    this.demoMoves = moves;
+    this.demoMi = 0;
+    this.demoStepT = 0;
+    this.demoHoldT = 0;
+    this.demoStepping = true;
+  }
+
+  // Step the demo: advance the active move one discrete click per ~50ms.
+  private driveDemo(dt: number) {
+    if (this.demoMoves.length === 0) return;
+    const DEMO_STEP = 0.05; // s between clicks
+    const DEMO_HOLD = 0.22; // s pause between moves
+    const move = this.demoMoves[this.demoMi];
+    this.controls.setHighlight(move.index);
+    const h = this.world.ensure(move.index);
+
+    if (!this.demoStepping) {
+      this.demoHoldT -= dt;
+      if (this.demoHoldT <= 0) {
+        this.demoMi = (this.demoMi + 1) % this.demoMoves.length;
+        this.demoStepping = true;
+        this.demoStepT = 0;
       }
+      return;
+    }
+
+    this.demoStepT -= dt;
+    if (this.demoStepT > 0) return;
+    this.demoStepT = DEMO_STEP;
+
+    let reached: boolean;
+    if (move.kind === "amp") {
+      const next = stepAmpToward(h.amplitude, move.to);
+      h.amplitude = next;
+      h.enabled = Math.abs(next) > 0.02;
+      reached = next === snapAmp(move.to);
+    } else {
+      const next = stepPhaseToward(h.phase, move.to);
+      h.phase = next;
+      reached = next === snapPhase(move.to);
     }
     this.world.forceUpdate();
+    this.audio.tick();
+    if (reached) {
+      this.demoStepping = false;
+      this.demoHoldT = DEMO_HOLD;
+    }
   }
 
   private update(dt: number) {
     this.t += dt;
-    if (this.demo) this.driveDemo();
+    if (this.demo) this.driveDemo(dt);
     this.background.setGlow(this.score.finalScore);
     this.background.update(dt);
     this.renderer.update(

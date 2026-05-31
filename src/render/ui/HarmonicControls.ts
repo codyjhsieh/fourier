@@ -1,6 +1,7 @@
 import { Container, FederatedPointerEvent, Graphics, Text } from "pixi.js";
 import { FourierWorldState } from "../../core/FourierWorldState";
 import { TWO_PI, wrapPhase } from "../../core/Harmonic";
+import { snapAmp, snapPhase, PHASE_STEPS } from "../../core/quantize";
 import { Accent, FONT, mixColor, PALETTE } from "../../theme";
 import { LAYOUT } from "../Layout";
 import { drawHarmonicIcon } from "./Icons";
@@ -44,15 +45,36 @@ export class HarmonicControls {
   private startY = 0;
   private startAmp = 0;
   private startPhase = 0;
+  private lastStep = NaN; // last discrete value applied this drag (for click feedback)
+  private onStep?: () => void; // tick / haptic on each discrete click
+  private highlight: number | null = null; // index highlighted by the demo driver
 
-  constructor(world: FourierWorldState, cfg: ControlConfig, accent: Accent) {
+  constructor(
+    world: FourierWorldState,
+    cfg: ControlConfig,
+    accent: Accent,
+    onStep?: () => void,
+  ) {
     this.world = world;
     this.cfg = cfg;
     this.accent = accent;
+    this.onStep = onStep;
     this.container.addChild(this.gfx);
     this.layout();
     this.buildLabels();
     this.attachEvents();
+  }
+
+  // The demo driver highlights the control it is "touching".
+  setHighlight(idx: number | null) {
+    this.highlight = idx;
+  }
+
+  private click(value: number) {
+    if (value !== this.lastStep) {
+      this.lastStep = value;
+      this.onStep?.();
+    }
   }
 
   private layout() {
@@ -140,6 +162,7 @@ export class HarmonicControls {
     this.dragRow = row;
     this.startX = local.x;
     this.startY = local.y;
+    this.lastStep = NaN;
     const h = this.world.ensure(idx);
     this.startAmp = h.amplitude;
     this.startPhase = h.phase;
@@ -168,16 +191,19 @@ export class HarmonicControls {
     }
 
     if (this.mode === "amp") {
-      const newAmp = this.startAmp + (this.startY - local.y) / AMP_PIXELS * 1.4;
-      this.world.setAmplitude(idx, newAmp);
+      // snap amplitude to discrete 0.1 steps (clicks)
+      const amp = snapAmp(this.startAmp + ((this.startY - local.y) / AMP_PIXELS) * 1.4);
+      this.click(amp);
+      this.world.setAmplitude(idx, amp);
     } else if (this.mode === "phase") {
       if (this.dragRow === "phase") this.applyPhase(idx, local.x, local.y);
       else {
-        // radial drag on a stone: angle from icon center
+        // radial drag on a stone: angle from icon center, snapped to steps
         const cy = this.stoneRowY;
         const cx = this.xs[this.cfg.indices.indexOf(idx)];
-        const ang = Math.atan2(local.y - cy, local.x - cx);
-        this.world.setPhase(idx, wrapPhase(ang));
+        const ang = snapPhase(Math.atan2(local.y - cy, local.x - cx));
+        this.click(ang);
+        this.world.setPhase(idx, ang);
       }
     }
   };
@@ -195,8 +221,9 @@ export class HarmonicControls {
     const i = this.cfg.indices.indexOf(idx);
     const cx = this.xs[i];
     const cy = this.phaseRowY;
-    const ang = Math.atan2(y - cy, x - cx);
-    this.world.setPhase(idx, wrapPhase(ang));
+    const ang = snapPhase(Math.atan2(y - cy, x - cx)); // 30° clicks
+    this.click(ang);
+    this.world.setPhase(idx, ang);
   }
 
   setAccent(a: Accent) {
@@ -236,7 +263,7 @@ export class HarmonicControls {
       const enabled = !!h?.enabled;
       const amp = h?.amplitude ?? 0;
       const phase = h?.phase ?? 0;
-      const active = this.dragIndex === idx;
+      const active = this.dragIndex === idx || this.highlight === idx;
 
       // --- stone row ---
       drawHarmonicIcon(g, x, this.stoneRowY, this.iconSize, amp, enabled, this.accent, active);
@@ -263,6 +290,14 @@ export class HarmonicControls {
         const r = Math.max(13, Math.min(16, this.iconSize * 0.6));
         const ringCol = enabled ? this.accent.accentSoft : PALETTE.inkFaint;
         g.circle(x, cy, r).stroke({ width: 2, color: ringCol, alpha: enabled ? 0.9 : 0.5 });
+        // discrete detents around the dial (the phase clicks into these)
+        for (let s = 0; s < PHASE_STEPS; s++) {
+          const a = (s / PHASE_STEPS) * TWO_PI;
+          g.circle(x + Math.cos(a) * (r + 2), cy + Math.sin(a) * (r + 2), 0.6).fill({
+            color: PALETTE.inkFaint,
+            alpha: enabled ? 0.5 : 0.3,
+          });
+        }
         if (enabled) {
           // target-phase hint: a notch showing where to rotate the pointer to,
           // brightening as the live pointer approaches it (so it isn't a blind

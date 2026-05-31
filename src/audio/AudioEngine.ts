@@ -188,6 +188,25 @@ export class AudioEngine {
     this.resonance.gain.setTargetAtTime(target, now, 0.2);
   }
 
+  // A tiny click when a control snaps to a discrete value.
+  tick() {
+    if (!this.ctx || !this.master) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = "triangle";
+    o.frequency.value = 880;
+    const g = ctx.createGain();
+    g.gain.value = 0;
+    o.connect(g);
+    g.connect(this.master);
+    g.gain.setValueAtTime(0, now);
+    g.gain.linearRampToValueAtTime(0.05, now + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.05);
+    o.start(now);
+    o.stop(now + 0.06);
+  }
+
   // A short confirming chime when a level resolves.
   chime() {
     if (!this.ctx || !this.master) return;
