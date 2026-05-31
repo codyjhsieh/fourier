@@ -86,11 +86,20 @@ export class Game {
     // re-fit across initial layout settling (iOS URL bar, font load, etc.)
     [50, 200, 600].forEach((d) => setTimeout(() => this.resize(), d));
 
-    // first gesture unlocks audio
-    const startAudio = () => {
-      this.audio.start().then(() => this.audio.update(this.world.harmonics));
+    // Unlock / resume audio from a real user gesture. iOS Safari needs the
+    // AudioContext created and resumed synchronously inside the handler, and
+    // re-resumed whenever it gets interrupted — so we keep these listeners
+    // live (not {once}) and also resume on visibility/focus changes.
+    const unlock = () => {
+      this.audio.start();
+      this.audio.update(this.world.harmonics);
     };
-    this.app.canvas.addEventListener("pointerdown", startAudio, { once: true });
+    for (const ev of ["pointerdown", "touchend", "mousedown"]) {
+      window.addEventListener(ev, unlock, { passive: true });
+    }
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) this.audio.resume();
+    });
 
     // advance on tap when complete
     this.app.stage.eventMode = "static";

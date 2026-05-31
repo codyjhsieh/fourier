@@ -27,19 +27,45 @@ export class AudioEngine {
   private resonance: GainNode | null = null;
   private resonanceOsc: OscillatorNode[] = [];
 
-  async start() {
-    if (this.started) return;
+  // Must be invoked from inside a user-gesture handler (pointerdown/touchend).
+  // iOS Safari requires both the AudioContext creation AND resume to happen
+  // synchronously within that gesture, so we do no `await` before resuming.
+  start() {
+    if (this.started) {
+      this.resume();
+      return;
+    }
     const Ctx =
       window.AudioContext || (window as any).webkitAudioContext;
     if (!Ctx) return;
-    this.ctx = new Ctx();
-    if (this.ctx.state === "suspended") {
-      try {
-        await this.ctx.resume();
-      } catch {
-        /* ignore */
-      }
+
+    // Route through the "playback" audio session so the iOS hardware mute /
+    // silent switch does NOT silence Web Audio (Safari 16.4+). This is the
+    // single most common reason sound is dead on iPhone.
+    try {
+      const session = (navigator as any).audioSession;
+      if (session) session.type = "playback";
+    } catch {
+      /* not supported — fall through */
     }
+
+    this.ctx = new Ctx();
+
+    // Unlock the context by playing one silent sample buffer inside the
+    // gesture — the classic iOS Web Audio unlock.
+    try {
+      const buffer = this.ctx.createBuffer(1, 1, 22050);
+      const src = this.ctx.createBufferSource();
+      src.buffer = buffer;
+      src.connect(this.ctx.destination);
+      src.start(0);
+    } catch {
+      /* ignore */
+    }
+
+    // Resume synchronously (no await) so we keep the gesture activation.
+    this.resume();
+
     this.master = this.ctx.createGain();
     this.master.gain.value = this.muted ? 0 : 0.0;
     this.master.connect(this.ctx.destination);
@@ -68,6 +94,24 @@ export class AudioEngine {
     }
 
     this.started = true;
+  }
+
+  // Re-resume after the context is suspended/interrupted (first gesture,
+  // returning from background, end of a phone call, etc.). Safe to call often.
+  resume() {
+    const ctx = this.ctx as any;
+    if (!ctx) return;
+    if (ctx.state === "running") return;
+    try {
+      const p = ctx.resume?.();
+      if (p && typeof p.catch === "function") p.catch(() => {});
+    } catch {
+      /* ignore */
+    }
+  }
+
+  isRunning() {
+    return !!this.ctx && (this.ctx as any).state === "running";
   }
 
   setMuted(m: boolean) {
