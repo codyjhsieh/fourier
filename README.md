@@ -59,12 +59,21 @@ ever **interprets** it — drawing physical architecture, never a chart. A share
 
 ## Levels
 
-| # | Level | Teaches | Score model | Accent |
-|---|-------|---------|-------------|--------|
-| 1 | The Fractured Arch | **amplitude** — reconstruct the span | waveform | lavender |
-| 2 | The Living Wave | **frequency energy** — calm the high frequencies | calm | cyan |
-| 3 | The Harmonic Gate | **phase** — align the harmonics | phase | coral |
-| 4 | The Harmonic Cathedral | **combined mastery** — amplitude + phase of all | full | gold |
+Ten levels in all: each concept is introduced, practiced, and given a boss,
+with the cathedral as the finale.
+
+| # | Level | Teaches | Biome |
+|---|-------|---------|-------|
+| 1 | The Fractured Arch | **amplitude** — reconstruct the span | bridge (lavender) |
+| 2 | The Living Wave | **frequency energy** — calm the high frequencies | dragon (cyan) |
+| 3 | The Harmonic Gate | **phase** — align the light-threads | gate (coral) |
+| 4 | The Twin Span | amplitude — raise two arches | bridge |
+| 5 | The Restless Deep | energy — still a denser agitation | dragon |
+| 6 | The Sealed Vault | phase — align five threads | gate |
+| 7 | The Long Viaduct | amplitude — strip an over-built span | bridge |
+| 8 | The Tideturner | energy — break the storm (boss) | dragon |
+| 9 | The Last Seal | phase — align six threads (boss) | gate |
+| 10 | The Harmonic Cathedral | **combined mastery** — amplitude + phase | cathedral (gold) |
 
 - **L1 — Fractured Arch.** Two mountains joined by a stone arch bridge (2D side
   view). The deck top follows the waveform and meets each mountain ledge; pixel

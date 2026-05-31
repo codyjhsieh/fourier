@@ -167,9 +167,267 @@ export const LEVELS: LevelDef[] = [
   },
 
   // ---------------------------------------------------------------- L4
+  // Twin-peak silhouette: dominant 2nd harmonic over small 0/1/3 → two crests.
+  // Build four low/mid stones up from a single small fundamental.
   {
     id: 4,
     indexLabel: "EXTREME 4",
+    title: "THE TWIN SPAN",
+    subtitle: "raise two arches across the gorge",
+    instructions:
+      "tap a stone to add it, then drag it up to grow each hump\nbuild both crests until travellers cross the twin span",
+    accentKey: "bridge",
+    renderer: "bridge",
+    targetWaveStyle: "dotted",
+    scoreModel: "waveform",
+    palette: [-2, -1, 0, 1, 2, 3, 4, 5, 6],
+    control: {
+      indices: [-2, -1, 0, 1, 2, 3, 4, 5, 6],
+      stoneToggle: true,
+      stoneAmplitude: true,
+      stonePhase: false,
+      showAmplitudeRow: false,
+      showPhaseRow: false,
+      amplitudeInteractive: false,
+      phaseInteractive: false,
+    },
+    target: [
+      { index: 0, amplitude: 0.2 },
+      { index: 1, amplitude: 0.3 },
+      { index: 2, amplitude: 0.7 },
+      { index: 3, amplitude: 0.2 },
+    ],
+    start: [{ index: 1, amplitude: 0.3 }],
+    threshold: 0.9,
+  },
+
+  // ---------------------------------------------------------------- L5
+  // Energy practice: calm low body (1,2,3) already present; a thick high band
+  // (6..11) carries the agitation. Clear the highs to still the deep.
+  {
+    id: 5,
+    indexLabel: "EXTREME 5",
+    title: "THE RESTLESS DEEP",
+    subtitle: "still the churning current beneath the surface",
+    instructions:
+      "remove or reduce the high frequencies\nleave only the calm low body to settle the deep",
+    accentKey: "creature",
+    renderer: "creature",
+    targetWaveStyle: "dotted",
+    scoreModel: "calm",
+    palette: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    control: {
+      indices: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+      stoneToggle: true,
+      stoneAmplitude: true,
+      stonePhase: false,
+      showAmplitudeRow: false,
+      showPhaseRow: false,
+      amplitudeInteractive: false,
+      phaseInteractive: false,
+    },
+    target: [
+      { index: 1, amplitude: 0.9 },
+      { index: 2, amplitude: 0.5 },
+      { index: 3, amplitude: 0.3 },
+    ],
+    start: [
+      { index: 1, amplitude: 0.9 },
+      { index: 2, amplitude: 0.5 },
+      { index: 3, amplitude: 0.3 },
+      { index: 6, amplitude: 0.6, phase: Math.PI / 6 },
+      { index: 7, amplitude: 0.7, phase: Math.PI / 2 },
+      { index: 8, amplitude: 0.5, phase: (5 * Math.PI) / 6 },
+      { index: 9, amplitude: 0.6, phase: Math.PI / 3 },
+      { index: 10, amplitude: 0.5, phase: (7 * Math.PI) / 6 },
+      { index: 11, amplitude: 0.4, phase: (3 * Math.PI) / 2 },
+    ],
+    threshold: 0.86,
+  },
+
+  // ---------------------------------------------------------------- L6
+  // Phase practice: five threads. Amplitudes correct on both sides; five phases
+  // scrambled 180° off. Rotate each dial onto its ghost to seal the vault.
+  {
+    id: 6,
+    indexLabel: "EXTREME 6",
+    title: "THE SEALED VAULT",
+    subtitle: "five light-threads, five locks — align them all",
+    instructions:
+      "rotate each phase dial to slide its thread sideways\nstack all five threads onto their ghosts to seal the vault",
+    accentKey: "gate",
+    renderer: "gate",
+    targetWaveStyle: "dotted",
+    scoreModel: "phase",
+    palette: [-2, -1, 0, 1, 2, 3, 4, 5],
+    control: {
+      indices: [-2, -1, 0, 1, 2, 3, 4, 5],
+      stoneToggle: true,
+      stoneAmplitude: true,
+      stonePhase: false,
+      showAmplitudeRow: false,
+      showPhaseRow: true,
+      amplitudeInteractive: false,
+      phaseInteractive: true,
+    },
+    target: [
+      { index: 1, amplitude: 0.9, phase: (Math.PI / 6) * 1 },
+      { index: 2, amplitude: 0.6, phase: (Math.PI / 6) * 4 },
+      { index: 3, amplitude: 0.5, phase: (Math.PI / 6) * 7 },
+      { index: 4, amplitude: 0.4, phase: (Math.PI / 6) * 3 },
+      { index: 5, amplitude: 0.3, phase: (Math.PI / 6) * 5 },
+    ],
+    start: [
+      { index: 1, amplitude: 0.9, phase: (Math.PI / 6) * 7 },
+      { index: 2, amplitude: 0.6, phase: (Math.PI / 6) * 10 },
+      { index: 3, amplitude: 0.5, phase: (Math.PI / 6) * 1 },
+      { index: 4, amplitude: 0.4, phase: (Math.PI / 6) * 9 },
+      { index: 5, amplitude: 0.3, phase: (Math.PI / 6) * 11 },
+    ],
+    threshold: 0.9,
+  },
+
+  // ---------------------------------------------------------------- L7
+  // Amplitude twist (subtract): an over-built span — the correct broad arch
+  // plus three decoy stones (5,6,7) adding false bays. Remove the extras.
+  {
+    id: 7,
+    indexLabel: "EXTREME 7",
+    title: "THE LONG VIADUCT",
+    subtitle: "strip the false bays from an over-built span",
+    instructions:
+      "tap the extra stones to remove the spurious humps\nthen drag the rest down until one long arch remains",
+    accentKey: "bridge",
+    renderer: "bridge",
+    targetWaveStyle: "dotted",
+    scoreModel: "waveform",
+    palette: [-2, -1, 0, 1, 2, 3, 4, 5, 6, 7],
+    control: {
+      indices: [-2, -1, 0, 1, 2, 3, 4, 5, 6, 7],
+      stoneToggle: true,
+      stoneAmplitude: true,
+      stonePhase: false,
+      showAmplitudeRow: false,
+      showPhaseRow: false,
+      amplitudeInteractive: false,
+      phaseInteractive: false,
+    },
+    target: [
+      { index: 0, amplitude: 0.3 },
+      { index: 1, amplitude: 0.7 },
+      { index: 2, amplitude: 0.4 },
+      { index: 3, amplitude: 0.2 },
+      { index: 4, amplitude: 0.1 },
+    ],
+    start: [
+      { index: 0, amplitude: 0.3 },
+      { index: 1, amplitude: 0.7 },
+      { index: 2, amplitude: 0.4 },
+      { index: 3, amplitude: 0.2 },
+      { index: 4, amplitude: 0.1 },
+      { index: 5, amplitude: 0.5 },
+      { index: 6, amplitude: 0.4 },
+      { index: 7, amplitude: 0.3 },
+    ],
+    threshold: 0.9,
+  },
+
+  // ---------------------------------------------------------------- L8
+  // Energy boss: the heaviest agitation. Calm low body (1..4) present; a large
+  // jagged high band (6..13) carries the storm. Clear all eight highs.
+  {
+    id: 8,
+    indexLabel: "EXTREME 8",
+    title: "THE TIDETURNER",
+    subtitle: "break the storm-swell and turn the tide to glass",
+    instructions:
+      "remove or reduce every high frequency\nonly the calm low body should remain to turn the tide",
+    accentKey: "creature",
+    renderer: "creature",
+    targetWaveStyle: "dotted",
+    scoreModel: "calm",
+    palette: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+    control: {
+      indices: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+      stoneToggle: true,
+      stoneAmplitude: true,
+      stonePhase: false,
+      showAmplitudeRow: false,
+      showPhaseRow: false,
+      amplitudeInteractive: false,
+      phaseInteractive: false,
+    },
+    target: [
+      { index: 1, amplitude: 1.0 },
+      { index: 2, amplitude: 0.6 },
+      { index: 3, amplitude: 0.4 },
+      { index: 4, amplitude: 0.2 },
+    ],
+    start: [
+      { index: 1, amplitude: 1.0 },
+      { index: 2, amplitude: 0.6 },
+      { index: 3, amplitude: 0.4 },
+      { index: 4, amplitude: 0.2 },
+      { index: 6, amplitude: 0.8, phase: Math.PI / 6 },
+      { index: 7, amplitude: 0.7, phase: (2 * Math.PI) / 3 },
+      { index: 8, amplitude: 0.8, phase: Math.PI / 3 },
+      { index: 9, amplitude: 0.6, phase: (7 * Math.PI) / 6 },
+      { index: 10, amplitude: 0.7, phase: Math.PI / 2 },
+      { index: 11, amplitude: 0.6, phase: (5 * Math.PI) / 6 },
+      { index: 12, amplitude: 0.5, phase: (3 * Math.PI) / 2 },
+      { index: 13, amplitude: 0.5, phase: (11 * Math.PI) / 6 },
+    ],
+    threshold: 0.86,
+  },
+
+  // ---------------------------------------------------------------- L9
+  // Phase boss: six threads, each start 180° off its grid target. Align all six
+  // to break the last seal.
+  {
+    id: 9,
+    indexLabel: "EXTREME 9",
+    title: "THE LAST SEAL",
+    subtitle: "six threads twisted out of true — the final lock",
+    instructions:
+      "twist every phase dial until its thread rests on its ghost\nonly when all six align does the last seal break",
+    accentKey: "gate",
+    renderer: "gate",
+    targetWaveStyle: "dotted",
+    scoreModel: "phase",
+    palette: [-2, -1, 0, 1, 2, 3, 4, 5, 6],
+    control: {
+      indices: [-2, -1, 0, 1, 2, 3, 4, 5, 6],
+      stoneToggle: true,
+      stoneAmplitude: true,
+      stonePhase: false,
+      showAmplitudeRow: false,
+      showPhaseRow: true,
+      amplitudeInteractive: false,
+      phaseInteractive: true,
+    },
+    target: [
+      { index: 1, amplitude: 1.0, phase: (Math.PI / 6) * 2 },
+      { index: 2, amplitude: 0.7, phase: (Math.PI / 6) * 5 },
+      { index: 3, amplitude: 0.6, phase: (Math.PI / 6) * 3 },
+      { index: 4, amplitude: 0.5, phase: (Math.PI / 6) * 8 },
+      { index: 5, amplitude: 0.4, phase: (Math.PI / 6) * 4 },
+      { index: 6, amplitude: 0.3, phase: (Math.PI / 6) * 10 },
+    ],
+    start: [
+      { index: 1, amplitude: 1.0, phase: (Math.PI / 6) * 8 },
+      { index: 2, amplitude: 0.7, phase: (Math.PI / 6) * 11 },
+      { index: 3, amplitude: 0.6, phase: (Math.PI / 6) * 9 },
+      { index: 4, amplitude: 0.5, phase: (Math.PI / 6) * 2 },
+      { index: 5, amplitude: 0.4, phase: (Math.PI / 6) * 10 },
+      { index: 6, amplitude: 0.3, phase: (Math.PI / 6) * 4 },
+    ],
+    threshold: 0.9,
+  },
+
+  // ---------------------------------------------------------------- L10  (finale)
+  {
+    id: 10,
+    indexLabel: "EXTREME 10",
     title: "THE HARMONIC CATHEDRAL",
     subtitle: "reconstruct the target to open the gate",
     instructions:
