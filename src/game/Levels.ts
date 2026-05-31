@@ -229,9 +229,9 @@ export const LEVELS: LevelDef[] = [
     id: 5,
     indexLabel: "EXTREME 5",
     title: "THE MIRRORED VEIL",
-    subtitle: "fold the aurora onto itself — make it mirror-even",
+    subtitle: "balance the aurora against its own reflection",
     instructions:
-      "the dials start a quarter-turn off — rotate them to even\nmirror the curtains of light until the sky sits true",
+      "the curtain and its mirror have drifted apart\nrotate the dials until they fuse — left matching right",
     accentKey: "indigo",
     scenery: "willow",
     time: "night",
