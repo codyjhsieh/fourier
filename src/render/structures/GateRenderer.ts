@@ -35,11 +35,16 @@ export class GateRenderer implements WorldRenderer {
     const totalH = baseY - topY;
 
     // scenery
-    island(p, cx, baseY - 4, 96, 26);
-    pixelTree(p, 64, baseY - 24, 3.6, this.accent, 2.2);
-    pixelTree(p, LAYOUT.W - 60, baseY - 24, 3.6, this.accent, 9.4);
-    shrine(p, 100, baseY - 22, 40, this.accent);
-    shrine(p, LAYOUT.W - 100, baseY - 22, 40, this.accent);
+    island(p, cx, baseY - 4, 110, 26);
+    // groves flanking the gate
+    pixelTree(p, 40, baseY - 22, 5.2, this.accent, 2.2);
+    pixelTree(p, 70, baseY - 20, 4.0, this.accent, 4.7);
+    pixelTree(p, 96, baseY - 18, 3.3, this.accent, 6.1);
+    pixelTree(p, LAYOUT.W - 38, baseY - 22, 5.0, this.accent, 9.4);
+    pixelTree(p, LAYOUT.W - 68, baseY - 20, 4.0, this.accent, 11.3);
+    pixelTree(p, LAYOUT.W - 94, baseY - 18, 3.3, this.accent, 13.9);
+    shrine(p, 116, baseY - 20, 40, this.accent);
+    shrine(p, LAYOUT.W - 116, baseY - 20, 40, this.accent);
 
     // misalignment from the unsolved phase
     const twist = 1 - score;

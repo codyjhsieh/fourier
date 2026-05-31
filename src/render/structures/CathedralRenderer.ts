@@ -51,9 +51,14 @@ export class CathedralRenderer implements WorldRenderer {
     const ink = mixColor(PALETTE.inkSoft, this.accent.ink, 0.6);
 
     // foundation island
-    island(p, cx, baseY - 4, 150, 24);
-    pixelTree(p, 50, baseY - 22, 3.4, this.accent, 4.1);
-    pixelTree(p, LAYOUT.W - 48, baseY - 22, 3.4, this.accent, 8.8);
+    island(p, cx, baseY - 4, 160, 24);
+    // autumn groves on either bank
+    pixelTree(p, 34, baseY - 22, 5.2, this.accent, 4.1);
+    pixelTree(p, 62, baseY - 20, 4.0, this.accent, 6.7);
+    pixelTree(p, 88, baseY - 18, 3.2, this.accent, 1.9);
+    pixelTree(p, LAYOUT.W - 32, baseY - 22, 5.0, this.accent, 8.8);
+    pixelTree(p, LAYOUT.W - 60, baseY - 20, 4.0, this.accent, 10.2);
+    pixelTree(p, LAYOUT.W - 86, baseY - 18, 3.2, this.accent, 12.6);
 
     const a1 = this.amp(harmonics, 1);
     const a2 = this.amp(harmonics, 2);

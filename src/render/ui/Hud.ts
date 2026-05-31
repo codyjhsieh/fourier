@@ -113,18 +113,44 @@ export class Hud {
   }
 
   private drawHand() {
-    // a tiny pixel pointing-hand glyph beside the instructions
+    // The "tap" gesture glyph: a pointing hand inside a dashed ripple ring,
+    // drawn procedurally to match the reference (no external asset).
     const g = this.handIcon;
     g.clear();
-    const x = LAYOUT.instructionsX;
-    const y = this.instructions.y;
     const c = PALETTE.inkMid;
-    const u = 1.6; // scale up for touch-era legibility
-    g.rect(x + 5 * u, y + 2 * u, 3 * u, 9 * u).fill({ color: c });
-    g.rect(x + 8 * u, y, 3 * u, 11 * u).fill({ color: c });
-    g.rect(x + 11 * u, y + 1 * u, 3 * u, 10 * u).fill({ color: c });
-    g.rect(x + 1 * u, y + 6 * u, 5 * u, 5 * u).fill({ color: c }); // thumb
-    g.rect(x + 1 * u, y + 10 * u, 14 * u, 4 * u).fill({ color: c }); // cuff
+    const cx = LAYOUT.instructionsX + 11;
+    const top = this.instructions.y + 4; // top of the index finger
+
+    // dashed ripple ring arcing over the fingertip
+    const ringCx = cx + 0.5;
+    const ringCy = top + 3;
+    const R = 9.5;
+    const dashes = 11;
+    for (let i = 0; i < dashes; i++) {
+      const a = -Math.PI * 1.18 + (i / (dashes - 1)) * Math.PI * 1.36;
+      g.circle(ringCx + Math.cos(a) * R, ringCy + Math.sin(a) * R, 1).fill({
+        color: PALETTE.inkSoft,
+        alpha: 0.85,
+      });
+    }
+
+    // index finger
+    g.roundRect(cx - 2.2, top, 4.6, 13, 2.2).fill({ color: c });
+    g.roundRect(cx - 1.4, top + 1, 1.6, 5, 0.8).fill({
+      color: mixColor(c, PALETTE.white, 0.35),
+      alpha: 0.5,
+    }); // finger highlight
+    // palm / folded fist
+    g.roundRect(cx - 7, top + 9, 14, 13, 4).fill({ color: c });
+    // knuckle ridges
+    for (let i = 0; i < 3; i++) {
+      g.rect(cx - 4 + i * 4, top + 11, 0.9, 5).fill({
+        color: mixColor(c, PALETTE.paper, 0.55),
+        alpha: 0.6,
+      });
+    }
+    // thumb
+    g.roundRect(cx - 9.5, top + 12, 4.4, 7.5, 2).fill({ color: c });
   }
 
   // score 0..1 fills the dashed ring

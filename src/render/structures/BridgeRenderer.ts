@@ -3,173 +3,357 @@ import { ShapeData } from "../../core/ShapeData";
 import { Accent, mixColor, PALETTE } from "../../theme";
 import { LAYOUT } from "../Layout";
 import { Painter, WorldRenderer, resample } from "./common";
-import { island, pixelTree, shrine } from "./Scenery";
+import { pixelTree } from "./Scenery";
 
-// Bridge geometry emerges from the low-frequency harmonics; missing harmonics
-// leave collapsed spans and broken arches. Reconstruction is continuous.
+// Two mountains joined by a stone arch bridge. The bridge deck is a smooth arch
+// that meets each mountain ledge, so when the span is whole little pixel
+// travellers cross safely; where the reconstruction is poor the deck breaks and
+// they fall into the water. The waveform is read as the parapet silhouette, so
+// matching the target both completes the bridge and saves the travellers.
 
-// deterministic per-stone variation in [0,1)
 function hash(x: number, y: number): number {
   const n = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
   return n - Math.floor(n);
+}
+
+interface Walker {
+  x: number;
+  y: number;
+  vy: number;
+  falling: boolean;
+  arrived: boolean;
+  splash: number; // >0 once it hits the water
+  phase: number;
 }
 
 export class BridgeRenderer implements WorldRenderer {
   container = new Container();
   private body = new Graphics();
   private refl = new Graphics();
+  private people = new Graphics();
   private accent: Accent;
 
-  private readonly cols = 44;
-  private readonly left = 56;
-  private readonly right = LAYOUT.W - 56;
+  private walkers: Walker[] = [];
+  private spawnT = 0;
+  private lastT = 0;
+
+  private readonly mtnW = 118; // mountain footprint on each side
 
   constructor(accent: Accent) {
     this.accent = accent;
-    // reflection drawn under the body
-    this.container.addChild(this.refl, this.body);
+    this.container.addChild(this.refl, this.body, this.people);
   }
 
   update(shape: ShapeData, _target: ShapeData, score: number, t: number) {
+    const dt = Math.max(0, Math.min(0.05, t - this.lastT));
+    this.lastT = t;
+
     const g = this.body;
     const r = this.refl;
     g.clear();
     r.clear();
+    this.people.clear();
     const p = new Painter(g, r, LAYOUT.waterY, LAYOUT.reflectionDepth, t);
 
-    // scenery islands & trees flanking the bridge
-    island(p, this.left - 6, LAYOUT.waterY - 6, 34, 30);
-    island(p, this.right + 6, LAYOUT.waterY - 6, 34, 30);
-    pixelTree(p, this.right + 16, LAYOUT.waterY - 30, 4, this.accent, 3.1);
-    shrine(p, this.left - 18, LAYOUT.waterY - 30, 46, this.accent);
-
-    const heights = resample(shape, this.cols).map((v) => v * 0.5 + 0.5);
-    const span = this.right - this.left;
-    const colW = span / this.cols;
-    const ss = Math.max(7, colW); // stone size (square course)
-    const maxH = LAYOUT.waterY - LAYOUT.worldTop - 6;
+    const W = LAYOUT.W;
     const waterY = LAYOUT.waterY;
+    const ss = 9;
+    const left = this.mtnW - 12;
+    const right = W - this.mtnW + 12;
+    const span = right - left;
+    const ledgeY = waterY - 92;
+    const crown = 18;
+    const peakY = LAYOUT.worldTop + 56; // tall mountains
     const energy = Math.min(1, shape.totalEnergy / 1.2);
+    const norms = resample(shape, 64);
 
-    // --- silhouette: a continuous deck spans the whole gap (so the bridge
-    // connects the two banks) while the waveform raises towers above it ---
-    const topYAt = (x: number): number => {
-      const fi = Math.max(0, Math.min(this.cols - 1, (x - this.left) / colW));
-      const i0 = Math.floor(fi);
-      const i1 = Math.min(this.cols - 1, i0 + 1);
-      const hRaw = heights[i0] + (heights[i1] - heights[i0]) * (fi - i0);
-      const u = (x - this.left) / span;
-      // waveform towers
-      const waveH = Math.max(0, Math.min(1, hRaw)) * maxH * (0.45 + energy * 0.55);
-      // a near-flat roadway that always carries across the span (gently crowned)
-      const deckH =
-        maxH * (0.34 * (0.55 + 0.45 * energy) + 0.06 * Math.sin(u * Math.PI));
-      return waterY - Math.max(waveH, deckH);
+    const uAt = (x: number) => Math.min(1, Math.max(0, (x - left) / span));
+    const sampleNorm = (x: number) => {
+      const f = uAt(x) * (norms.length - 1);
+      const i0 = Math.floor(f);
+      const i1 = Math.min(norms.length - 1, i0 + 1);
+      return norms[i0] + (norms[i1] - norms[i0]) * (f - i0);
     };
+    // The walkable deck top: a smooth arch that meets both mountain ledges
+    // (taper -> 0 at the ends) with the waveform riding on it. Travellers walk
+    // ON this surface, side-on, so reconstructing the wave reshapes the road.
+    const roadAmp = 34;
+    const deckY = (x: number) =>
+      ledgeY -
+      Math.sin(uAt(x) * Math.PI) * (crown + roadAmp * sampleNorm(x) * (0.45 + 0.55 * energy));
 
-    // --- arch openings between piers (semicircular intrados) ---
-    const archCount = Math.max(2, Math.round(span / 86));
-    const bay = span / archCount;
-    const aw = bay * 0.34; // half-width of each opening
-    const springH = ss * 2.2; // pier height before the arch springs
-    const intradosY = (x: number): number | null => {
-      for (let k = 0; k < archCount; k++) {
-        const center = this.left + (k + 0.5) * bay;
-        const dx = x - center;
-        if (Math.abs(dx) < aw) {
-          return waterY - springH - Math.sqrt(aw * aw - dx * dx);
-        }
-      }
-      return null;
-    };
+    // deck breaks heal as the reconstruction improves
+    const scoreNorm = Math.min(1, score / 0.8);
+    const gapCenters = [0.5, 0.3, 0.7];
+    const numGaps = Math.round((1 - scoreNorm) * 3);
+    const gapHalf = ss * 1.8;
+    const gaps = gapCenters.slice(0, numGaps).map((u) => left + u * span);
+    const inGap = (x: number) => gaps.some((gx) => Math.abs(x - gx) < gapHalf);
+    const deckSolid = (x: number) => x >= left - 4 && x <= right + 4 && !inGap(x);
 
-    // --- masonry palette (3 close tones, mortar crevice, accent-tinted) ---
+    // --- mountains + forests ---
+    this.mountain(p, true, left, ledgeY, waterY, peakY);
+    this.mountain(p, false, right, ledgeY, waterY, peakY);
+    this.forest(p, true, peakY, ledgeY);
+    this.forest(p, false, peakY, ledgeY);
+
+    // --- masonry palette ---
     const lit = mixColor(PALETTE.inkFaint, PALETTE.white, 0.28);
     const face = mixColor(PALETTE.inkFaint, PALETTE.inkSoft, 0.5);
     const faceA = mixColor(face, this.accent.ink, 0.22);
     const shadow = mixColor(PALETTE.inkSoft, this.accent.ink, 0.5);
     const mortar = mixColor(PALETTE.inkSoft, 0x000000, 0.5);
-    const voussoir = mixColor(faceA, this.accent.accent, 0.14);
+    const voussoir = mixColor(faceA, this.accent.accent, 0.16);
 
-    const ch = ss;
-    const courses = Math.ceil(maxH / ch) + 2;
-    const gap = 1;
+    const cell = (sx: number, cy: number, ch: number, base: number) => {
+      p.block(sx, cy, ss, ch, mortar, 0.9);
+      const iw = ss - 2;
+      const ih = ch - 2;
+      p.block(sx + 1, cy + 1, iw, ih, base, 0.98);
+      p.block(sx + 1, cy + 1, iw, Math.max(1, ih * 0.26), mixColor(base, PALETTE.white, 0.4), 0.5);
+      p.block(sx + 1, cy + ch - 1 - Math.max(1, ih * 0.22), iw, Math.max(1, ih * 0.22), mixColor(base, 0x000000, 0.26), 0.4);
+    };
 
-    for (let row = 0; row < courses; row++) {
-      const cellBottomY = waterY - row * ch;
-      const cellTopY = cellBottomY - ch;
-      const offset = (row % 2) * (ss * 0.5); // running bond
-      for (let sx = this.left - ss + offset; sx < this.right + ss; sx += ss) {
-        const cx = sx + ss / 2;
-        if (cx < this.left || cx > this.right) continue;
-        const topY = topYAt(cx);
-        if (cellTopY < topY - ch * 0.45) continue; // above the silhouette
-
-        const intra = intradosY(cx);
-        if (intra != null && cellBottomY > intra + 0.5) continue; // inside the opening
-
-        // crumbling near the top when reconstruction is weak
-        const h2 = hash(Math.floor(cx / ss) * 3 + 11, row);
-        const nearTop = cellTopY < topY + ch * 1.6;
-        if (energy < 0.5 && nearTop && h2 < (0.5 - energy) * 0.85) continue;
-
-        // per-stone tone variation
-        const hs = hash(Math.floor(cx / ss), row);
-        let base = hs < 0.34 ? lit : hs < 0.72 ? face : faceA;
-
-        // voussoirs: ring of arch stones hugging the intrados
-        const isVoussoir = intra != null && cellBottomY <= intra + 0.5 && cellBottomY > intra - ch * 1.5;
-        if (isVoussoir) base = voussoir;
-
-        // ambient occlusion: darker toward the base and around arch heads
-        let ao = 0.04 + (1 - (waterY - cellBottomY) / maxH) * 0.13;
-        if (intra != null) {
-          const edge = cellBottomY - intra;
-          if (edge < 0 && edge > -ch * 2) ao += 0.14 * (1 + edge / (ch * 2));
+    // --- arches under the deck ---
+    const archCount = Math.max(3, Math.round(span / 70));
+    const bay = span / archCount;
+    const aw = bay * 0.38;
+    const masonryBottomY = (x: number): number => {
+      for (let k = 0; k < archCount; k++) {
+        const c = left + (k + 0.5) * bay;
+        const dx = x - c;
+        if (Math.abs(dx) < aw) {
+          return waterY - 4 - Math.sqrt(aw * aw - dx * dx);
         }
-        base = mixColor(base, shadow, Math.max(0, Math.min(0.4, ao)));
+      }
+      return waterY;
+    };
 
-        // mortar crevice backing, then the inset bevelled stone
-        p.block(sx, cellTopY, ss, ch, mortar, 0.9);
-        const iw = ss - gap * 2;
-        const ih = ch - gap * 2;
-        p.block(sx + gap, cellTopY + gap, iw, ih, base, 0.98);
-        p.block(sx + gap, cellTopY + gap, iw, Math.max(1, ih * 0.26), mixColor(base, PALETTE.white, 0.4), 0.5);
-        p.block(sx + gap, cellTopY + ch - gap - Math.max(1, ih * 0.22), iw, Math.max(1, ih * 0.22), mixColor(base, 0x000000, 0.26), 0.4);
-        // weathered hairline crack
-        if (hs > 0.94) {
-          p.block(cx, cellTopY + gap, 1, ih, mixColor(base, 0x000000, 0.3), 0.35);
+    // spandrel masonry (deck underside down to the arches), per column
+    for (let x = left; x <= right; x += ss) {
+      if (!deckSolid(x)) continue;
+      const top = deckY(x) + ss; // below the deck slab
+      const bottom = masonryBottomY(x);
+      const col = Math.round(x / ss);
+      const courses = Math.ceil((bottom - top) / ss);
+      for (let row = 0; row < courses; row++) {
+        const cy = top + row * ss;
+        if (cy + ss > bottom + 1) {
+          // partial course near the arch curve
         }
+        const nearArch = bottom - (cy + ss) < ss * 1.4;
+        const hs = hash(col, row);
+        let base = nearArch ? voussoir : hs < 0.34 ? lit : hs < 0.72 ? face : faceA;
+        const ao = 0.04 + ((cy - top) / Math.max(1, bottom - top)) * 0.14;
+        base = mixColor(base, shadow, ao);
+        const ch = Math.min(ss, bottom - cy);
+        if (ch < 2) break;
+        cell(x, cy, ch, base);
       }
     }
 
-    // --- deck cap + balustrade along the silhouette ---
-    const cap = mixColor(lit, PALETTE.white, 0.25);
-    for (let x = this.left; x <= this.right; x += ss) {
-      const topY = topYAt(x);
-      if (waterY - topY < ch * 1.2) continue;
-      p.block(x, topY - 1, ss + 1, 3, cap, 0.85);
-      // railing posts every other stone where the deck is tall enough
-      if (Math.round(x / ss) % 2 === 0 && waterY - topY > maxH * 0.4) {
-        p.block(x + ss * 0.3, topY - 6, 2.4, 6, face, 0.8);
-      }
-      // drifting motes rising from a well-built deck
-      const fi = Math.max(0, Math.min(this.cols - 1, Math.round((x - this.left) / colW)));
-      if (heights[fi] > 0.62 && Math.round(x / ss) % 3 === 0) {
-        const my = topY - 12 - ((t * 18 + x) % 60);
-        p.dot(x + ss / 2, my, 1.1, this.accent.accent, 0.45);
+    // --- deck roadway + low railing (travellers walk on top) ---
+    for (let x = left; x <= right; x += ss) {
+      if (!deckSolid(x)) continue;
+      const dy = deckY(x);
+      // the road surface course (sunlit top)
+      cell(x, dy, ss, mixColor(lit, PALETTE.white, 0.22));
+      // a low railing post behind the road edge (shorter than a traveller, so
+      // they clearly stand on top)
+      if (Math.round(x / ss) % 2 === 0) {
+        p.block(x + ss * 0.25, dy - 5, 2, 5, mixColor(face, this.accent.ink, 0.25), 0.85);
+        p.block(x + ss * 0.25, dy - 5, 2, 1.4, this.accent.accent, 0.5);
       }
     }
 
-    // success bloom: petals lift from the restored arch
-    if (score > 0.7) {
-      const bloom = (score - 0.7) / 0.3;
-      for (let i = 0; i < 14; i++) {
-        const a = (i / 14) * Math.PI * 2 + t * 0.6;
-        const rr = 30 + Math.sin(t * 2 + i) * 8;
-        const x = LAYOUT.W / 2 + Math.cos(a) * rr;
-        const y = LAYOUT.worldTop + 60 + Math.sin(a) * rr * 0.5;
-        p.dot(x, y, 1.4, this.accent.accent, 0.5 * bloom);
+    // broken edges at the gaps
+    for (const gx of gaps) {
+      for (let s = -1; s <= 1; s += 2) {
+        const ex = gx + s * gapHalf;
+        p.dot(ex, deckY(ex) + 4, 1.2, shadow, 0.5);
+      }
+    }
+
+    // --- travellers crossing the span ---
+    this.updateWalkers(dt, t, left, right, deckY, deckSolid, waterY);
+    this.drawWalkers(deckY, waterY);
+
+    // success motes lifting from a whole bridge
+    if (score > 0.75) {
+      const bloom = (score - 0.75) / 0.25;
+      for (let i = 0; i < 12; i++) {
+        const x = left + ((t * 20 + i * 53) % span);
+        const y = deckY(x) - 16 - ((t * 14 + i * 30) % 40);
+        p.dot(x, y, 1.2, this.accent.accent, 0.4 * bloom);
+      }
+    }
+  }
+
+  // ---- mountains -------------------------------------------------------
+  private peakX(isLeft: boolean): number {
+    return isLeft ? this.mtnW * 0.4 : LAYOUT.W - this.mtnW * 0.4;
+  }
+
+  // Surface height of a mountain at world-x (matches mountain()).
+  private mountainTopY(isLeft: boolean, x: number, peakY: number): number {
+    const waterY = LAYOUT.waterY;
+    const A = this.mtnW * 0.95;
+    const t = Math.max(0, Math.min(1, 1 - (Math.abs(x - this.peakX(isLeft)) - 6) / A));
+    return waterY - t * (waterY - peakY);
+  }
+
+  private mountain(
+    p: Painter,
+    isLeft: boolean,
+    ledgeX: number,
+    ledgeY: number,
+    waterY: number,
+    peakY: number,
+  ) {
+    const W = LAYOUT.W;
+    const ss = 8;
+    const peakX = this.peakX(isLeft);
+    const A = this.mtnW * 0.95;
+    const rock = mixColor(PALETTE.inkSoft, 0x6f786a, 0.4);
+    const rockDark = mixColor(rock, this.accent.ink, 0.45);
+    const grass = mixColor(0x95a07e, PALETTE.inkFaint, 0.3);
+    const snow = mixColor(PALETTE.white, 0xeef0ec, 0.4);
+
+    for (let y = waterY; y > peakY; y -= ss) {
+      const t = (waterY - y) / (waterY - peakY); // 0 base .. 1 peak
+      const halfW = (1 - t) * A + 6;
+      let x0 = peakX - halfW;
+      let x1 = peakX + halfW;
+      if (isLeft) x0 = Math.min(x0, -6);
+      else x1 = Math.max(x1, W + 6);
+      for (let x = x0; x < x1; x += ss) {
+        const lightX = (x - peakX) / (halfW + 1);
+        const lit = -lightX * 0.5 + (1 - t) * 0.12;
+        let base = mixColor(rock, rockDark, 0.55 - lit * 0.5);
+        const hs = hash(Math.round(x / ss), Math.round(y / ss));
+        if (hs > 0.88) base = mixColor(base, PALETTE.white, 0.14);
+        p.block(x, y, ss, ss, base, 0.97);
+      }
+      // snowcap, then a grassy belt lower down
+      if (t > 0.8) {
+        p.block(x0, y, x1 - x0, ss * 0.6, snow, 0.85);
+      } else if (t > 0.5 && t < 0.74) {
+        p.block(x0 + halfW * 0.1, y, (x1 - x0) * 0.8, ss * 0.4, grass, 0.35);
+      }
+    }
+
+    // flat ledge shelf for the bridge to land on
+    const shelfX0 = isLeft ? ledgeX - 24 : ledgeX - 2;
+    const shelfX1 = isLeft ? ledgeX + 2 : ledgeX + 24;
+    for (let y = ledgeY; y < ledgeY + 18; y += ss) {
+      p.block(shelfX0, y, shelfX1 - shelfX0, ss, mixColor(rock, rockDark, 0.45), 0.96);
+    }
+    p.block(shelfX0, ledgeY - 1, shelfX1 - shelfX0, 3, mixColor(grass, PALETTE.white, 0.3), 0.7);
+  }
+
+  // A forest scattered across each mountain's slopes (2D side view).
+  private forest(p: Painter, isLeft: boolean, peakY: number, ledgeY: number) {
+    const peakX = this.peakX(isLeft);
+    const fr = isLeft
+      ? [-0.66, -0.4, -0.16, 0.12, 0.34]
+      : [0.66, 0.4, 0.16, -0.12, -0.34];
+    fr.forEach((f, i) => {
+      const x = peakX + f * this.mtnW;
+      const y = Math.min(this.mountainTopY(isLeft, x, peakY) + 2, ledgeY + 6);
+      if (y > LAYOUT.waterY - 10) return;
+      const s = 4.2 + ((i * 7) % 3) * 0.8; // bigger trees
+      pixelTree(p, x, y, s, this.accent, i * 13.7 + (isLeft ? 0 : 60));
+    });
+  }
+
+  // ---- travellers ------------------------------------------------------
+  private updateWalkers(
+    dt: number,
+    _t: number,
+    left: number,
+    right: number,
+    deckY: (x: number) => number,
+    deckSolid: (x: number) => boolean,
+    waterY: number,
+  ) {
+    this.spawnT -= dt;
+    if (this.spawnT <= 0 && this.walkers.length < 5) {
+      this.spawnT = 1.7 + (this.walkers.length % 3) * 0.4;
+      this.walkers.push({
+        x: left,
+        y: deckY(left),
+        vy: 0,
+        falling: false,
+        arrived: false,
+        splash: 0,
+        phase: this.lastT * 7,
+      });
+    }
+
+    const speed = 28;
+    for (const w of this.walkers) {
+      if (w.arrived) continue;
+      if (w.splash > 0) {
+        w.splash += dt;
+        continue;
+      }
+      if (!w.falling) {
+        const nextX = w.x + speed * dt;
+        if (nextX >= right) {
+          w.arrived = true; // reached the far mountain
+        } else if (deckSolid(nextX + 3)) {
+          // solid ground ahead — keep walking on top of the deck
+          w.x = nextX;
+          w.phase += dt * 10;
+          w.y = deckY(w.x);
+        } else {
+          // edge of a broken span: stop at the rim and tip over it
+          w.falling = true;
+          w.vy = 12;
+        }
+      } else {
+        w.vy += 420 * dt;
+        w.y += w.vy * dt;
+        w.x += speed * 0.35 * dt;
+        if (w.y >= waterY) {
+          w.y = waterY;
+          w.splash = 0.001;
+        }
+      }
+    }
+    this.walkers = this.walkers.filter(
+      (w) => !w.arrived && w.splash < 1.3,
+    );
+  }
+
+  private drawWalkers(_deckY: (x: number) => number, waterY: number) {
+    const g = this.people;
+    const skin = mixColor(PALETTE.ink, this.accent.ink, 0.2);
+    const cloak = this.accent.accent;
+    for (const w of this.walkers) {
+      if (w.splash > 0) {
+        const s = w.splash;
+        const a = Math.max(0, 1 - s / 1.3);
+        g.circle(w.x, waterY, 2 + s * 16).stroke({ width: 1, color: this.accent.accentSoft, alpha: a * 0.6 });
+        g.circle(w.x, waterY - 2, 1.6).fill({ color: this.accent.accent, alpha: a });
+        continue;
+      }
+      const x = Math.round(w.x);
+      const y = Math.round(w.y);
+      const bob = w.falling ? 0 : Math.round(Math.sin(w.phase) * 0.5);
+      g.rect(x - 2, y - 9 + bob, 4, 4).fill({ color: cloak }); // hood
+      g.rect(x - 2, y - 6 + bob, 4, 5).fill({ color: cloak }); // cloak
+      g.rect(x - 1, y - 9 + bob, 2, 2).fill({ color: mixColor(skin, PALETTE.white, 0.4) }); // face
+      if (w.falling) {
+        // flailing arms
+        g.rect(x - 4, y - 7, 2, 1.6).fill({ color: cloak });
+        g.rect(x + 2, y - 8, 2, 1.6).fill({ color: cloak });
+        g.rect(x - 2, y - 1, 1.6, 3).fill({ color: skin });
+        g.rect(x + 0.6, y - 1, 1.6, 3).fill({ color: skin });
+      } else {
+        const step = Math.round(Math.sin(w.phase) * 2);
+        g.rect(x - 2, y - 1, 1.6, 3 - Math.abs(step) * 0.4).fill({ color: skin });
+        g.rect(x + 0.6, y - 1, 1.6, 3).fill({ color: skin });
       }
     }
   }

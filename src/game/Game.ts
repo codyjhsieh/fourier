@@ -148,9 +148,9 @@ export class Game {
     this.controls?.relayout();
     if (this.banner) {
       this.banner.x = LAYOUT.W / 2;
-      this.banner.y = LAYOUT.H / 2 - 36;
+      this.banner.y = LAYOUT.worldTop + 28;
       this.bannerHint.x = LAYOUT.W / 2;
-      this.bannerHint.y = LAYOUT.H / 2 + 6;
+      this.bannerHint.y = LAYOUT.worldTop + 56;
     }
     if (this.navLeft) {
       const midY = (LAYOUT.worldTop + LAYOUT.waterY) / 2;
