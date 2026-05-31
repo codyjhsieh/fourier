@@ -82,14 +82,25 @@ export class BridgeRenderer implements WorldRenderer {
       ledgeY -
       Math.sin(uAt(x) * Math.PI) * (crown + roadAmp * sampleNorm(x) * (0.45 + 0.55 * energy));
 
+    // The deck is drawn as discrete columns whose LEFT edge sits at multiples of
+    // `ss` measured from `left`; each column fills [colX, colX+ss). Snapping the
+    // gap boundaries to that same column grid is what makes the rim a traveller
+    // tips off of coincide exactly with the last drawn brick (see updateWalkers).
+    const colX = (x: number) => left + Math.round((x - left) / ss) * ss;
+
     // deck breaks heal as the reconstruction improves
     const scoreNorm = Math.min(1, score / 0.8);
     const gapCenters = [0.5, 0.3, 0.7];
     const numGaps = Math.round((1 - scoreNorm) * 3);
     const gapHalf = ss * 1.8;
-    const gaps = gapCenters.slice(0, numGaps).map((u) => left + u * span);
-    const inGap = (x: number) => gaps.some((gx) => Math.abs(x - gx) < gapHalf);
-    const deckSolid = (x: number) => x >= left - 4 && x <= right + 4 && !inGap(x);
+    const gaps = gapCenters.slice(0, numGaps).map((u) => colX(left + u * span));
+    // A column is solid when its CENTRE is clear of every gap; testing the column
+    // centre (left edge + ss/2) is what the renderer below also uses.
+    const inGap = (cx: number) => gaps.some((gx) => Math.abs(cx - gx) < gapHalf);
+    const deckSolid = (x: number) => {
+      const lx = colX(x);
+      return lx >= left - 4 && lx <= right + 4 && !inGap(lx + ss / 2);
+    };
 
     // --- mountains + forests ---
     this.mountain(p, true, left, ledgeY, waterY, peakY);
@@ -114,41 +125,91 @@ export class BridgeRenderer implements WorldRenderer {
       p.block(sx + 1, cy + ch - 1 - Math.max(1, ih * 0.22), iw, Math.max(1, ih * 0.22), mixColor(base, 0x000000, 0.26), 0.4);
     };
 
-    // --- arches under the deck ---
-    const archCount = Math.max(3, Math.round(span / 70));
+    // --- tall, grand stilted arches carrying a slender deck ----------------
+    // Few wide bays => dramatic openings; slender piers between them. Each arch
+    // is a tall round head sitting on vertical legs (a stilted/viaduct arch), so
+    // most of the area under the deck is open air, not stone. A clean voussoir
+    // ring of stones outlines every arch.
+    const archCount = Math.max(2, Math.round(span / 92));
     const bay = span / archCount;
-    const aw = bay * 0.38;
-    const masonryBottomY = (x: number): number => {
-      for (let k = 0; k < archCount; k++) {
-        const c = left + (k + 0.5) * bay;
-        const dx = x - c;
-        if (Math.abs(dx) < aw) {
-          return waterY - 4 - Math.sqrt(aw * aw - dx * dx);
-        }
+    const footY = waterY - 4; // arches/piers spring up from just above water
+    const vouss = ss * 0.9; // voussoir ring thickness
+    const aw = bay * 0.40; // arch opening half-width (slender piers between)
+    const archOuter = aw + vouss;
+
+    // Per-bay geometry. The round head is a semicircle of radius `aw` centred at
+    // (c, springY); its crown (intrados top) is lifted to just under the deck,
+    // and vertical legs run from the springline down to the foot near the water.
+    interface Arch { c: number; springY: number; crownY: number }
+    const arches: Arch[] = [];
+    for (let k = 0; k < archCount; k++) {
+      const c = left + (k + 0.5) * bay;
+      const deckUnder = deckY(c) + ss; // underside of the slender deck slab
+      const crownY = deckUnder + 1; // intrados crown rises close under the deck
+      const springY = crownY + aw; // semicircle of radius aw sits on the legs
+      arches.push({ c, springY, crownY });
+    }
+    const nearestArch = (x: number): Arch =>
+      arches.reduce((b, a) => (Math.abs(x - a.c) < Math.abs(x - b.c) ? a : b), arches[0]);
+
+    // Classify a point under the deck: open air, voussoir ring, or solid stone.
+    // dx/dy are measured from the arch's round-head centre (c, springY).
+    type Mat = "open" | "vouss" | "stone";
+    const matAt = (x: number, y: number): Mat => {
+      const a = nearestArch(x);
+      const dx = x - a.c;
+      const dyHead = y - a.springY; // <0 above the springline (the round head)
+      if (dyHead <= 0) {
+        // round-head region: radial distance decides intrados / ring / spandrel
+        const rad = Math.hypot(dx, dyHead);
+        if (rad < aw) return "open";
+        if (rad < archOuter) return "vouss";
+        return "stone";
       }
-      return waterY;
+      // below the springline: vertical legs (open) flanked by slender piers
+      const adx = Math.abs(dx);
+      if (adx < aw) return "open";
+      if (adx < archOuter) return "vouss";
+      return "stone";
     };
 
-    // spandrel masonry (deck underside down to the arches), per column
+    // masonry beneath the deck — only the slender piers, the thin spandrels above
+    // each crown, and the voussoir rings carry stone; everything else is air.
     for (let x = left; x <= right; x += ss) {
       if (!deckSolid(x)) continue;
-      const top = deckY(x) + ss; // below the deck slab
-      const bottom = masonryBottomY(x);
+      const cx = x + ss / 2;
+      const top = deckY(x) + ss; // just below the deck slab
       const col = Math.round(x / ss);
-      const courses = Math.ceil((bottom - top) / ss);
+      const courses = Math.ceil((footY - top) / ss) + 1;
       for (let row = 0; row < courses; row++) {
         const cy = top + row * ss;
-        if (cy + ss > bottom + 1) {
-          // partial course near the arch curve
-        }
-        const nearArch = bottom - (cy + ss) < ss * 1.4;
-        const hs = hash(col, row);
-        let base = nearArch ? voussoir : hs < 0.34 ? lit : hs < 0.72 ? face : faceA;
-        const ao = 0.04 + ((cy - top) / Math.max(1, bottom - top)) * 0.14;
-        base = mixColor(base, shadow, ao);
-        const ch = Math.min(ss, bottom - cy);
+        if (cy >= footY) break;
+        const ch = Math.min(ss, footY - cy);
         if (ch < 2) break;
+        const mat = matAt(cx, cy + ch / 2);
+        if (mat === "open") continue; // airy span under the deck
+        const hs = hash(col, row);
+        let base: number;
+        if (mat === "vouss") {
+          base = voussoir; // clean arc of ring stones outlines each arch
+        } else {
+          base = hs < 0.34 ? lit : hs < 0.72 ? face : faceA;
+        }
+        // gentle ambient occlusion deeper down the pier
+        const ao = 0.03 + ((cy - top) / Math.max(1, footY - top)) * 0.12;
+        base = mixColor(base, shadow, ao);
         cell(x, cy, ch, base);
+      }
+    }
+
+    // an impost band where each round head springs from its legs, and a foot
+    // block grounding every pier — small touches that read as deliberate masonry.
+    for (const a of arches) {
+      for (let s = -1; s <= 1; s += 2) {
+        const px = a.c + s * (aw + vouss * 0.5);
+        if (!deckSolid(px)) continue;
+        p.block(px - ss * 0.5, a.springY - 1.5, ss, 3, mixColor(voussoir, shadow, 0.1), 0.8);
+        p.block(px - ss * 0.5, footY - ss * 0.5, ss, ss * 0.5, mixColor(face, shadow, 0.25), 0.85);
       }
     }
 
@@ -166,7 +227,7 @@ export class BridgeRenderer implements WorldRenderer {
       }
     }
 
-    // broken edges at the gaps
+    // broken edges at the gaps — mark the exact column rim where the deck ends
     for (const gx of gaps) {
       for (let s = -1; s <= 1; s += 2) {
         const ex = gx + s * gapHalf;
@@ -175,7 +236,7 @@ export class BridgeRenderer implements WorldRenderer {
     }
 
     // --- travellers crossing the span ---
-    this.updateWalkers(dt, t, left, right, deckY, deckSolid, waterY);
+    this.updateWalkers(dt, t, left, right, ss, deckY, deckSolid, waterY);
     this.drawWalkers(deckY, waterY);
 
     // success motes lifting from a whole bridge
@@ -272,10 +333,22 @@ export class BridgeRenderer implements WorldRenderer {
     _t: number,
     left: number,
     right: number,
+    ss: number,
     deckY: (x: number) => number,
     deckSolid: (x: number) => boolean,
     waterY: number,
   ) {
+    // The deck is drawn as columns whose left edge is at left + n*ss, each
+    // filling [colX, colX+ss). `deckSolid(x)` is constant across a whole column.
+    // To make a traveller tip off the EXACT visible rim, we work in column units:
+    // the rim of the last solid column is its right edge, colLeft(x)+ss.
+    const colLeft = (x: number) => left + Math.round((x - left) / ss) * ss;
+    // The right edge of the last solid column reachable by walking right from x.
+    const rimRightOf = (x: number): number => {
+      const lx = colLeft(x);
+      return deckSolid(lx) ? lx + ss : lx; // rim = right edge of this solid column
+    };
+
     this.spawnT -= dt;
     if (this.spawnT <= 0 && this.walkers.length < 5) {
       this.spawnT = 1.7 + (this.walkers.length % 3) * 0.4;
@@ -299,17 +372,40 @@ export class BridgeRenderer implements WorldRenderer {
       }
       if (!w.falling) {
         const nextX = w.x + speed * dt;
-        if (nextX >= right) {
-          w.arrived = true; // reached the far mountain
-        } else if (deckSolid(nextX + 3)) {
+        // The column the walker would step onto next.
+        const nextCol = colLeft(nextX);
+        if (nextCol >= right || nextX >= right) {
+          // walk fully onto the far ledge before disappearing
+          if (nextX >= right) {
+            w.x = right;
+            w.arrived = true;
+          } else {
+            w.x = nextX;
+            w.phase += dt * 10;
+            w.y = deckY(w.x);
+          }
+        } else if (deckSolid(nextX)) {
           // solid ground ahead — keep walking on top of the deck
           w.x = nextX;
           w.phase += dt * 10;
           w.y = deckY(w.x);
         } else {
-          // edge of a broken span: stop at the rim and tip over it
-          w.falling = true;
-          w.vy = 12;
+          // The span ahead is broken. Advance the walker until its feet sit on
+          // the EXACT right rim of the last solid deck column, then tip off it —
+          // never starting the fall while still over a drawn brick, and never
+          // floating past the rim.
+          const rim = rimRightOf(w.x);
+          if (w.x < rim) {
+            w.x = Math.min(rim, nextX);
+            w.phase += dt * 10;
+            w.y = deckY(w.x);
+          }
+          if (w.x >= rim - 0.01) {
+            w.x = rim;
+            w.y = deckY(rim);
+            w.falling = true;
+            w.vy = 12;
+          }
         }
       } else {
         w.vy += 420 * dt;
