@@ -10,6 +10,18 @@ harmonics change.
 
 **Play:** https://codyhsieh.com/fourier/
 
+<p align="center">
+  <img src="docs/media/bridge.gif" width="200" alt="Level 1 — The Fractured Arch (amplitude)">
+  <img src="docs/media/dragon.gif" width="200" alt="Level 2 — The Living Wave (frequency energy)">
+  <img src="docs/media/gate.gif" width="200" alt="Level 3 — The Harmonic Gate (phase)">
+  <img src="docs/media/cathedral.gif" width="200" alt="Level 4 — The Harmonic Cathedral (mastery)">
+</p>
+<p align="center"><sub>
+  Each scene is generated from the same harmonics and morphs as you change them —
+  amplitude rebuilds the arch, frequency-energy calms the dragon, phase slides the
+  gate's light-threads into alignment, and the cathedral responds to every knob.
+</sub></p>
+
 ## Stack
 
 - **PixiJS 8** — WebGL renderer; every shape is procedural pixel-art (no image assets)

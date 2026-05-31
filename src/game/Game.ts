@@ -40,6 +40,8 @@ export class Game {
   private t = 0;
   private complete = false;
   private completeHold = 0;
+  private showcase = false;
+  private demo = false;
   private banner!: Text;
   private bannerHint!: Text;
   private levelIndex = 0;
@@ -215,7 +217,13 @@ export class Game {
       this.recomputeScore();
       this.audio.update(this.world.harmonics);
     });
-    if (new URLSearchParams(location.search).get("solve")) {
+    const qp = new URLSearchParams(location.search);
+    // ?showcase=1 — snap to the solved scene but suppress the completion banner.
+    // ?demo=1 — auto-play the most interesting amplitude/phase changes (for the
+    // README GIFs); also suppresses the banner. ?solve=1 keeps the banner.
+    this.showcase = !!qp.get("showcase");
+    this.demo = !!qp.get("demo");
+    if (qp.get("solve") || this.showcase) {
       this.world.solveToTarget();
     }
     this.recomputeScore();
@@ -285,8 +293,56 @@ export class Game {
     this.goTo(this.levelIndex - 1);
   }
 
+  // Auto-play the most interesting amplitude/phase changes for each level, on a
+  // ~2.4s loop, for the README GIFs (?demo=1). Mutates harmonics directly and
+  // regenerates once per frame.
+  private driveDemo() {
+    const t = this.t;
+    const w = (2 * Math.PI) / 2.4; // one loop period
+    const kind = this.level.renderer;
+    const put = (k: number, amp: number, phase?: number) => {
+      const h = this.world.ensure(k);
+      h.amplitude = Math.max(-1.4, Math.min(1.4, amp));
+      if (phase !== undefined) h.phase = phase;
+      h.enabled = Math.abs(h.amplitude) > 0.02;
+    };
+
+    if (kind === "bridge") {
+      // amplitude: the span builds from broken to whole and back
+      const s = 0.5 - 0.5 * Math.cos(w * t); // 0..1..0
+      for (const h of this.world.target) {
+        if (h.enabled) put(h.frequencyIndex, h.amplitude * (0.1 + 1.0 * s), h.phase);
+      }
+    } else if (kind === "creature") {
+      // keep the calm low body; pulse the high band so it agitates <-> calms
+      const hi = 0.5 + 0.5 * Math.cos(w * t); // starts agitated
+      for (const s0 of this.level.start) {
+        const amp = Math.abs(s0.index) >= 5 ? (s0.amplitude ?? 0) * hi : s0.amplitude ?? 0;
+        put(s0.index, amp, s0.phase ?? 0);
+      }
+    } else if (kind === "gate") {
+      // phase: threads slide through their ghosts; the gate seals at t=0, P, …
+      let i = 0;
+      for (const h of this.world.target) {
+        if (!h.enabled) continue;
+        const m = 1 + (i % 2); // alternate slide rates (still loops)
+        put(h.frequencyIndex, h.amplitude, h.phase + w * t * m);
+        i++;
+      }
+    } else {
+      // cathedral: elements rise/fall in a travelling wave + the rose spins
+      for (const h of this.world.target) {
+        if (!h.enabled) continue;
+        const s = 0.5 + 0.5 * Math.sin(w * t + h.frequencyIndex * 0.9);
+        put(h.frequencyIndex, h.amplitude * (0.2 + 0.8 * s), h.phase + w * t);
+      }
+    }
+    this.world.forceUpdate();
+  }
+
   private update(dt: number) {
     this.t += dt;
+    if (this.demo) this.driveDemo();
     this.background.setGlow(this.score.finalScore);
     this.background.update(dt);
     this.renderer.update(
@@ -301,8 +357,10 @@ export class Game {
     this.controls.update(this.t);
     this.hud.setScore(this.score.finalScore);
 
-    // completion detection
-    if (!this.complete) {
+    // completion detection (suppressed in capture modes)
+    if (this.showcase || this.demo) {
+      // hold the live scene without the banner
+    } else if (!this.complete) {
       if (this.score.finalScore >= this.level.threshold) {
         this.completeHold += dt;
         if (this.completeHold > 0.6) {
