@@ -295,6 +295,7 @@ export class Game {
       this.score.finalScore,
       this.t,
       this.world.harmonics,
+      this.world.target,
     );
     this.targetWave.draw(this.world.targetShape, this.world.shape);
     this.controls.update(this.t);

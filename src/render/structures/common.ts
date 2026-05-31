@@ -15,6 +15,7 @@ export interface WorldRenderer {
     score: number,
     t: number,
     harmonics: HarmonicComponent[],
+    targetHarmonics: HarmonicComponent[],
   ): void;
   destroy(): void;
 }

@@ -264,6 +264,26 @@ export class HarmonicControls {
         const ringCol = enabled ? this.accent.accentSoft : PALETTE.inkFaint;
         g.circle(x, cy, r).stroke({ width: 2, color: ringCol, alpha: enabled ? 0.9 : 0.5 });
         if (enabled) {
+          // target-phase hint: a notch showing where to rotate the pointer to,
+          // brightening as the live pointer approaches it (so it isn't a blind
+          // search). Only shown where phase is actually the puzzle.
+          if (this.cfg.phaseInteractive) {
+            const tgt = this.world.target.find(
+              (h) => h.frequencyIndex === idx && h.enabled,
+            );
+            if (tgt) {
+              const ta = tgt.phase;
+              let d = Math.abs(((phase - ta) % TWO_PI + TWO_PI) % TWO_PI);
+              if (d > Math.PI) d = TWO_PI - d;
+              const near = 1 - Math.min(1, d / Math.PI);
+              const tc = mixColor(this.accent.accentSoft, this.accent.accent, near);
+              g.moveTo(x + Math.cos(ta) * (r - 2), cy + Math.sin(ta) * (r - 2))
+                .lineTo(x + Math.cos(ta) * (r + 5), cy + Math.sin(ta) * (r + 5))
+                .stroke({ width: 1.6, color: tc, alpha: 0.4 + near * 0.5 });
+              g.circle(x + Math.cos(ta) * (r + 5), cy + Math.sin(ta) * (r + 5), 1.7)
+                .fill({ color: tc, alpha: 0.4 + near * 0.5 });
+            }
+          }
           // phase pointer
           const px = x + Math.cos(phase) * r;
           const py = cy + Math.sin(phase) * r;

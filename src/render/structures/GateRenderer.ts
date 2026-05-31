@@ -6,23 +6,23 @@ import { LAYOUT } from "../Layout";
 import { Painter, WorldRenderer } from "./common";
 import { island, pixelTree, shrine } from "./Scenery";
 
-// LEVEL 3 — "The Harmonic Gate". The structure is a sealed gothic doorway: a
-// pointed (lancet) arch built from two mirror leaves, with a glowing circular
-// RUNE-LOCK (a rose-window mandala) set in the tympanum above the threshold.
+// LEVEL 3 — "The Harmonic Gate". A sealed gothic doorway whose lock is made of
+// the harmonics themselves, drawn as woven LIGHT-THREADS. This is the PHASE
+// lesson, made literal and legible:
 //
-// The lesson is PHASE. Phase has no effect on amplitude/size — it only ROTATES
-// and OFFSETS things. So we make that literal:
-//   * Each enabled harmonic drives one concentric ring of the rune-lock. The
-//     ring is rotated by that harmonic's `phase`. Turning one phase dial visibly
-//     spins one ring. When all phases reach target the rings snap into a single
-//     registered radial mandala (cause -> effect is one-to-one and obvious).
-//   * The two arch leaves are sheared/twisted/offset by the residual phase
-//     error (1 - score) so the doorway literally will not meet while unsolved.
-//   * `score` drives the global open/seal: as it rises the leaves slide into
-//     mirror symmetry, the keystone drops, the arch closes, the lock ignites
-//     and light floods out through the threshold — the gate OPENS.
-//   * `shape.phaseComplexity` adds residual shimmer/instability so a nearly
-//     -but-not-quite solution still feels "live".
+//   * Each enabled harmonic is one horizontal light-thread (a sine wave) woven
+//     across the doorway. Its phase dial SLIDES the thread left/right — so
+//     "phase = horizontal position / timing" is something you see directly.
+//   * Behind each live thread is a faint GHOST thread at the target phase. The
+//     whole puzzle is: slide each ripple onto its ghost. That gives continuous,
+//     per-thread feedback (which way, how far) instead of blind rotation. A
+//     thread that lands on its ghost lights up and locks.
+//   * Above, in the arch tympanum, the RESULTANT — the sum of the threads (the
+//     reconstructed waveform) — is shown against its dotted target. The gate is
+//     literally the sum of its strands: as the threads register, the resultant
+//     sharpens onto the target and ignites.
+//   * `score` drives the global seal/open: leaves settle into mirror symmetry,
+//     the keystone drops, the threshold floods with light — the gate OPENS.
 
 export class GateRenderer implements WorldRenderer {
   container = new Container();
@@ -40,10 +40,11 @@ export class GateRenderer implements WorldRenderer {
 
   update(
     shape: ShapeData,
-    _target: ShapeData,
+    target: ShapeData,
     score: number,
     t: number,
     harmonics: HarmonicComponent[] = [],
+    targetHarmonics: HarmonicComponent[] = [],
   ) {
     const g = this.body;
     const r = this.refl;
@@ -103,16 +104,22 @@ export class GateRenderer implements WorldRenderer {
       t,
     );
 
-    // ====================== THE RUNE-LOCK =============================
-    // The rose-window mandala set in the tympanum (the space the pointed arch
-    // encloses, just above the springline). Each ring = one harmonic's phase.
-    const lockCx = cx;
-    const lockCy = springY - archH * 0.42;
-    const lockR = Math.min(openHalf - 4, archH * 0.46);
-    this.drawRuneLock(lockCx, lockCy, lockR, score, harmonics, t, wob);
+    // ==================== THE LIGHT-THREADS ===========================
+    // One thread per harmonic, woven across the doorway opening. Each slides
+    // with its phase; a ghost marks the target. Slide each onto its ghost.
+    const active = harmonics
+      .filter((h) => h.enabled && h.frequencyIndex > 0)
+      .sort((a, b) => a.frequencyIndex - b.frequencyIndex);
+    this.drawThreads(cx, openHalf, springY - 6, baseY - 22, active, targetHarmonics);
+
+    // ====================== THE RESULTANT ==============================
+    // The sum of the threads (the reconstructed wave) vs its target, set in the
+    // tympanum. The gate IS the sum of its strands.
+    const lockCy = springY - archH * 0.46;
+    this.drawResultant(cx, lockCy, Math.min(openHalf - 2, archH * 0.5), shape, target, score);
 
     // ====================== LIGHT BEAMS (front) =======================
-    // When open, god-rays fan up and out of the doorway through the lock.
+    // When open, god-rays fan up and out of the doorway.
     if (open > 0.02) {
       this.drawBeams(cx, baseY, springY, archH, openHalf, open, t);
     }
@@ -350,150 +357,115 @@ export class GateRenderer implements WorldRenderer {
   }
 
   // ------------------------------------------------------------------
-  // THE RUNE-LOCK — a rose-window mandala. Each enabled harmonic owns one
-  // concentric ring; the ring is rotated by that harmonic's phase. Rings only
-  // register into a clean radial mandala when all phases hit target.
+  // LIGHT-THREADS — one per harmonic, woven across the doorway opening. Each
+  // thread is a sine wave at that harmonic's frequency; its phase slides it
+  // horizontally. A faint ghost marks the target phase; slide the live thread
+  // onto its ghost and it lights up + locks.
   // ------------------------------------------------------------------
-  private drawRuneLock(
+  private drawThreads(
     cx: number,
-    cy: number,
-    R: number,
-    score: number,
-    harmonics: HarmonicComponent[],
-    t: number,
-    wob: number,
+    openHalf: number,
+    yTop: number,
+    yBottom: number,
+    active: HarmonicComponent[],
+    targetHarmonics: HarmonicComponent[],
   ) {
     const g = this.lock;
-    const align = Math.max(0, Math.min(1, score)); // 0 scattered -> 1 mandala
-    const accent = this.accent.accent;
-    const glow = mixColor(this.accent.accentSoft, PALETTE.white, 0.35);
+    const n = active.length;
+    if (n === 0) return;
+    const pad = 9;
+    const x0 = cx - openHalf + pad;
+    const wIn = (openHalf - pad) * 2;
+    const band = yBottom - yTop;
+    const step = band / n;
+    const ghost = mixColor(this.accent.accentSoft, PALETTE.white, 0.25);
+    const glow = mixColor(this.accent.accentSoft, PALETTE.white, 0.42);
 
-    // The harmonics that actually exist in the world, used to drive rings.
-    const active = harmonics.filter((h) => h.enabled && h.frequencyIndex > 0);
-    const ringCount = Math.max(3, Math.min(5, active.length || 4));
+    for (let li = 0; li < n; li++) {
+      const h = active[li];
+      const y0 = yTop + (li + 0.5) * step;
+      const amp =
+        Math.min(13, step * 0.34) *
+        (0.55 + 0.45 * Math.min(1, Math.abs(h.amplitude) / 0.85));
+      const periods = Math.max(1, Math.abs(h.frequencyIndex));
+      const tgt = targetHarmonics.find(
+        (z) => z.frequencyIndex === h.frequencyIndex,
+      );
+      const tphase = tgt ? tgt.phase : 0;
+      const err = angDiff(h.phase, tphase); // 0..pi
+      const aligned = 1 - err / Math.PI;
+      const locked = err < 0.16;
 
-    // ----- the stone frame of the rose window (always present) -----
-    // outer hoop
-    const hoopN = Math.round(R * 2.2);
-    for (let i = 0; i < hoopN; i++) {
-      const a = (i / hoopN) * TWO_PI;
-      const x = cx + Math.cos(a) * (R + 2);
-      const y = cy + Math.sin(a) * (R + 2);
-      const c = mixColor(PALETTE.inkSoft, this.accent.ink, 0.5);
-      g.rect(x - 1, y - 1, 2.2, 2.2).fill({ color: c, alpha: 0.8 });
-    }
-    // inner hoop, faint
-    const innerN = Math.round(R * 1.6);
-    for (let i = 0; i < innerN; i++) {
-      const a = (i / innerN) * TWO_PI;
-      const x = cx + Math.cos(a) * (R * 0.34);
-      const y = cy + Math.sin(a) * (R * 0.34);
-      g.rect(x - 0.7, y - 0.7, 1.4, 1.4).fill({
-        color: mixColor(PALETTE.inkSoft, this.accent.ink, 0.4),
-        alpha: 0.55,
+      // faint lane guide
+      g.rect(x0, y0 - 0.5, wIn, 1).fill({
+        color: mixColor(this.accent.ink, PALETTE.white, 0.4),
+        alpha: 0.12,
       });
+
+      // ghost thread — the target position to slide onto
+      waveDots(g, x0, wIn, y0, amp, periods, tphase, 34, ghost, 0.33, 1.0);
+
+      // live thread — brightens + thickens as it aligns
+      const live = mixColor(this.accent.accent, glow, aligned * 0.6);
+      waveDots(
+        g, x0, wIn, y0, amp, periods, h.phase, 48, live,
+        0.5 + aligned * 0.5, locked ? 1.9 : 1.4,
+      );
+
+      // lock pip in the left margin
+      const pipX = cx - openHalf + 4;
+      g.circle(pipX, y0, 2.4).stroke({
+        width: 1.2,
+        color: locked ? this.accent.accent : PALETTE.inkFaint,
+        alpha: locked ? 1 : 0.5,
+      });
+      if (locked) g.circle(pipX, y0, 1.2).fill({ color: glow, alpha: 1 });
     }
+  }
 
-    // ----- the rune rings, one per harmonic -----
-    // Each ring sits at a different radius and carries `petals` glyphs. The ring
-    // is ROTATED by its harmonic's phase, so turning that dial spins this ring.
-    // The "target" registration is petals pointing straight along the spokes;
-    // residual phase error => the glyphs are off the spokes (mis-registered).
-    for (let ri = 0; ri < ringCount; ri++) {
-      const h = active[ri];
-      const radiusT = (ri + 1) / (ringCount + 0.5);
-      const rr = R * (0.32 + radiusT * 0.66);
-      const petals = 6 + ri * 2; // 6, 8, 10 ... distinct rows
-      // rotation comes straight from this harmonic's phase. If we have no live
-      // harmonic, fall back to a slow drift driven by residual error.
-      const phase = h ? h.phase : t * 0.3;
-      // When solved (align->1) the ring should rest at its registered angle, so
-      // we blend the live phase toward the nearest spoke as align rises.
-      const spoke = TWO_PI / petals;
-      const registered = Math.round(phase / spoke) * spoke;
-      const ringRot = phase * (1 - align) + registered * align;
+  // ------------------------------------------------------------------
+  // THE RESULTANT — the sum of the threads (reconstructed wave) against its
+  // dotted target, set in the arch tympanum. Ignites as the sum registers.
+  // ------------------------------------------------------------------
+  private drawResultant(
+    cx: number,
+    cy: number,
+    halfW: number,
+    shape: ShapeData,
+    target: ShapeData,
+    score: number,
+  ) {
+    const g = this.lock;
+    const x0 = cx - halfW;
+    const w = halfW * 2;
+    const amp = 11;
+    const ghost = mixColor(this.accent.accentSoft, PALETTE.white, 0.3);
 
-      // unstable jitter from residual phase complexity
-      const jitter = (1 - align) * wob;
-
-      // ring track (faint guide circle)
-      const trackN = Math.round(rr * 1.4);
-      for (let i = 0; i < trackN; i++) {
-        const a = (i / trackN) * TWO_PI;
-        g.rect(cx + Math.cos(a) * rr - 0.5, cy + Math.sin(a) * rr - 0.5, 1, 1).fill({
-          color: mixColor(this.accent.ink, PALETTE.white, 0.2),
-          alpha: 0.18 + align * 0.12,
-        });
-      }
-
-      // the glyphs / petals on this ring
-      for (let i = 0; i < petals; i++) {
-        const a = (i / petals) * TWO_PI + ringRot;
-        // each glyph wobbles off its slot until the phase registers
-        const off = jitter * Math.sin(i * 12.9 + ri * 4.0) * 0.45;
-        const ang = a + off;
-        const px = cx + Math.cos(ang) * rr;
-        const py = cy + Math.sin(ang) * rr;
-
-        // a little lancet petal: a short radial bar + a dot cap
-        const inX = cx + Math.cos(ang) * (rr - 4);
-        const inY = cy + Math.sin(ang) * (rr - 4);
-        const ringColor = mixColor(accent, glow, align * 0.5);
-        const lit = 0.35 + align * 0.5 + (h ? 0.0 : 0);
-        g.moveTo(inX, inY)
-          .lineTo(px, py)
-          .stroke({ width: 1.4, color: ringColor, alpha: lit });
-        g.circle(px, py, 1.5 + align * 0.6).fill({
-          color: glow,
-          alpha: 0.5 + align * 0.5,
-        });
-
-        // when registered, draw the connecting petal arc to its neighbour to
-        // complete the mandala lacework
-        if (align > 0.55) {
-          const a2 = ((i + 1) / petals) * TWO_PI + ringRot;
-          const mx = cx + Math.cos((a + a2) / 2) * (rr + 3);
-          const my = cy + Math.sin((a + a2) / 2) * (rr + 3);
-          const nx = cx + Math.cos(a2) * rr;
-          const ny = cy + Math.sin(a2) * rr;
-          g.moveTo(px, py)
-            .quadraticCurveTo(mx, my, nx, ny)
-            .stroke({
-              width: 1,
-              color: ringColor,
-              alpha: (align - 0.55) * 1.4,
-            });
-        }
-      }
-    }
-
-    // ----- radial spokes (mullions) appear as the lock registers -----
-    const spokes = 6;
-    for (let i = 0; i < spokes; i++) {
-      const a = (i / spokes) * TWO_PI;
-      const x = cx + Math.cos(a) * R;
-      const y = cy + Math.sin(a) * R;
-      g.moveTo(cx, cy)
-        .lineTo(x, y)
-        .stroke({
-          width: 1,
-          color: mixColor(this.accent.ink, accent, align),
-          alpha: 0.12 + align * 0.4,
-        });
-    }
-
-    // ----- ignited core: dark when sealed, blazing coral star when solved -----
-    const coreR = 2.5 + align * 4.5;
-    g.circle(cx, cy, coreR + 4).fill({
-      color: PALETTE.glow,
-      alpha: 0.1 + align * 0.45,
+    // a faint lens framing the resultant
+    g.circle(cx, cy, halfW + 3).stroke({
+      width: 1,
+      color: mixColor(this.accent.ink, PALETTE.white, 0.3),
+      alpha: 0.3,
     });
-    g.circle(cx, cy, coreR).fill({
-      color: mixColor(this.accent.ink, accent, align),
-      alpha: 0.6 + align * 0.4,
-    });
-    if (align > 0.4) {
-      g.circle(cx, cy, 1.4).fill({ color: PALETTE.white, alpha: (align - 0.4) * 1.6 });
+
+    // target ghost, then the live sum on top
+    samplesDots(g, x0, w, cy, amp, target.normalizedSamples, ghost, 0.36, 1.0, 38);
+    const col = mixColor(
+      this.accent.accent,
+      mixColor(this.accent.accentSoft, PALETTE.white, 0.4),
+      score * 0.7,
+    );
+    samplesDots(
+      g, x0, w, cy, amp, shape.normalizedSamples, col,
+      0.5 + score * 0.5, 1.6, 56,
+    );
+
+    // ignite when the sum matches the target
+    if (score > 0.55) {
+      g.circle(cx, cy, 6 + (score - 0.55) * 22).fill({
+        color: PALETTE.glow,
+        alpha: (score - 0.55) * 0.5,
+      });
     }
   }
 
@@ -554,4 +526,55 @@ export class GateRenderer implements WorldRenderer {
 function hashUnit(x: number, y: number): number {
   const n = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
   return n - Math.floor(n);
+}
+
+// Shortest angular distance between two phases, in [0, π].
+function angDiff(a: number, b: number): number {
+  let d = (a - b) % TWO_PI;
+  if (d < 0) d += TWO_PI;
+  if (d > Math.PI) d = TWO_PI - d;
+  return d;
+}
+
+// A sine thread of `periods` cycles across [x0, x0+w], shifted by `phase`,
+// drawn as `count` glowing dots.
+function waveDots(
+  g: Graphics,
+  x0: number,
+  w: number,
+  y0: number,
+  amp: number,
+  periods: number,
+  phase: number,
+  count: number,
+  color: number,
+  alpha: number,
+  r: number,
+) {
+  for (let j = 0; j <= count; j++) {
+    const u = j / count;
+    const y = y0 - Math.sin(u * TWO_PI * periods + phase) * amp;
+    g.circle(x0 + u * w, y, r).fill({ color, alpha });
+  }
+}
+
+// A normalized-sample waveform across [x0, x0+w] as `count` dots.
+function samplesDots(
+  g: Graphics,
+  x0: number,
+  w: number,
+  cy: number,
+  amp: number,
+  samples: Float32Array,
+  color: number,
+  alpha: number,
+  r: number,
+  count: number,
+) {
+  const n = samples.length;
+  for (let j = 0; j <= count; j++) {
+    const u = j / count;
+    const idx = Math.min(n - 1, Math.floor(u * (n - 1)));
+    g.circle(x0 + u * w, cy - samples[idx] * amp, r).fill({ color, alpha });
+  }
 }

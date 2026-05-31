@@ -130,9 +130,9 @@ export const LEVELS: LevelDef[] = [
     id: 3,
     indexLabel: "EXTREME 3",
     title: "THE HARMONIC GATE",
-    subtitle: "rotate the phase dials to align the gate's rings",
+    subtitle: "slide each light-thread onto its ghost to open the gate",
     instructions:
-      "amplitude won't open it — rotate the phase dials\nalign every ring until the gate seals and opens",
+      "a phase dial slides its thread sideways\nline every thread up with its ghost to seal the gate",
     accentKey: "gate",
     renderer: "gate",
     targetWaveStyle: "dotted",
