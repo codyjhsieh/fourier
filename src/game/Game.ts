@@ -1,4 +1,4 @@
-import { Application, Container, Graphics, Text } from "pixi.js";
+import { Application, Container, Graphics, Rectangle, Text } from "pixi.js";
 import { DESIGN, ACCENTS, FONT, PALETTE, Accent } from "../theme";
 import { FourierWorldState } from "../core/FourierWorldState";
 import { scoreShape, ShapeScore } from "../core/Scoring";
@@ -13,7 +13,7 @@ import { CreatureRenderer } from "../render/structures/CreatureRenderer";
 import { GateRenderer } from "../render/structures/GateRenderer";
 import { CathedralRenderer } from "../render/structures/CathedralRenderer";
 import { LEVELS, LevelDef, buildHarmonics } from "./Levels";
-import { LAYOUT } from "../render/Layout";
+import { LAYOUT, recomputeLayout } from "../render/Layout";
 
 export class Game {
   app!: Application;
@@ -44,6 +44,8 @@ export class Game {
   private bannerHint!: Text;
   private levelIndex = 0;
   private unsub: (() => void) | null = null;
+  private navLeft!: Graphics;
+  private navRight!: Graphics;
 
   async init(mount: HTMLElement) {
     this.app = new Application();
@@ -63,16 +65,16 @@ export class Game {
 
     this.banner = new Text({
       text: "",
-      style: { fontFamily: FONT.family, fontSize: 24, fontWeight: "700", fill: PALETTE.ink, letterSpacing: 3, align: "center" },
+      style: { fontFamily: FONT.family, fontSize: 34, fontWeight: "700", fill: PALETTE.ink, letterSpacing: 3, align: "center" },
     });
     this.banner.anchor.set(0.5);
     this.banner.x = DESIGN.width / 2;
-    this.banner.y = DESIGN.height / 2 - 34;
+    this.banner.y = DESIGN.height / 2 - 36;
     this.banner.alpha = 0;
 
     this.bannerHint = new Text({
       text: "tap to continue",
-      style: { fontFamily: FONT.family, fontSize: 13, fill: PALETTE.inkMid, letterSpacing: 3 },
+      style: { fontFamily: FONT.family, fontSize: 16, fill: PALETTE.inkMid, letterSpacing: 4 },
     });
     this.bannerHint.anchor.set(0.5);
     this.bannerHint.x = DESIGN.width / 2;
@@ -108,6 +110,13 @@ export class Game {
       if (this.complete) this.next();
     });
 
+    // level navigation: keyboard arrows + on-screen chevrons
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowRight" || e.key === "ArrowDown") this.next();
+      else if (e.key === "ArrowLeft" || e.key === "ArrowUp") this.prev();
+    });
+    this.buildNav();
+
     const param = Number(new URLSearchParams(location.search).get("level"));
     const startLevel =
       Number.isFinite(param) && param >= 1 && param <= LEVELS.length
@@ -120,11 +129,34 @@ export class Game {
   private resize() {
     const vw = window.visualViewport?.width || window.innerWidth;
     const vh = window.visualViewport?.height || window.innerHeight;
-    const scale = Math.min(vw / DESIGN.width, vh / DESIGN.height);
+
+    // Fixed design width fills the screen horizontally; the design height is
+    // derived from the device aspect so the canvas covers the viewport with no
+    // letterbox border.
+    const scale = vw / DESIGN.width;
+    const H = Math.max(640, Math.round(vh / scale));
+    recomputeLayout(H);
+    this.app.renderer.resize(DESIGN.width, H);
+
     const canvas = this.app.canvas;
-    // CSS centers via transform; we only set the fitted display size.
-    canvas.style.width = `${Math.round(DESIGN.width * scale)}px`;
-    canvas.style.height = `${Math.round(DESIGN.height * scale)}px`;
+    canvas.style.width = `${vw}px`;
+    canvas.style.height = `${Math.round(H * scale)}px`;
+
+    // reflow everything that caches positions
+    this.background?.relayout();
+    this.hud?.relayout();
+    this.controls?.relayout();
+    if (this.banner) {
+      this.banner.x = LAYOUT.W / 2;
+      this.banner.y = LAYOUT.H / 2 - 36;
+      this.bannerHint.x = LAYOUT.W / 2;
+      this.bannerHint.y = LAYOUT.H / 2 + 6;
+    }
+    if (this.navLeft) {
+      const midY = (LAYOUT.worldTop + LAYOUT.waterY) / 2;
+      this.navLeft.y = midY;
+      this.navRight.y = midY;
+    }
   }
 
   private makeRenderer(level: LevelDef, accent: Accent): WorldRenderer {
@@ -144,6 +176,7 @@ export class Game {
     this.levelIndex = index;
     this.level = LEVELS[index];
     this.accent = ACCENTS[this.level.accentKey];
+    if (this.navLeft) this.drawNav();
     this.complete = false;
     this.completeHold = 0;
     this.banner.alpha = 0;
@@ -201,9 +234,55 @@ export class Game {
     this.audio.setResonance(this.score.finalScore);
   }
 
+  // Persistent prev/next chevrons at the screen edges (work on touch too).
+  private buildNav() {
+    const midY = (LAYOUT.worldTop + LAYOUT.waterY) / 2;
+    const make = (dir: -1 | 1): Graphics => {
+      const g = new Graphics();
+      g.x = dir < 0 ? 18 : DESIGN.width - 18;
+      g.y = midY;
+      g.eventMode = "static";
+      g.cursor = "pointer";
+      g.hitArea = new Rectangle(-22, -34, 44, 68);
+      g.on("pointertap", (e) => {
+        e.stopPropagation();
+        if (dir < 0) this.prev();
+        else this.next();
+      });
+      // app.stage sits above root, so nav survives level reloads
+      this.app.stage.addChild(g);
+      return g;
+    };
+    this.navLeft = make(-1);
+    this.navRight = make(1);
+    this.drawNav();
+  }
+
+  private drawNav() {
+    const col = this.accent ? this.accent.accent : PALETTE.inkSoft;
+    const draw = (g: Graphics, dir: -1 | 1) => {
+      g.clear();
+      const x = -dir * 6; // left chevron points left, right points right
+      g.moveTo(x, -11).lineTo(-x, 0).lineTo(x, 11);
+      g.stroke({ width: 3, color: col, alpha: 0.55, cap: "round", join: "round" });
+      // soft tap halo
+      g.circle(0, 0, 17).fill({ color: col, alpha: 0.05 });
+    };
+    draw(this.navLeft, -1);
+    draw(this.navRight, 1);
+  }
+
+  private goTo(index: number) {
+    const n = LEVELS.length;
+    this.loadLevel(((index % n) + n) % n);
+  }
+
   private next() {
-    const ni = (this.levelIndex + 1) % LEVELS.length;
-    this.loadLevel(ni);
+    this.goTo(this.levelIndex + 1);
+  }
+
+  private prev() {
+    this.goTo(this.levelIndex - 1);
   }
 
   private update(dt: number) {

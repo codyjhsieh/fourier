@@ -26,6 +26,11 @@ export class Background {
     this.drawStatic();
   }
 
+  // Redraw the paper/water for a new screen height.
+  relayout() {
+    this.drawStatic();
+  }
+
   private drawStatic() {
     const g = this.paper;
     g.clear();

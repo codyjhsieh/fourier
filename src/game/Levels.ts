@@ -55,7 +55,7 @@ export const LEVELS: LevelDef[] = [
     title: "THE FRACTURED ARCH",
     subtitle: "reconstruct a collapsed foundation",
     instructions:
-      "drag stones to add or remove\ndrag up / down to change amplitude",
+      "tap a stone to add or remove\ndrag a stone up / down to change amplitude",
     accentKey: "bridge",
     renderer: "bridge",
     targetWaveStyle: "dotted",
@@ -97,11 +97,11 @@ export const LEVELS: LevelDef[] = [
     control: {
       indices: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
       stoneToggle: true,
-      stoneAmplitude: false,
+      stoneAmplitude: true,
       stonePhase: false,
-      showAmplitudeRow: true,
-      showPhaseRow: true,
-      amplitudeInteractive: true,
+      showAmplitudeRow: false,
+      showPhaseRow: false,
+      amplitudeInteractive: false,
       phaseInteractive: false,
     },
     target: [
@@ -109,19 +109,20 @@ export const LEVELS: LevelDef[] = [
       { index: 2, amplitude: 0.5 },
       { index: 3, amplitude: 0.28 },
     ],
-    // begins agitated: strong high-frequency content
+    // begins agitated: the calm low body (= the target) is already present,
+    // and all the agitation lives in the high band, so the level is solved by
+    // removing / reducing the high-frequency stones exactly as instructed.
     start: [
       { index: 1, amplitude: 0.9 },
       { index: 2, amplitude: 0.5 },
-      { index: 3, amplitude: 0.4 },
-      { index: 5, amplitude: 0.6, phase: 1.1 },
-      { index: 6, amplitude: 0.7, phase: 2.3 },
-      { index: 7, amplitude: 0.55, phase: 0.5 },
-      { index: 8, amplitude: 0.6, phase: 3.0 },
-      { index: 9, amplitude: 0.45, phase: 1.7 },
-      { index: 10, amplitude: 0.5, phase: 2.0 },
+      { index: 3, amplitude: 0.28 },
+      { index: 6, amplitude: 0.72, phase: 2.3 },
+      { index: 7, amplitude: 0.6, phase: 0.5 },
+      { index: 8, amplitude: 0.62, phase: 3.0 },
+      { index: 9, amplitude: 0.5, phase: 1.7 },
+      { index: 10, amplitude: 0.55, phase: 2.0 },
     ],
-    threshold: 0.88,
+    threshold: 0.85,
   },
 
   // ---------------------------------------------------------------- L3
@@ -131,7 +132,7 @@ export const LEVELS: LevelDef[] = [
     title: "THE HARMONIC GATE",
     subtitle: "align amplitudes and phases to unlock the gate",
     instructions:
-      "drag up / down to change amplitude\nrotate the dials to set phase",
+      "drag a stone up / down for amplitude\nrotate the dials to set phase",
     accentKey: "gate",
     renderer: "gate",
     targetWaveStyle: "dotted",
@@ -140,11 +141,11 @@ export const LEVELS: LevelDef[] = [
     control: {
       indices: [-2, -1, 0, 1, 2, 3, 4],
       stoneToggle: true,
-      stoneAmplitude: false,
+      stoneAmplitude: true,
       stonePhase: false,
-      showAmplitudeRow: true,
+      showAmplitudeRow: false,
       showPhaseRow: true,
-      amplitudeInteractive: true,
+      amplitudeInteractive: false,
       phaseInteractive: true,
     },
     target: [
@@ -179,11 +180,11 @@ export const LEVELS: LevelDef[] = [
     control: {
       indices: [0, 1, 2, 3, 4, 5, 6, 7, 8],
       stoneToggle: true,
-      stoneAmplitude: false,
+      stoneAmplitude: true,
       stonePhase: false,
-      showAmplitudeRow: true,
+      showAmplitudeRow: false,
       showPhaseRow: true,
-      amplitudeInteractive: true,
+      amplitudeInteractive: false,
       phaseInteractive: true,
     },
     target: [

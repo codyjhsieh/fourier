@@ -1,42 +1,78 @@
 import { DESIGN } from "../theme";
 
-// Shared screen geometry. The world and the UI coexist in one space — there is
-// no separate "spectrum screen"; controls live at the foot of the same scene.
-// Sizes are tuned for finger-sized touch targets once the 480-wide scene is
-// scaled down to a phone.
+// Responsive screen geometry. The design WIDTH is fixed (so structures keep
+// their proportions and always fill the screen edge-to-edge), while the design
+// HEIGHT tracks the device aspect ratio. The header is anchored to the top, the
+// controls to the bottom, and the world stretches to absorb whatever vertical
+// space remains — so there is never a letterbox border on mobile.
+//
+// LAYOUT is a single mutable object; every renderer reads it each frame, so a
+// call to recomputeLayout() reflows the whole scene.
 
 export const LAYOUT = {
   W: DESIGN.width,
   H: DESIGN.height,
 
-  // header
   headerX: 30,
-  headerY: 38,
+  headerY: 40,
   ringX: DESIGN.width - 56,
-  ringY: 54,
+  ringY: 56,
   ringR: 24,
 
-  // floating target waveform
   waveLeft: 32,
   waveRight: DESIGN.width - 32,
-  waveCenterY: 198,
-  waveAmp: 58,
+  waveCenterY: 156,
+  waveAmp: 54,
 
-  // world / structures
-  worldTop: 250,
-  waterY: 560,
-  reflectionDepth: 118,
+  worldTop: 224,
+  waterY: 584,
+  reflectionDepth: 110,
   glowX: DESIGN.width / 2,
-  glowY: 566,
+  glowY: 590,
 
-  // controls — spaced for ~44px touch targets after downscale
-  stoneRowY: 700, // center of the stone palette
-  ampRowY: 790,
-  phaseRowY: 852,
+  controlsTop: 670,
+  stoneRowY: 754,
+  ampRowY: 822,
+  phaseRowY: 860,
   controlLeft: 26,
   controlRight: DESIGN.width - 26,
 
-  // instructions
   instructionsX: 32,
-  instructionsY: 906,
+  instructionsY: 880,
 };
+
+// Reserved bands (in design px) measured from the top / bottom edges.
+const HEADER_BAND = 252; // header + floating target wave
+const CONTROLS_BAND = 296; // stone row + phase row + instructions
+
+export function recomputeLayout(H: number) {
+  const W = DESIGN.width;
+  LAYOUT.W = W;
+  LAYOUT.H = H;
+
+  // top-anchored header + wave (wave sits clear below a possibly two-line
+  // title + subtitle)
+  LAYOUT.ringX = W - 56;
+  LAYOUT.waveRight = W - 32;
+  LAYOUT.waveCenterY = 196;
+  LAYOUT.waveAmp = 46;
+
+  const controlsTop = H - CONTROLS_BAND;
+  LAYOUT.controlsTop = controlsTop;
+  LAYOUT.controlRight = W - 26;
+
+  // world fills the middle; water sits just above the controls band
+  LAYOUT.worldTop = HEADER_BAND + 14;
+  LAYOUT.reflectionDepth = 108;
+  LAYOUT.waterY = Math.max(
+    LAYOUT.worldTop + 120,
+    controlsTop - LAYOUT.reflectionDepth - 18,
+  );
+  LAYOUT.glowX = W / 2;
+  LAYOUT.glowY = LAYOUT.waterY + 6;
+
+  // The HarmonicControls component derives its own row positions from
+  // controlsTop (so it can shift the stone row down when there is no phase
+  // row). instructionsY is the fixed top of the bottom-most text block.
+  LAYOUT.instructionsY = controlsTop + 206;
+}

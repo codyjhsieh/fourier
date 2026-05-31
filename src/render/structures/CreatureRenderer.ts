@@ -18,7 +18,6 @@ export class CreatureRenderer implements WorldRenderer {
   private readonly segs = 90;
   private readonly left = 70;
   private readonly right = LAYOUT.W - 64;
-  private readonly midY = 412;
 
   constructor(accent: Accent) {
     this.accent = accent;
@@ -40,6 +39,7 @@ export class CreatureRenderer implements WorldRenderer {
 
     const agg = aggression(shape); // 0 calm .. 1 agitated
     const wave = resample(shape, this.segs);
+    const midY = (LAYOUT.worldTop + LAYOUT.waterY) / 2 - 6;
 
     // The serpent swims along a slow travelling arc; the waveform rides on top.
     const span = this.right - this.left;
@@ -49,7 +49,7 @@ export class CreatureRenderer implements WorldRenderer {
       const x = this.left + u * span;
       const swim = Math.sin(u * Math.PI * 1.4 - t * 0.8) * 26;
       const jitter = (Math.sin(u * 40 + t * 9) * agg) * 10; // agitation
-      const y = this.midY + swim + wave[i] * 46 + jitter;
+      const y = midY + swim + wave[i] * 46 + jitter;
       // thickness: fat near head (right), tapering to tail (left)
       const thick = (3 + u * u * 9) * (0.7 + 0.3 * Math.sin(u * 6 + t));
       path.push({ x, y, thick });

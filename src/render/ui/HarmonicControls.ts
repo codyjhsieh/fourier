@@ -31,6 +31,10 @@ export class HarmonicControls {
 
   private xs: number[] = []; // x position per palette index
   private iconSize = 20;
+  // row positions are derived from the control band so spacing stays clean
+  private stoneRowY = 0;
+  private ampRowY = 0;
+  private phaseRowY = 0;
 
   // active gesture
   private dragIndex: number | null = null;
@@ -58,7 +62,15 @@ export class HarmonicControls {
     const span = right - left;
     const step = n > 1 ? span / (n - 1) : 0;
     this.xs = this.cfg.indices.map((_, i) => left + i * step);
-    this.iconSize = Math.max(20, Math.min(32, span / n - 2));
+    this.iconSize = Math.max(24, Math.min(36, span / n - 4));
+
+    // Place the rows within the bottom control band. With a phase row the
+    // stone row sits high and the phase row below it; without one, the stone
+    // row drops to sit centered in the band.
+    const top = LAYOUT.controlsTop;
+    this.phaseRowY = top + 138;
+    this.ampRowY = top + 110;
+    this.stoneRowY = this.cfg.showPhaseRow ? top + 46 : top + 84;
   }
 
   private buildLabels() {
@@ -69,14 +81,14 @@ export class HarmonicControls {
         text: String(idx),
         style: {
           fontFamily: FONT.family,
-          fontSize: 13,
+          fontSize: 17,
           fill: PALETTE.inkSoft,
           align: "center",
         },
       });
       label.anchor.set(0.5);
       label.x = this.xs[i];
-      label.y = LAYOUT.stoneRowY + this.iconSize * 0.6 + 12;
+      label.y = this.stoneRowY + this.iconSize * 0.6 + 14;
       this.labels.push(label);
       this.container.addChild(label);
     });
@@ -88,7 +100,7 @@ export class HarmonicControls {
     // generous hit area over the whole control band
     c.hitArea = {
       contains: (x: number, y: number) =>
-        x >= 0 && x <= LAYOUT.W && y >= LAYOUT.stoneRowY - 30 && y <= LAYOUT.H,
+        x >= 0 && x <= LAYOUT.W && y >= this.stoneRowY - 30 && y <= LAYOUT.H,
     };
     c.on("pointerdown", this.onDown);
     c.on("pointermove", this.onMove);
@@ -110,8 +122,8 @@ export class HarmonicControls {
   }
 
   private rowAt(y: number): Row {
-    if (this.cfg.showPhaseRow && y > LAYOUT.phaseRowY - 22) return "phase";
-    if (this.cfg.showAmplitudeRow && y > LAYOUT.ampRowY - 34) return "amp";
+    if (this.cfg.showPhaseRow && y > this.phaseRowY - 22) return "phase";
+    if (this.cfg.showAmplitudeRow && y > this.ampRowY - 34) return "amp";
     return "stone";
   }
 
@@ -162,7 +174,7 @@ export class HarmonicControls {
       if (this.dragRow === "phase") this.applyPhase(idx, local.x, local.y);
       else {
         // radial drag on a stone: angle from icon center
-        const cy = LAYOUT.stoneRowY;
+        const cy = this.stoneRowY;
         const cx = this.xs[this.cfg.indices.indexOf(idx)];
         const ang = Math.atan2(local.y - cy, local.x - cx);
         this.world.setPhase(idx, wrapPhase(ang));
@@ -182,7 +194,7 @@ export class HarmonicControls {
   private applyPhase(idx: number, x: number, y: number) {
     const i = this.cfg.indices.indexOf(idx);
     const cx = this.xs[i];
-    const cy = LAYOUT.phaseRowY;
+    const cy = this.phaseRowY;
     const ang = Math.atan2(y - cy, x - cx);
     this.world.setPhase(idx, wrapPhase(ang));
   }
@@ -191,13 +203,31 @@ export class HarmonicControls {
     this.accent = a;
   }
 
+  // Reposition labels/captions when the screen height (and thus the control
+  // band position) changes.
+  relayout() {
+    this.layout();
+    this.cfg.indices.forEach((_, i) => {
+      this.labels[i].x = this.xs[i];
+      this.labels[i].y = this.stoneRowY + this.iconSize * 0.6 + 14;
+    });
+    let ci = 0;
+    if (this.cfg.showAmplitudeRow && this.captionTexts[ci]) {
+      this.captionTexts[ci].y = this.ampRowY - 44;
+      ci++;
+    }
+    if (this.cfg.showPhaseRow && this.captionTexts[ci]) {
+      this.captionTexts[ci].y = this.phaseRowY - 30;
+    }
+  }
+
   // Redraw to reflect world state.
   update(_t: number) {
     const g = this.gfx;
     g.clear();
 
     // separator hairline above the controls
-    g.rect(LAYOUT.controlLeft, LAYOUT.stoneRowY - this.iconSize - 6, LAYOUT.controlRight - LAYOUT.controlLeft, 1)
+    g.rect(LAYOUT.controlLeft, this.stoneRowY - this.iconSize - 6, LAYOUT.controlRight - LAYOUT.controlLeft, 1)
       .fill({ color: PALETTE.inkGhost, alpha: 0.6 });
 
     this.cfg.indices.forEach((idx, i) => {
@@ -209,11 +239,11 @@ export class HarmonicControls {
       const active = this.dragIndex === idx;
 
       // --- stone row ---
-      drawHarmonicIcon(g, x, LAYOUT.stoneRowY, this.iconSize, amp, enabled, this.accent, active);
+      drawHarmonicIcon(g, x, this.stoneRowY, this.iconSize, amp, enabled, this.accent, active);
 
       // --- amplitude row ---
       if (this.cfg.showAmplitudeRow) {
-        const baseY = LAYOUT.ampRowY;
+        const baseY = this.ampRowY;
         const railH = 30;
         // rail
         g.rect(x - 0.5, baseY - railH, 1, railH * 2).fill({ color: PALETTE.inkGhost, alpha: 0.7 });
@@ -229,7 +259,7 @@ export class HarmonicControls {
 
       // --- phase row ---
       if (this.cfg.showPhaseRow) {
-        const cy = LAYOUT.phaseRowY;
+        const cy = this.phaseRowY;
         const r = Math.max(13, Math.min(16, this.iconSize * 0.6));
         const ringCol = enabled ? this.accent.accentSoft : PALETTE.inkFaint;
         g.circle(x, cy, r).stroke({ width: 2, color: ringCol, alpha: enabled ? 0.9 : 0.5 });
@@ -263,7 +293,7 @@ export class HarmonicControls {
       const mk = (s: string, y: number) => {
         const t = new Text({
           text: s,
-          style: { fontFamily: FONT.family, fontSize: 10, fill: PALETTE.inkSoft, letterSpacing: 2 },
+          style: { fontFamily: FONT.family, fontSize: 14, fill: PALETTE.inkSoft, letterSpacing: 2 },
         });
         t.x = LAYOUT.controlLeft;
         t.y = y;
@@ -272,8 +302,8 @@ export class HarmonicControls {
         this.captionTexts.push(t);
         return t;
       };
-      if (this.cfg.showAmplitudeRow) mk("AMPLITUDE", LAYOUT.ampRowY - 44);
-      if (this.cfg.showPhaseRow) mk("PHASE", LAYOUT.phaseRowY - 30);
+      if (this.cfg.showAmplitudeRow) mk("AMPLITUDE", this.ampRowY - 44);
+      if (this.cfg.showPhaseRow) mk("PHASE", this.phaseRowY - 30);
     }
   }
 
