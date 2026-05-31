@@ -12,6 +12,12 @@ import { BridgeRenderer } from "../render/structures/BridgeRenderer";
 import { CreatureRenderer } from "../render/structures/CreatureRenderer";
 import { GateRenderer } from "../render/structures/GateRenderer";
 import { CathedralRenderer } from "../render/structures/CathedralRenderer";
+import { SkylineRenderer } from "../render/structures/SkylineRenderer";
+import { AuroraRenderer } from "../render/structures/AuroraRenderer";
+import { GardenRenderer } from "../render/structures/GardenRenderer";
+import { ReefRenderer } from "../render/structures/ReefRenderer";
+import { OrreryRenderer } from "../render/structures/OrreryRenderer";
+import { StarfieldRenderer } from "../render/structures/StarfieldRenderer";
 import { LEVELS, LevelDef, buildHarmonics } from "./Levels";
 import { LAYOUT, recomputeLayout } from "../render/Layout";
 import {
@@ -181,6 +187,18 @@ export class Game {
         return new GateRenderer(accent);
       case "cathedral":
         return new CathedralRenderer(accent);
+      case "skyline":
+        return new SkylineRenderer(accent);
+      case "aurora":
+        return new AuroraRenderer(accent);
+      case "garden":
+        return new GardenRenderer(accent);
+      case "reef":
+        return new ReefRenderer(accent);
+      case "orrery":
+        return new OrreryRenderer(accent);
+      case "starfield":
+        return new StarfieldRenderer(accent);
     }
   }
 
