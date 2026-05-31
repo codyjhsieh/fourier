@@ -1,0 +1,18 @@
+{
+  "name": "a-line-remembered",
+  "version": "1.0.0",
+  "description": "A minimalist procedural Fourier puzzle game",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "pixi.js": "^8.18.1"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3",
+    "vite": "^8.0.14"
+  }
+}
