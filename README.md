@@ -59,9 +59,10 @@ ever **interprets** it — drawing physical architecture, never a chart. A share
 
 ## Levels
 
-Fifteen levels across fifteen distinct environments. The first ten teach the
-core ideas (amplitude, energy, phase, then new mechanics in new worlds); levels
-11–15 add a filtering & timbre set in five more environments.
+Twenty levels across twenty distinct environments — each environment a
+different way of seeing the same harmonics, paired with a different mechanic
+(reconstruction, energy, phase, symmetry, denoise, filtering, timbre,
+interference, combined amp+phase, epicycles…).
 
 | # | Level | Teaches | Biome |
 |---|-------|---------|-------|
@@ -80,6 +81,11 @@ core ideas (amplitude, energy, phase, then new mechanics in new worlds); levels
 | 13 | The Middle Weave | **band-pass** — isolate the mid band | lattice |
 | 14 | The Steady Pulse | **broadband pulse** — stack harmonics into a spike | cardiograph |
 | 15 | The Tuned Bell | **harmonic series** — tune the overtones | bell |
+| 16 | Read the Bars | **match the spectrum** (frequency-domain) | spectrogram |
+| 17 | The Anti-Weave | **odd symmetry** — point-symmetric weave | loom |
+| 18 | The Sand Figure | **resonant figure** (Chladni nodal lines) | chladni plate |
+| 19 | The Still Pool | **low-pass** — calm the chop to glass | tide-pool |
+| 20 | The Turning Gears | **epicycles** — draw with phasors (amp+phase) | phasor-clock |
 
 - **L1 — Fractured Arch.** Two mountains joined by a stone arch bridge (2D side
   view). The deck top follows the waveform and meets each mountain ledge; pixel

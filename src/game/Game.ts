@@ -23,6 +23,11 @@ import { PrismRenderer } from "../render/structures/PrismRenderer";
 import { LatticeRenderer } from "../render/structures/LatticeRenderer";
 import { CardiographRenderer } from "../render/structures/CardiographRenderer";
 import { KilnRenderer } from "../render/structures/KilnRenderer";
+import { SpectrogramRenderer } from "../render/structures/SpectrogramRenderer";
+import { LoomRenderer } from "../render/structures/LoomRenderer";
+import { ChladniRenderer } from "../render/structures/ChladniRenderer";
+import { TidepoolRenderer } from "../render/structures/TidepoolRenderer";
+import { PhasorRenderer } from "../render/structures/PhasorRenderer";
 import { LEVELS, LevelDef, buildHarmonics } from "./Levels";
 import { LAYOUT, recomputeLayout } from "../render/Layout";
 import {
@@ -214,6 +219,16 @@ export class Game {
         return new CardiographRenderer(accent);
       case "kiln":
         return new KilnRenderer(accent);
+      case "spectrogram":
+        return new SpectrogramRenderer(accent);
+      case "loom":
+        return new LoomRenderer(accent);
+      case "chladni":
+        return new ChladniRenderer(accent);
+      case "tidepool":
+        return new TidepoolRenderer(accent);
+      case "phasor":
+        return new PhasorRenderer(accent);
     }
   }
 

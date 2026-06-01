@@ -20,7 +20,12 @@ export type RendererKind =
   | "prism"
   | "lattice"
   | "cardiograph"
-  | "kiln";
+  | "kiln"
+  | "spectrogram"
+  | "loom"
+  | "chladni"
+  | "tidepool"
+  | "phasor";
 
 export interface HarmonicSpec {
   index: number;
@@ -676,5 +681,183 @@ export const LEVELS: LevelDef[] = [
     ],
     start: [{ index: 1, amplitude: 0.5 }],
     threshold: 0.85,
+  },
+
+  // ---------------------------------------------------------------- L16
+  // MATCH THE SPECTRUM: raise each frequency bar to its target height to
+  // reconstruct the signal shown on the analyzer (frequency-domain framing).
+  {
+    id: 16,
+    indexLabel: "EXTREME 16",
+    title: "READ THE BARS",
+    subtitle: "raise each bar to its target height",
+    instructions:
+      "the panel shows the target spectrum behind your bars\nraise each frequency to its mark to match the signal",
+    accentKey: "jade",
+    scenery: "dead",
+    time: "night",
+    renderer: "spectrogram",
+    targetWaveStyle: "dotted",
+    scoreModel: "waveform",
+    palette: [1, 2, 3, 4, 5, 6, 7, 8],
+    control: {
+      indices: [1, 2, 3, 4, 5, 6, 7, 8],
+      stoneToggle: true, stoneAmplitude: true, stonePhase: false,
+      showAmplitudeRow: false, showPhaseRow: false,
+      amplitudeInteractive: false, phaseInteractive: false,
+    },
+    target: [
+      { index: 1, amplitude: 0.8 },
+      { index: 2, amplitude: 0.6 },
+      { index: 3, amplitude: 0.4 },
+      { index: 4, amplitude: 0.5 },
+      { index: 5, amplitude: 0.3 },
+    ],
+    start: [{ index: 1, amplitude: 0.3 }],
+    threshold: 0.85,
+  },
+
+  // ---------------------------------------------------------------- L17
+  // ODD SYMMETRY: amplitudes correct, phases all on the even axis. Rotate every
+  // phase a quarter-turn to the odd (sine) axis so the weave is point-symmetric.
+  {
+    id: 17,
+    indexLabel: "EXTREME 17",
+    title: "THE ANTI-WEAVE",
+    subtitle: "twist the motif into point-symmetry (odd)",
+    instructions:
+      "the weave should mirror itself rotated half a turn\nrotate every dial a quarter-turn to the odd axis",
+    accentKey: "indigo",
+    scenery: "willow",
+    time: "night",
+    renderer: "loom",
+    targetWaveStyle: "dotted",
+    scoreModel: "symmetry",
+    palette: [-2, -1, 0, 1, 2, 3, 4],
+    control: {
+      indices: [-2, -1, 0, 1, 2, 3, 4],
+      stoneToggle: true, stoneAmplitude: true, stonePhase: false,
+      showAmplitudeRow: false, showPhaseRow: true,
+      amplitudeInteractive: false, phaseInteractive: true,
+    },
+    // odd target: every phase a quarter-turn (sine series)
+    target: [
+      { index: 1, amplitude: 0.8, phase: Math.PI / 2 },
+      { index: 2, amplitude: 0.5, phase: Math.PI / 2 },
+      { index: 3, amplitude: 0.4, phase: Math.PI / 2 },
+      { index: 4, amplitude: 0.3, phase: Math.PI / 2 },
+    ],
+    // start even (cosine) — the opposite parity axis
+    start: [
+      { index: 1, amplitude: 0.8, phase: 0 },
+      { index: 2, amplitude: 0.5, phase: 0 },
+      { index: 3, amplitude: 0.4, phase: 0 },
+      { index: 4, amplitude: 0.3, phase: 0 },
+    ],
+    threshold: 0.85,
+  },
+
+  // ---------------------------------------------------------------- L18
+  // RESONANT FIGURE: reconstruct the harmonics that make the sand settle into
+  // the target Chladni figure (amplitude reconstruction, 2D-visualized).
+  {
+    id: 18,
+    indexLabel: "EXTREME 18",
+    title: "THE SAND FIGURE",
+    subtitle: "drive the plate until the sand finds the figure",
+    instructions:
+      "the sand collects on the plate's nodal lines\nset the harmonics until it settles into the ghost figure",
+    accentKey: "amber",
+    scenery: "crystal",
+    time: "day",
+    renderer: "chladni",
+    targetWaveStyle: "dotted",
+    scoreModel: "waveform",
+    palette: [1, 2, 3, 4, 5, 6, 7, 8],
+    control: {
+      indices: [1, 2, 3, 4, 5, 6, 7, 8],
+      stoneToggle: true, stoneAmplitude: true, stonePhase: false,
+      showAmplitudeRow: false, showPhaseRow: false,
+      amplitudeInteractive: false, phaseInteractive: false,
+    },
+    target: [
+      { index: 2, amplitude: 0.7 },
+      { index: 3, amplitude: 0.4 },
+      { index: 5, amplitude: 0.3 },
+    ],
+    start: [{ index: 2, amplitude: 0.3 }],
+    threshold: 0.85,
+  },
+
+  // ---------------------------------------------------------------- L19
+  // CALM THE WATER (low-pass in a tide-pool): remove the high-frequency chop so
+  // the surface settles to glass and mirrors the sky.
+  {
+    id: 19,
+    indexLabel: "EXTREME 19",
+    title: "THE STILL POOL",
+    subtitle: "settle the chop until the pool turns to glass",
+    instructions:
+      "high frequencies churn the surface into chop\nremove them until the pool stills to a clean mirror",
+    accentKey: "jade",
+    scenery: "palm",
+    time: "day",
+    renderer: "tidepool",
+    targetWaveStyle: "dotted",
+    scoreModel: "calm",
+    palette: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    control: {
+      indices: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+      stoneToggle: true, stoneAmplitude: true, stonePhase: false,
+      showAmplitudeRow: false, showPhaseRow: false,
+      amplitudeInteractive: false, phaseInteractive: false,
+    },
+    target: [
+      { index: 1, amplitude: 0.8 },
+      { index: 2, amplitude: 0.5 },
+      { index: 3, amplitude: 0.3 },
+    ],
+    start: [
+      { index: 1, amplitude: 0.8 },
+      { index: 2, amplitude: 0.5 },
+      { index: 3, amplitude: 0.3 },
+      { index: 6, amplitude: 0.6, phase: Math.PI / 6 },
+      { index: 7, amplitude: 0.6, phase: Math.PI / 2 },
+      { index: 8, amplitude: 0.5, phase: (5 * Math.PI) / 6 },
+      { index: 9, amplitude: 0.4, phase: Math.PI / 3 },
+    ],
+    threshold: 0.86,
+  },
+
+  // ---------------------------------------------------------------- L20
+  // EPICYCLES (combined amp + phase): set each gear's radius (amplitude) and
+  // start angle (phase) so the chain of phasors traces the target figure.
+  {
+    id: 20,
+    indexLabel: "EXTREME 20",
+    title: "THE TURNING GEARS",
+    subtitle: "size and angle each gear to draw the figure",
+    instructions:
+      "each gear's radius is its height, its angle is its phase\nset both so the pen traces the ghost figure",
+    accentKey: "amber",
+    scenery: "crystal",
+    time: "dusk",
+    renderer: "phasor",
+    targetWaveStyle: "dotted",
+    scoreModel: "full",
+    palette: [-2, -1, 0, 1, 2, 3, 4],
+    control: {
+      indices: [-2, -1, 0, 1, 2, 3, 4],
+      stoneToggle: true, stoneAmplitude: true, stonePhase: false,
+      showAmplitudeRow: false, showPhaseRow: true,
+      amplitudeInteractive: false, phaseInteractive: true,
+    },
+    target: [
+      { index: 1, amplitude: 0.8, phase: 0 },
+      { index: 2, amplitude: 0.5, phase: Math.PI / 2 },
+      { index: 3, amplitude: 0.3, phase: Math.PI },
+    ],
+    start: [{ index: 1, amplitude: 0.4, phase: Math.PI }],
+    threshold: 0.86,
   },
 ];
