@@ -6,28 +6,24 @@ import { LAYOUT } from "../Layout";
 import { Painter, WorldRenderer, resample } from "./common";
 import { Species } from "./Scenery";
 
-// LEVEL 13 — "THE MIDDLE WEAVE", reconceived as a CASCADING CURTAIN OF LIVING
-// BIOLUMINESCENT VINES — a hanging garden, a luminous macramé of glowworm-silk
-// strands draped in three vertical tiers and reflected in still water below.
+// LEVEL 13 — "THE VISITORS" — BAND-PASS, accent indigo, night.
 //
-// One willow-strand per enabled harmonic, draped from a high rail and ordered
-// by frequency into three tiers:
-//   HIGH (>= 6)     : the TOP tier   — the highest-draped strands
-//   MID  (3..5)     : the CENTRE tier — the KEEP band: it BLOOMS
-//   LOW  (|k| <= 2) : the BOTTOM tier — the lowest, pooling near the water
+// An UNMISTAKABLE UFO / ALIEN ABDUCTION. A domed FLYING SAUCER hovers over a
+// dark night field; a ring of running lights chases around its hull; a glowing
+// cone TRACTOR BEAM descends and lifts a little silhouette (a cow) up off the
+// ground, its glow reflected on the field below.
 //
-// Each strand's brightness & thickness ∝ its harmonic's amplitude. The MIDDLE
-// tier is alive: glowing lantern-flowers open along its strands, fireflies
-// gather and drift, crossing nodes spark where two strands cross, and a soft
-// moiré shimmer breathes between adjacent lit strands. The low and high tiers
-// WITHER as the player isolates the middle — their strands dim, curl inward and
-// shed slow dark leaves. The summed waveform (`resample`) ripples as a master
-// strand woven through the centre. At score>0.7 a radiant bloom opens and a
-// surge of fireflies streams along the kept tier.
+// MECHANIC: the MIDDLE band (3..5) is the visitors' signal; LOW (|k|<=2) is
+// ground rumble; HIGH (>=6) is sky static. When low+high dominate the sky is
+// full of jittery scan-line STATIC and the saucer is lost in cloud, beam off.
+// As the player isolates the MID band the saucer LOCKS IN crisp and bright, the
+// BEAM blazes down and lifts the abductee, and a clean signal waveform
+// (resample) pulses across the sky. Clarity + beam intensity are driven from
+// mid-band energy relative to low/high.
 //
-// Pale-luminous on a warm cream field, soft top-left light, deterministic
-// (sin-hash, no Math.random / Date), bounded loops, redrawn each frame and
-// reflected through the Painter — unmistakably a living curtain, not abstract.
+// Pale-luminous pixel-art, white-first cream base, indigo accent, soft top-left
+// light, deterministic (sin-hash, no Math.random / Date), bounded loops,
+// redrawn each frame, beam glow reflected through the Painter.
 
 // cheap deterministic hash in [0,1)
 function hash(x: number, y: number): number {
@@ -35,28 +31,21 @@ function hash(x: number, y: number): number {
   return n - Math.floor(n);
 }
 
-type BandName = "low" | "mid" | "high";
-
-interface Strand {
-  k: number; // |frequencyIndex|
-  amp: number; // |amplitude| clamped to [0,1]
-  phase: number;
-  band: BandName;
-}
-
 export class LatticeRenderer implements WorldRenderer {
   container = new Container();
   species: Species = "blossom";
 
-  private body = new Graphics(); // vines + rail + leaves (auto-reflected)
+  private body = new Graphics(); // saucer hull, abductee, ground (auto-reflected)
   private refl = new Graphics();
-  private fx = new Graphics(); // glow halos, lantern-blooms, fireflies (not reflected)
+  private fx = new Graphics(); // beam cone, halos, static, lights (not reflected)
   private accent: Accent;
 
   // resolved tonal ramp
-  private withered = 0; // dim withering strand (low/high intruders)
-  private vine = 0; // hot accent glow (the keep band foliage)
-  private rail = 0; // the high rail the curtain hangs from
+  private night = 0; // deep indigo night sky tone
+  private hull = 0; // saucer body
+  private hullLit = 0; // top-left lit hull
+  private beam = 0; // tractor-beam accent
+  private ground = 0; // dark field
 
   constructor(accent: Accent) {
     this.accent = accent;
@@ -65,29 +54,12 @@ export class LatticeRenderer implements WorldRenderer {
   }
 
   private resolveTones() {
-    // Withering strands read cool/grey; the keep band glows with living accent.
-    this.withered = mixColor(PALETTE.inkSoft, this.accent.ink, 0.4);
-    this.vine = mixColor(this.accent.accent, PALETTE.white, 0.16);
-    this.rail = mixColor(PALETTE.paperEdge, this.accent.ink, 0.22);
-  }
-
-  // Collect enabled harmonics as strands, one per |k|, sorted by frequency.
-  private strands(harmonics: HarmonicComponent[]): Strand[] {
-    const out: Strand[] = [];
-    for (const h of harmonics) {
-      if (!h.enabled) continue;
-      const k = Math.abs(h.frequencyIndex);
-      // mirror partners (±k) collapse onto one strand: keep the first.
-      if (out.some((s) => s.k === k)) continue;
-      out.push({
-        k,
-        amp: Math.min(1, Math.abs(h.amplitude)),
-        phase: h.phase,
-        band: h.band as BandName,
-      });
-    }
-    out.sort((a, b) => a.k - b.k);
-    return out;
+    // Night mood but pale-luminous: keep the cream base, tint toward indigo ink.
+    this.night = mixColor(PALETTE.paperEdge, this.accent.ink, 0.34);
+    this.hull = mixColor(this.accent.inkSoft, PALETTE.white, 0.42);
+    this.hullLit = mixColor(this.hull, PALETTE.white, 0.55);
+    this.beam = mixColor(this.accent.accent, PALETTE.white, 0.2);
+    this.ground = mixColor(this.accent.ink, PALETTE.paperEdge, 0.28);
   }
 
   update(
@@ -95,7 +67,7 @@ export class LatticeRenderer implements WorldRenderer {
     _target: ShapeData,
     score: number,
     t: number,
-    harmonics: HarmonicComponent[],
+    _harmonics: HarmonicComponent[],
   ): void {
     const g = this.body;
     const r = this.refl;
@@ -106,354 +78,303 @@ export class LatticeRenderer implements WorldRenderer {
     const p = new Painter(g, r, LAYOUT.waterY, LAYOUT.reflectionDepth, t);
 
     const cx = LAYOUT.W / 2;
-    const left = 36;
-    const right = LAYOUT.W - 36;
+    const left = 28;
+    const right = LAYOUT.W - 28;
     const span = right - left;
 
-    const top = LAYOUT.worldTop + 8;
-    const bottom = LAYOUT.waterY - 6;
+    const top = LAYOUT.worldTop + 6;
+    const bottom = LAYOUT.waterY - 4;
     const height = bottom - top;
 
-    // band-pass progress: how cleanly the mid tier is isolated. `crisp` makes
-    // the kept tier bloom & steady; `bloom` is the score>0.7 radiant payoff.
-    const crisp = Math.max(0, Math.min(1, score));
-    const bloom = Math.max(0, (score - 0.7) / 0.3);
+    // ---- band-pass clarity from spectral energy --------------------------
+    // mid is the visitors' signal; low (rumble) + high (static) are the noise.
+    const lowE = shape.lowFrequencyEnergy;
+    const midE = shape.midFrequencyEnergy;
+    const highE = shape.highFrequencyEnergy;
+    const noiseE = lowE + highE;
+    // isolation: mid relative to everything. 0 = drowned in noise, 1 = pure mid.
+    const total = midE + noiseE;
+    const isolation = total > 1e-6 ? midE / total : 0;
+    // blend the spectral read with the level score so the payoff is decisive.
+    const lock = Math.max(0, Math.min(1, 0.45 * isolation + 0.55 * Math.max(0, Math.min(1, score))));
+    const staticAmt = 1 - lock; // sky static when not locked
+    const beamOn = Math.max(0, (lock - 0.18) / 0.82); // beam blazes as it locks
+    const abduct = Math.max(0, (lock - 0.35) / 0.65); // cow lifts off
+    const payoff = Math.max(0, (lock - 0.72) / 0.28); // final crisp surge
 
-    const strands = this.strands(harmonics);
-
-    // ---- the three drape tiers (top->bottom = HIGH / MID / LOW) -------------
-    // HIGH strands hang shortest near the rail, MID drape through the lit
-    // centre (the keep zone), LOW pool low near the water.
-    const railY = top + 4;
-    const tierHang = (band: BandName) =>
-      band === "high"
-        ? height * 0.30
-        : band === "mid"
-          ? height * 0.62
-          : height * 0.92;
-
-    // ---- the rail the whole curtain hangs from (top-left lit) ---------------
-    this.rail_(p, left, railY, right, span, crisp, t);
-
-    // collect crossing nodes (where two lit strands meet) for the spark pass.
-    const litStrands: {
-      x0: number;
-      cx: number;
-      x1: number;
-      yTop: number;
-      yBot: number;
-      keep: boolean;
-      bright: number;
-      thick: number;
-      col: number;
-    }[] = [];
-
-    // ---- the cascading strands ---------------------------------------------
-    for (const strand of strands) {
-      const isKeep = strand.band === "mid";
-      const hang = tierHang(strand.band);
-
-      // place each strand horizontally by frequency within its tier so the
-      // curtain reads as ordered bands of cascading vines.
-      const lo = strand.band === "low" ? 0 : strand.band === "mid" ? 3 : 6;
-      const slots = strand.band === "mid" ? 3 : strand.band === "high" ? 7 : 3;
-      const u = Math.min(1, (strand.k - lo) / slots);
-      // spread mid strands across the wide centre, low/high cluster tighter.
-      const tierLeft = isKeep ? left + span * 0.1 : left + span * 0.22;
-      const tierSpan = isKeep ? span * 0.8 : span * 0.56;
-      const baseX = tierLeft + u * tierSpan;
-
-      // off-band strands wither (dim, curl) as the player tunes to the middle;
-      // kept strands surge brighter and steadier with `crisp`.
-      const flick = 0.6 + 0.4 * Math.sin(t * (1.4 + strand.k * 0.2) + strand.phase);
-      const presence = isKeep
-        ? 0.55 + crisp * 0.45
-        : (1 - crisp * 0.9) * (0.55 + 0.45 * flick);
-      if (presence < 0.03) continue;
-
-      // brightness & thickness ∝ amplitude (the keep tier reads much lusher).
-      const energy = 0.4 + strand.amp * 0.6;
-      const thick = (isKeep ? 3.4 : 2.0) * energy;
-      const strandCol = isKeep
-        ? mixColor(this.vine, PALETTE.white, 0.08 + crisp * 0.18)
-        : mixColor(this.withered, PALETTE.white, 0.1);
-
-      // a hanging strand: a gentle draped catenary, swaying like a willow
-      // tendril. Withering strands curl inward; kept strands hang full-length.
-      const curl = isKeep ? 1 : 1 - crisp * 0.5; // intruders retract upward
-      const len = hang * curl;
-      const yBot = railY + len;
-      const sway = (isKeep ? 1 - crisp * 0.6 : 1.4) * (0.6 + strand.amp * 0.6);
-
-      const segN = 22;
-      let prevX = baseX;
-      let prevY = railY;
-      let minX = baseX;
-      let maxX = baseX;
-      for (let i = 1; i <= segN; i++) {
-        const v = i / segN; // 0 at rail .. 1 at tip
-        // catenary droop + slow willow sway that grows toward the free tip.
-        const droop = Math.sin(v * Math.PI * 0.5);
-        const swayPx =
-          Math.sin(t * 1.1 + strand.phase + v * 3.0 + strand.k * 0.4) *
-          (1 + v * 2.4) *
-          sway;
-        const sx = baseX + swayPx + Math.sin(v * Math.PI) * (u - 0.5) * 6;
-        const sy = railY + droop * len + v * len * 0.18;
-        if (sx < minX) minX = sx;
-        if (sx > maxX) maxX = sx;
-
-        const segW = Math.hypot(sx - prevX, sy - prevY) + 1.4;
-        const midX = (sx + prevX) / 2;
-        const midY = (sy + prevY) / 2;
-
-        // soft bloom halo down the kept strands (drawn on fx, not reflected).
-        if (isKeep) {
-          const haloA = (0.05 + 0.1 * crisp) * energy * (0.6 + 0.4 * v);
-          this.fx
-            .circle(midX, midY, thick * 2.2)
-            .fill({
-              color: mixColor(this.accent.accentSoft, PALETTE.white, 0.5),
-              alpha: haloA,
-            });
-        }
-
-        // top-left lit: a little brighter toward the top-left of each strand.
-        const litU = 0.85 + 0.15 * (1 - v);
-        const a =
-          (isKeep ? 0.5 + 0.32 * crisp : 0.24) * presence * litU;
-        // the strand body
-        p.block(midX - segW / 2, midY - thick / 2, segW, thick, strandCol, a);
-        // bright inner silk core
-        p.block(
-          midX - segW / 2,
-          midY - Math.max(0.5, thick * 0.16),
-          segW,
-          Math.max(1, thick * 0.32),
-          mixColor(strandCol, PALETTE.white, isKeep ? 0.6 : 0.42),
-          (isKeep ? 0.7 : 0.32) * presence,
-        );
-
-        // withering strands shed slow dark leaves from along their length.
-        if (!isKeep && hash(strand.k * 3 + i, 7.1) > 0.78) {
-          const fall = (t * 10 + i * 31 + strand.k * 17) % 60;
-          const leafCol = mixColor(this.withered, this.accent.ink, 0.5);
-          p.dot(
-            sx + Math.sin(t + i) * 2,
-            sy + fall,
-            1.3,
-            leafCol,
-            0.32 * presence * (1 - fall / 60),
-          );
-        }
-
-        prevX = sx;
-        prevY = sy;
-      }
-
-      litStrands.push({
-        x0: minX,
-        cx: baseX,
-        x1: maxX,
-        yTop: railY,
-        yBot,
-        keep: isKeep,
-        bright: presence * (0.4 + strand.amp * 0.6),
-        thick,
-        col: strandCol,
+    // ---- the night sky wash ----------------------------------------------
+    g.rect(0, top - 10, LAYOUT.W, height + 20).fill({
+      color: this.night,
+      alpha: 0.16 + 0.14 * lock,
+    });
+    // a few deterministic stars that emerge as the static clears.
+    for (let i = 0; i < 40; i++) {
+      const sx = left + hash(i * 1.3, 2.7) * span;
+      const sy = top + hash(i * 2.1, 5.3) * (height * 0.5);
+      const tw = 0.5 + 0.5 * Math.sin(t * 1.7 + i * 1.9);
+      this.fx.circle(sx, sy, 0.7 + hash(i, 9.1) * 0.7).fill({
+        color: mixColor(PALETTE.white, this.accent.accentSoft, 0.2),
+        alpha: (0.06 + 0.22 * lock) * tw,
       });
+    }
 
-      // a soft seed-light at the dripping tip of every strand.
-      const tipA = (isKeep ? 0.5 : 0.22) * presence;
-      p.dot(prevX, prevY, isKeep ? 2.0 : 1.2, mixColor(strandCol, PALETTE.white, 0.5), tipA);
+    // ---- the dark field at the bottom ------------------------------------
+    const fieldY = bottom - height * 0.1;
+    const groundTop = mixColor(this.ground, this.accent.ink, 0.25);
+    p.block(left - 8, fieldY, span + 16, bottom - fieldY + 6, this.ground, 0.6);
+    p.block(left - 8, fieldY, span + 16, 3, groundTop, 0.5);
 
-      // the MIDDLE tier BLOOMS: glowing lantern-flowers open along the strand.
-      if (isKeep) {
-        const lanterns = 3;
-        for (let li = 0; li < lanterns; li++) {
-          const lv = 0.3 + li / lanterns * 0.62;
-          const droop = Math.sin(lv * Math.PI * 0.5);
-          const swayPx =
-            Math.sin(t * 1.1 + strand.phase + lv * 3.0 + strand.k * 0.4) *
-            (1 + lv * 2.4) *
-            sway;
-          const lx = baseX + swayPx + Math.sin(lv * Math.PI) * (u - 0.5) * 6;
-          const ly = railY + droop * len + lv * len * 0.18;
-          // bloom degree: lanterns open as the mid is isolated.
-          const open = 0.4 + 0.6 * crisp;
-          const breathe = 0.7 + 0.3 * Math.sin(t * 1.6 + li * 2.1 + strand.k);
-          const lr = (2.6 + strand.amp * 2.4) * open * breathe;
-          // outer petal glow
-          this.fx.circle(lx, ly, lr * 2.0).fill({
-            color: mixColor(this.accent.accentSoft, PALETTE.white, 0.55),
-            alpha: 0.08 * open,
-          });
-          // lantern body
-          this.fx.circle(lx, ly, lr).fill({
-            color: mixColor(this.accent.accent, PALETTE.white, 0.4),
-            alpha: 0.3 * open,
-          });
-          // bright pollen core
-          p.dot(lx, ly, lr * 0.4, PALETTE.white, 0.5 * open);
-        }
+    // ---- saucer geometry --------------------------------------------------
+    const saucerCX = cx;
+    const saucerCY = top + height * 0.26 + Math.sin(t * 0.7) * 3; // gentle hover bob
+    const discR = span * 0.30; // half-width of the saucer disc
+    const discH = discR * 0.34; // disc thickness
+    const domeR = discR * 0.46;
+
+    // crispness: hull alpha + edge sharpness rise as it locks in.
+    const hullA = 0.22 + 0.66 * lock;
+
+    // ---- cloud the saucer hides in when full of static -------------------
+    if (staticAmt > 0.02) {
+      for (let i = 0; i < 5; i++) {
+        const ph = hash(i * 3.1, 1.7);
+        const cxk = saucerCX + (ph - 0.5) * discR * 2.4 + Math.sin(t * 0.4 + i) * 6;
+        const cyk = saucerCY + (hash(i, 4.4) - 0.5) * discH * 2.2;
+        this.fx.circle(cxk, cyk, discR * (0.45 + ph * 0.4)).fill({
+          color: mixColor(this.night, PALETTE.white, 0.5),
+          alpha: 0.06 * staticAmt,
+        });
       }
     }
 
-    // ---- summed waveform: a luminous MASTER STRAND woven through the centre -
-    const cols = 60;
-    const wave = resample(shape, cols);
-    const masterY = railY + tierHang("mid") * 0.5;
-    const ampPx = height * 0.1;
-    // a luminous spine behind the master strand
-    this.fx.rect(left, masterY - ampPx - 6, span, ampPx * 2 + 12).fill({
-      color: mixColor(this.accent.accentSoft, PALETTE.white, 0.5),
-      alpha: 0.03 + 0.07 * crisp,
+    // ---- the tractor BEAM (drawn behind hull so the hull caps it) --------
+    if (beamOn > 0.01) {
+      const beamTopY = saucerCY + discH * 0.6;
+      const beamTopW = discR * 0.5;
+      const beamBotW = discR * 1.15;
+      const beamBotY = fieldY + 2;
+      const cone = mixColor(this.beam, PALETTE.white, 0.35);
+      // soft filled cone, layered for a volumetric glow
+      const layers = 5;
+      for (let l = layers; l >= 1; l--) {
+        const f = l / layers;
+        const a = beamOn * (0.05 + 0.05 * (1 - f)) * (0.85 + 0.15 * Math.sin(t * 2 + l));
+        this.fx
+          .poly([
+            saucerCX - beamTopW * f, beamTopY,
+            saucerCX + beamTopW * f, beamTopY,
+            saucerCX + beamBotW * f, beamBotY,
+            saucerCX - beamBotW * f, beamBotY,
+          ])
+          .fill({ color: cone, alpha: a });
+      }
+      // bright beam core edges
+      this.fx
+        .poly([
+          saucerCX - beamTopW, beamTopY,
+          saucerCX + beamTopW, beamTopY,
+          saucerCX + beamBotW, beamBotY,
+          saucerCX - beamBotW, beamBotY,
+        ])
+        .stroke({ width: 1.5, color: PALETTE.white, alpha: 0.18 + 0.3 * beamOn });
+
+      // descending scan rings that travel down the beam
+      const rings = 4;
+      for (let i = 0; i < rings; i++) {
+        const rv = ((t * 0.4 + i / rings) % 1);
+        const ry = beamTopY + rv * (beamBotY - beamTopY);
+        const rw = beamTopW + rv * (beamBotW - beamTopW);
+        this.fx
+          .ellipse(saucerCX, ry, rw, rw * 0.18)
+          .stroke({ width: 1.4, color: cone, alpha: beamOn * 0.4 * (1 - rv) });
+      }
+
+      // ---- beam glow pooled on the ground + reflected (Painter) ----------
+      const poolW = beamBotW * 1.4;
+      p.block(saucerCX - poolW, fieldY - 3, poolW * 2, 6,
+        mixColor(this.beam, PALETTE.white, 0.4), 0.18 * beamOn);
+      p.dot(saucerCX, fieldY, poolW * 0.5, mixColor(this.beam, PALETTE.white, 0.5), 0.12 * beamOn);
+      this.fx.ellipse(saucerCX, fieldY, poolW, poolW * 0.22).fill({
+        color: mixColor(this.beam, PALETTE.white, 0.55),
+        alpha: 0.12 * beamOn * (0.8 + 0.2 * Math.sin(t * 2.3)),
+      });
+    }
+
+    // ---- the abductee: a little cow silhouette lifted in the beam --------
+    {
+      const groundRest = fieldY - 8;
+      const lifted = groundRest - abduct * (groundRest - (saucerCY + discH * 1.6));
+      const cowY = lifted + Math.sin(t * 2 + 1) * (1 + abduct * 2);
+      const tilt = Math.sin(t * 3) * abduct * 0.25;
+      const cowCol = mixColor(this.accent.ink, 0x000000, 0.25);
+      const ca = 0.55 + 0.3 * abduct;
+      const w = 11, h = 7;
+      // body
+      this.drawCow(this.fx, saucerCX, cowY, w, h, tilt, cowCol, ca);
+      // a faint rim-light from the beam on the lifted cow
+      if (abduct > 0.05) {
+        this.fx.circle(saucerCX, cowY, w * 0.9).fill({
+          color: mixColor(this.beam, PALETTE.white, 0.5),
+          alpha: 0.08 * abduct,
+        });
+      }
+    }
+
+    // ---- the FLYING SAUCER ------------------------------------------------
+    // disc (ellipse) — top-left lit, with a shaded under-curve
+    // under-shadow of the disc
+    this.fx.ellipse(saucerCX, saucerCY + discH * 0.45, discR, discH * 0.7).fill({
+      color: mixColor(this.accent.ink, 0x000000, 0.2),
+      alpha: 0.25 * hullA,
     });
-    let mPrevX = left;
-    let mPrevY = masterY - (wave[0] ?? 0) * ampPx;
+    // main hull disc
+    g.ellipse(saucerCX, saucerCY, discR, discH).fill({ color: this.hull, alpha: hullA });
+    // top-left lit crescent of the disc
+    g.ellipse(saucerCX - discR * 0.12, saucerCY - discH * 0.28, discR * 0.86, discH * 0.55)
+      .fill({ color: this.hullLit, alpha: hullA * 0.7 });
+    // crisp rim
+    g.ellipse(saucerCX, saucerCY, discR, discH)
+      .stroke({ width: 1 + lock, color: mixColor(this.hull, this.accent.ink, 0.5), alpha: hullA });
+
+    // ---- the DOME ---------------------------------------------------------
+    const domeCY = saucerCY - discH * 0.55;
+    // dome as a half-ellipse via an arc-ish polygon
+    {
+      const pts: number[] = [];
+      const segs = 16;
+      for (let i = 0; i <= segs; i++) {
+        const a = Math.PI + (i / segs) * Math.PI; // top half
+        pts.push(saucerCX + Math.cos(a) * domeR, domeCY + Math.sin(a) * domeR);
+      }
+      pts.push(saucerCX + domeR, domeCY, saucerCX - domeR, domeCY);
+      g.poly(pts).fill({ color: mixColor(this.hull, PALETTE.white, 0.25), alpha: hullA });
+      // glassy lit highlight top-left
+      this.fx.ellipse(saucerCX - domeR * 0.3, domeCY - domeR * 0.35, domeR * 0.4, domeR * 0.3)
+        .fill({ color: PALETTE.white, alpha: 0.22 * hullA });
+      // dome glow when locked
+      this.fx.ellipse(saucerCX, domeCY - domeR * 0.2, domeR * 0.8, domeR * 0.8).fill({
+        color: mixColor(this.accent.accentSoft, PALETTE.white, 0.6),
+        alpha: 0.1 * lock * (0.7 + 0.3 * Math.sin(t * 1.5)),
+      });
+    }
+
+    // ---- the RING OF RUNNING LIGHTS around the hull ----------------------
+    const nLights = 9;
+    for (let i = 0; i < nLights; i++) {
+      const u = i / nLights;
+      const ang = u * Math.PI * 2;
+      const lx = saucerCX + Math.cos(ang) * discR * 0.82;
+      const ly = saucerCY + discH * 0.25 + Math.sin(ang) * discH * 0.7;
+      // a chase: brightness sweeps around the ring
+      const chase = 0.5 + 0.5 * Math.sin(t * 3 - i * (Math.PI * 2 / nLights) * 1.5);
+      const front = Math.sin(ang) > -0.2 ? 1 : 0.3; // dim the lights on the far side
+      const la = (0.2 + 0.7 * lock) * chase * front;
+      const lcol = mixColor(this.accent.accent, PALETTE.white, 0.3 + 0.4 * chase);
+      this.fx.circle(lx, ly, 1.6 + lock * 0.8).fill({ color: lcol, alpha: la });
+      // little halo on the brightest ones
+      if (chase > 0.7 && lock > 0.3) {
+        this.fx.circle(lx, ly, 4).fill({
+          color: mixColor(this.accent.accentSoft, PALETTE.white, 0.6),
+          alpha: 0.18 * lock * chase,
+        });
+      }
+    }
+
+    // ---- SKY STATIC: jittery scan-line bands when not locked -------------
+    if (staticAmt > 0.04) {
+      const bands = 14;
+      for (let i = 0; i < bands; i++) {
+        const baseY = top + (i / bands) * height * 0.62;
+        const jit = (Math.sin(t * 6 + i * 2.1) * 0.5 + hash(i, t * 0.6 % 10)) ;
+        const by = baseY + (jit - 0.5) * 6;
+        const segOn = hash(i * 1.7, Math.floor(t * 8) * 0.13);
+        if (segOn < 0.45) continue;
+        const sx = left + hash(i, Math.floor(t * 6) * 0.21) * span * 0.4;
+        const sw = span * (0.3 + hash(i * 2.2, 3.1) * 0.6);
+        const scol = mixColor(this.accent.inkSoft, PALETTE.white, 0.4);
+        p.block(sx, by, Math.min(sw, right - sx), 2,
+          scol, 0.1 * staticAmt * (0.5 + 0.5 * segOn));
+      }
+      // a couple of bright horizontal glitch streaks
+      for (let i = 0; i < 3; i++) {
+        const gy = top + (hash(i * 4.4, Math.floor(t * 4) * 0.5)) * height * 0.55;
+        this.fx.rect(left, gy, span, 1).fill({
+          color: PALETTE.white,
+          alpha: 0.12 * staticAmt * (0.5 + 0.5 * Math.sin(t * 9 + i)),
+        });
+      }
+    }
+
+    // ---- clean signal WAVEFORM pulsing across the sky (resample) ---------
+    // emerges and steadies as the mid band locks in.
+    const cols = 64;
+    const wave = resample(shape, cols);
+    const waveY = top + height * 0.62;
+    const ampPx = height * 0.07 * (0.4 + 0.6 * lock);
+    const waveA = 0.12 + 0.55 * lock;
+    const wcol = mixColor(this.beam, PALETTE.white, 0.3 + 0.3 * lock);
+    let pX = left;
+    let pY = waveY - (wave[0] ?? 0) * ampPx;
     for (let i = 1; i < cols; i++) {
       const uu = i / (cols - 1);
       const x = left + uu * span;
-      const y =
-        masterY -
-        (wave[i] ?? 0) * ampPx +
-        Math.sin(t * 0.9 + uu * 6) * 1.5; // gentle live drift
-      const sw = x - mPrevX + 1;
-      const sh = Math.abs(y - mPrevY) + 2.6;
-      const sy = Math.min(mPrevY, y) - 1.3;
-      const litU = 1 - uu;
-      const col = mixColor(
-        this.vine,
-        PALETTE.white,
-        0.28 + litU * 0.18 + crisp * 0.28,
-      );
-      p.block(mPrevX, sy, sw, sh, col, 0.42 + crisp * 0.4);
-      mPrevX = x;
-      mPrevY = y;
+      // jitter the wave while noisy; pulse cleanly once locked
+      const jitter = staticAmt * (hash(i, Math.floor(t * 8) * 0.3) - 0.5) * 10;
+      const pulse = Math.sin(t * 2 - uu * 8) * lock * 1.5;
+      const y = waveY - (wave[i] ?? 0) * ampPx + jitter + pulse;
+      const sw = x - pX + 1.2;
+      const sh = Math.abs(y - pY) + 1.8;
+      const sy = Math.min(pY, y) - 0.9;
+      p.block(pX, sy, sw, sh, wcol, waveA);
+      pX = x;
+      pY = y;
     }
 
-    // ---- sparking nodes where two strands cross ----------------------------
-    const maxPairs = 60;
-    let pairs = 0;
-    for (let a = 0; a < litStrands.length && pairs < maxPairs; a++) {
-      for (let b = a + 1; b < litStrands.length && pairs < maxPairs; b++) {
-        const sa = litStrands[a];
-        const sb = litStrands[b];
-        // strands cross only where their swaying bodies horizontally overlap.
-        const overlap =
-          Math.min(sa.x1, sb.x1) - Math.max(sa.x0, sb.x0);
-        if (overlap <= 0) continue;
-        // approximate crossing depth where their centre-x lines meet.
-        const nx = (Math.max(sa.x0, sb.x0) + Math.min(sa.x1, sb.x1)) / 2;
-        const yShare = Math.min(sa.yBot, sb.yBot);
-        const ny = railY + (yShare - railY) * (0.4 + 0.4 * hash(nx, a + b));
-        pairs++;
-        const keepCross = sa.keep && sb.keep;
-        const bright = Math.min(sa.bright, sb.bright);
-        if (bright < 0.06) continue;
-        const spark =
-          0.6 + 0.4 * Math.sin(t * 4 + nx * 0.4 + ny * 0.3);
-        const r0 = (keepCross ? 1.8 : 1.0) * (0.6 + bright);
-        const nodeCol = mixColor(
-          keepCross ? this.vine : this.withered,
-          PALETTE.white,
-          0.55,
-        );
-        p.dot(nx, ny, r0, nodeCol, (0.28 + bright * 0.5) * spark);
-        if (keepCross) {
-          this.fx.circle(nx, ny, r0 * (2.2 + crisp)).fill({
-            color: mixColor(this.accent.accent, PALETTE.white, 0.4),
-            alpha: (0.07 + 0.12 * crisp) * spark,
-          });
-        }
-      }
-    }
-
-    // ---- fireflies gather and drift through the lit centre tier -------------
-    const midTop = railY + tierHang("mid") * 0.1;
-    const midH = tierHang("mid") * 0.85;
-    const fireflyN = 34;
-    const gather = 0.3 + crisp * 0.7; // they gather to the centre as it resolves
-    for (let i = 0; i < fireflyN; i++) {
-      const hx = hash(i * 1.7, 4.2);
-      const hy = hash(i * 2.3, 9.1);
-      const drift = (t * (6 + hx * 10) + i * 19) % midH;
-      // pull horizontally toward centre as the mid is isolated.
-      const fx0 = left + hx * span;
-      const fxc = cx + (hx - 0.5) * span * 0.4;
-      const mx = fx0 + (fxc - fx0) * (gather - 0.3);
-      const my = midTop + ((hy * midH + drift) % midH);
-      const blink = 0.5 + 0.5 * Math.sin(t * 2.4 + i * 1.3);
-      this.fx
-        .circle(mx + Math.sin(t * 1.3 + i) * 2, my, 0.7 + hy * 1.0)
-        .fill({
-          color: mixColor(this.accent.accentSoft, PALETTE.white, 0.6),
-          alpha: (0.05 + 0.1 * hx) * gather * blink,
-        });
-    }
-
-    // ---- score>0.7 radiant bloom + surge of fireflies along the kept tier --
-    if (bloom > 0) {
-      // a bright surge streams along the centre tier.
-      const sweep = (t * 0.5) % 1;
-      const headX = left + sweep * span;
-      for (const s of litStrands) {
-        if (!s.keep) continue;
-        const y = railY + (s.yBot - railY) * 0.5;
-        for (let i = 0; i < 10; i++) {
-          const bx = headX - i * 6;
-          if (bx < left) continue;
-          const fade = 1 - i / 10;
-          this.fx.circle(bx, y, 3.2 * fade).fill({
-            color: PALETTE.white,
-            alpha: bloom * 0.5 * fade,
-          });
-        }
-      }
-      // a radiant warm wash blooming through the centre tier.
-      this.fx.rect(left, midTop, span, midH).fill({
-        color: mixColor(PALETTE.glow, this.accent.accentSoft, 0.3),
-        alpha: 0.06 * bloom * (0.7 + 0.3 * Math.sin(t * 1.3)),
+    // ---- payoff: a radiant flash + crisp surge when fully isolated -------
+    if (payoff > 0) {
+      this.fx.ellipse(saucerCX, saucerCY, discR * 1.4, discH * 2.2).fill({
+        color: mixColor(this.accent.accentSoft, PALETTE.white, 0.6),
+        alpha: 0.08 * payoff * (0.6 + 0.4 * Math.sin(t * 2)),
+      });
+      // bright pulse riding down the beam to the abductee
+      const sweep = (t * 0.6) % 1;
+      const sy2 = saucerCY + discH + sweep * (fieldY - saucerCY - discH);
+      this.fx.circle(saucerCX, sy2, 3.5 * (1 - sweep)).fill({
+        color: PALETTE.white,
+        alpha: payoff * 0.5 * (1 - sweep),
       });
     }
 
-    // ---- ambient glow seated on the water for the reflection to catch ------
-    this.fx.circle(cx, bottom - 4, span * 0.55).fill({
+    // ---- ambient glow seated on the field for the reflection to catch ----
+    this.fx.circle(saucerCX, bottom - 3, span * 0.5).fill({
       color: mixColor(this.accent.accentSoft, PALETTE.white, 0.6),
-      alpha: 0.04 + 0.04 * crisp + 0.02 * Math.sin(t * 0.5),
+      alpha: 0.03 + 0.05 * lock + 0.02 * Math.sin(t * 0.5),
     });
   }
 
-  // The high rail the whole curtain is draped from: a soft horizontal beam,
-  // top-left lit, with little hanging-loops that breathe as the garden lives.
-  private rail_(
-    p: Painter,
-    x0: number,
-    y: number,
-    x1: number,
-    span: number,
-    crisp: number,
-    t: number,
+  // A tiny cow silhouette: body + head + four little legs, with a slight tilt.
+  private drawCow(
+    gr: Graphics,
+    cx: number,
+    cy: number,
+    w: number,
+    h: number,
+    tilt: number,
+    col: number,
+    alpha: number,
   ) {
-    const w = x1 - x0;
-    const th = 3.0;
-    const light = mixColor(this.rail, PALETTE.white, 0.5);
-    const shade = mixColor(this.rail, this.accent.ink, 0.4);
-    // the beam: lit top edge, shaded bottom edge
-    p.block(x0, y - th, w, th * 0.5, light, 0.6);
-    p.block(x0, y - th * 0.5, w, th * 0.5, shade, 0.5);
-
-    // hanging loops / knots along the rail (the macramé fixings), breathing.
-    const knots = 13;
-    for (let i = 0; i < knots; i++) {
-      const u = i / (knots - 1);
-      const x = x0 + u * span;
-      const central = 1 - Math.abs(u - 0.5) * 2; // 1 centre .. 0 edges
-      const shimmer = 0.5 + 0.5 * Math.sin(t * 0.7 + i * 0.9);
-      const a = (0.16 + 0.16 * central) * (0.6 + 0.4 * shimmer);
-      const col = mixColor(this.rail, this.vine, 0.2 + central * 0.35 * crisp);
-      p.dot(x, y + 1, 1.4 + central * 0.6, col, a);
+    const dx = Math.sin(tilt) * h * 0.3;
+    // body
+    gr.ellipse(cx, cy, w * 0.55, h * 0.5).fill({ color: col, alpha });
+    // head (front-left)
+    gr.ellipse(cx - w * 0.55 + dx, cy - h * 0.1, w * 0.22, h * 0.3).fill({ color: col, alpha });
+    // legs dangling
+    for (let i = 0; i < 4; i++) {
+      const lx = cx + (i - 1.5) * w * 0.28 + dx * (1 + i * 0.2);
+      gr.rect(lx - 0.8, cy + h * 0.35, 1.6, h * 0.55).fill({ color: col, alpha });
     }
+    // little ears/horns nub
+    gr.rect(cx - w * 0.68 + dx, cy - h * 0.4, 1.4, 2).fill({ color: col, alpha });
   }
 
   setAccent(a: Accent) {

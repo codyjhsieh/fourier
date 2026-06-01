@@ -76,16 +76,16 @@ interference, combined amp+phase, epicycles…).
 | 8 | The Tideturner | energy — break the storm (boss) | dragon |
 | 9 | The Last Seal | phase — align six threads (boss) | gate |
 | 10 | The Harmonic Cathedral | **combined mastery** — amplitude + phase | cathedral (gold) |
-| 11 | The Worn Ridge | **low-pass** — erode the high frequencies | terrain |
-| 12 | The Kept Light | **high-pass** — keep the sharp colours | prism |
-| 13 | The Middle Weave | **band-pass** — isolate the mid band | lattice |
+| 11 | The Caldera | **low-pass** — settle the eruption to a dormant cone | volcano |
+| 12 | The Long Shot | **high-pass** — pull the target into sharp focus | sniper scope |
+| 13 | The Visitors | **band-pass** — tune past static to the signal | UFO abduction |
 | 14 | The Steady Pulse | **broadband pulse** — stack harmonics into a spike | cardiograph |
 | 15 | The Tuned Bell | **harmonic series** — tune the overtones | bell |
-| 16 | Read the Bars | **match the spectrum** (frequency-domain) | spectrogram |
-| 17 | The Anti-Weave | **odd symmetry** — point-symmetric weave | loom |
+| 16 | The Witching Hour | **match the spectrum** — fill each vial to its mark | witch's brew |
+| 17 | The Twin Wyrms | **odd symmetry** — point-symmetric twin dragons | twin dragons |
 | 18 | The Sand Figure | **resonant figure** (Chladni nodal lines) | chladni plate |
-| 19 | The Still Pool | **low-pass** — calm the chop to glass | tide-pool |
-| 20 | The Turning Gears | **epicycles** — draw with phasors (amp+phase) | phasor-clock |
+| 19 | The Dead Calm | **low-pass** — settle the squall to glass | pirate ship |
+| 20 | The Hypercube | **epicycles** — fold a tesseract with phasors | tesseract |
 
 - **L1 — Fractured Arch.** Two mountains joined by a stone arch bridge (2D side
   view). The deck top follows the waveform and meets each mountain ledge; pixel

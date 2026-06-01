@@ -4,47 +4,34 @@ import { HarmonicComponent } from "../../core/Harmonic";
 import { Accent, mixColor, PALETTE } from "../../theme";
 import { LAYOUT } from "../Layout";
 import { Painter, WorldRenderer, resample } from "./common";
-import { Species, island } from "./Scenery";
+import { Species } from "./Scenery";
 
-// LEVEL — "The Kept Light". A HIGH-PASS lesson grown into a place: a lush
-// GARDEN OF GLASS FLOWERS and dew-laden spider-silk at dusk, catching one low
-// shaft of light.
+// LEVEL 12 — "THE LONG SHOT". A HIGH-PASS lesson grown into a place: looking
+// down a SNIPER SCOPE at a distant target on a far ridge.
 //
-//   * The smooth LOW frequencies are DULL FROSTED GLASS — a milky fog that
-//     muffles the garden. They are what you clear away. lowFrequencyEnergy
-//     drives a frosted veil that THINS as you solve.
-//   * The sharp HIGH frequencies are the FACETED PETALS and DEWDROPS — crisp
-//     glittering edges that split the shaft into a soft PASTEL spectrum FAN of
-//     light-petals. highFrequencyEnergy + score drive the bloom: faceted glass
-//     blossoms open, pollen-prisms drift scattering pale rainbows, dew sparkles
-//     travel the silk threads, caustic light dapples the ground.
-//   * resample(shape) ripples as the dew running the silk and the ground caustic.
-//   * Start = muddy frost over closed buds. Solved (score→1) = the garden in
-//     full pastel bloom, a radiant fan of refracted light-petals above 0.7.
-//   * Everything reflects in the dew-pool via the Painter.
+//   * The big CIRCULAR scope vignette ring fills the scene.
+//   * A CROSSHAIR reticle (vertical + horizontal hairlines) with mil-dot ticks
+//     sits over a distant TARGET (a bottle / bullseye figure) on a ridge.
+//   * The smooth LOW frequencies are the BLUR. When lows dominate and highs are
+//     missing, the view is BLURRY / DOUBLED / hazy — the crosshair soft and
+//     smeared, the target an indistinct blob, the image WOBBLING with a
+//     breathing/heartbeat sway. lowFrequencyEnergy drives this haze.
+//   * The sharp HIGH frequencies are SHARPNESS. As the player KEEPS the highs
+//     (removes lows), the view snaps into RAZOR-SHARP focus: crisp crosshair,
+//     crisp distant target, steady aim, a clean range/wind readout.
+//   * resample(shape) drives the distant ridge silhouette + target position.
+//   * Start = blurry / unsteady. Solved (score→1) = pin-sharp shot lined up.
 //
 // Deterministic throughout (sin-hash, no Math.random / no Date); bounded loops;
-// the scene is fully redrawn each frame. Palette stays white-first CREAM with
-// the soft level accent; the spectrum is PALE PASTEL on cream, never neon.
-
-// Pale pastel spectrum (washed ROYGBIV) — the refracted light-petals. These are
-// already mixed far toward white so the fan reads as a soft rainbow on cream.
-const PETAL_SPECTRUM = [
-  0xe7a9a0, // pale rose
-  0xeac3a0, // pale peach
-  0xe7dca6, // pale butter
-  0xb6d8b0, // pale mint
-  0xa9cfe0, // pale sky
-  0xb3b2dd, // pale periwinkle
-  0xcdb2dd, // pale lilac
-];
+// fully redrawn each frame. Palette stays white-first CREAM with the slate
+// accent; pale-luminous pixel-art, light from top-left. NO neon.
 
 export class PrismRenderer implements WorldRenderer {
   container = new Container();
-  private back = new Graphics(); // dusk sky wash + the low light-shaft
-  private refl = new Graphics(); // dew-pool reflection
-  private body = new Graphics(); // ground, silk, stems, crisp glass blossoms
-  private fan = new Graphics(); // refracted pastel light-petals + sparkle + frost
+  private back = new Graphics(); // sky wash inside the scope + ground
+  private refl = new Graphics(); // unused mirror layer (kept for Painter)
+  private body = new Graphics(); // distant terrain, target, range readout
+  private fan = new Graphics(); // crosshair reticle, vignette ring, glint
   private accent: Accent;
   species: Species = "blossom";
 
@@ -69,542 +56,452 @@ export class PrismRenderer implements WorldRenderer {
     this.fan.clear();
     const p = new Painter(g, r, LAYOUT.waterY, LAYOUT.reflectionDepth, t);
 
-    const cx = Math.round(LAYOUT.W / 2);
-    const baseY = LAYOUT.waterY; // the still dew-pool surface
     const sc = Math.max(0, Math.min(1, score));
 
-    // Band energies drive the mechanic. Normalize against total so the reading
-    // is "how much of the kept content is sharp highs vs dull lows".
+    // --- The scope is a big circle filling the world band. ---
+    const cx = Math.round(LAYOUT.W / 2);
+    const top = LAYOUT.worldTop - 6;
+    const bot = LAYOUT.waterY + LAYOUT.reflectionDepth * 0.5;
+    const cy = Math.round((top + bot) / 2);
+    const R = Math.min(LAYOUT.W / 2 - 6, (bot - top) / 2);
+
+    // ===================== THE MECHANIC: SHARPNESS = HIGHS ============
+    // High fraction = how much of the kept content is sharp detail. Low
+    // fraction = the blur. score finishes the focus pull.
     const tot = Math.max(1e-4, shape.totalEnergy);
     const highFrac = Math.max(0, Math.min(1, shape.highFrequencyEnergy / tot));
     const lowFrac = Math.max(0, Math.min(1, shape.lowFrequencyEnergy / tot));
-    // sparkle = kept sharp detail; frost = remaining dull smooth lows.
-    const sparkle = Math.max(0, Math.min(1, 0.35 * highFrac + 0.65 * sc));
-    const frost = Math.max(0, Math.min(1, lowFrac * (1 - sc * 0.85)));
+    // sharp ~1 = razor focus & steady; ~0 = blurry, doubled, wobbling.
+    const sharp = Math.max(0, Math.min(1, 0.45 * highFrac + 0.55 * sc));
+    const blur = 1 - sharp; // 1 = max haze/double image
+    const unsteady = Math.max(0, Math.min(1, lowFrac * (1 - sc * 0.9) + blur * 0.3));
+
+    // Heartbeat / breathing sway of the whole sight picture. Steadies as sharp.
+    const breath = Math.sin(t * 0.9);
+    const beat = Math.sin(t * 2.4) * Math.max(0, Math.sin(t * 2.4)); // sharp pulse
+    const swayAmt = unsteady * 7 + 0.4;
+    const swayX = (breath * 0.7 + Math.sin(t * 1.31 + 1.0) * 0.3) * swayAmt;
+    const swayY = (Math.cos(t * 0.8) * 0.7 + beat * 0.5) * swayAmt;
 
     const wave = resample(shape, 96);
 
-    // The single low shaft enters from the upper-left toward the garden's heart.
-    const heartX = cx;
-    const heartY = LAYOUT.worldTop + (baseY - LAYOUT.worldTop) * 0.46;
+    // ===================== INSIDE THE SCOPE ==========================
+    // 1. sky + distant ground seen through the optic.
+    this.drawScopeView(cx, cy, R, swayX, swayY, wave, sharp, blur, t);
+    // 2. the distant target on the ridge (blob -> crisp figure/bullseye).
+    this.drawTarget(cx, cy, R, swayX, swayY, wave, sharp, blur, sc, t);
+    // 3. the CROSSHAIR reticle with mil-dot ticks (soft/doubled -> crisp).
+    this.drawReticle(cx, cy, R, swayX, swayY, sharp, blur, t);
 
-    // ============================ BACKGROUND ==========================
-    this.drawDuskSky(cx, baseY, sc);
-    this.drawShaft(heartX, heartY, sparkle, t);
+    // ===================== THE SCOPE BARREL / VIGNETTE ===============
+    // Big dark ring framing the circular view — the unmistakable scope.
+    this.drawVignette(cx, cy, R);
+    // a faint lens glint sweeping the glass (Painter for the soft highlight).
+    this.drawGlint(p, cx, cy, R, sharp, t);
 
-    // ============================ THE GARDEN GROUND ===================
-    island(p, cx, baseY - 4, 132, 26);
-
-    // dappled caustic light pooling on the ground beneath the blossoms.
-    this.drawCaustic(cx, baseY, wave, sparkle, t);
-
-    // ===================== SPIDER-SILK with travelling DEW ============
-    // Threads strung across the garden; the summed waveform is the dew beading
-    // and sliding along them. Sharper / brighter as highs are kept.
-    this.drawSilk(cx, baseY, heartY, wave, sparkle, frost, t);
-
-    // ===================== THE FACETED GLASS BLOSSOMS =================
-    // A row of crystal flowers. Each opens (petals unfurl, facets sharpen) as
-    // score rises; closed dull buds when muddy. Drawn with the Painter so they
-    // mirror in the dew-pool.
-    this.drawBlossoms(p, cx, baseY, sparkle, frost, t);
-
-    // ===================== REFRACTED PASTEL LIGHT-PETALS ==============
-    // The shaft strikes the open facets and fans into a soft pastel spectrum of
-    // light-petals. This IS the kept high-frequency sparkle made visible.
-    this.drawLightPetals(heartX, heartY, baseY, wave, sparkle, t);
-
-    // ===================== FLOATING POLLEN-PRISMS ====================
-    // Drifting motes that each scatter a tiny pale rainbow as they cross light.
-    this.drawPollen(cx, heartY, baseY, sparkle, t);
-
-    // ===================== THE FROSTED VEIL (the lows) ===============
-    // Milky frosted glass muffling the garden — the dull smooth lows you clear
-    // away. Drawn last so it literally sits OVER everything and lifts as solved.
-    this.drawFrost(cx, baseY, frost, t);
-
-    // ===================== RADIANT BLOOM (payoff) ====================
-    if (sc > 0.7) this.drawBloom(heartX, heartY, baseY, sc, t);
+    // ===================== RANGE / WIND READOUT ======================
+    // Appears crisp only when focused — the steady, ready-to-fire HUD.
+    this.drawReadout(cx, cy, R, sharp, wave, t);
   }
 
   // ------------------------------------------------------------------
-  // Dusk sky: white-first cream, warming faintly toward the accent low down
-  // where the shaft enters. Never dark — just a soft deepening at the horizon.
+  // The view through the glass: pale sky high, a distant hazy ridge low.
+  // When blurry the ridge is doubled & smeared; sharp = a crisp horizon line.
   // ------------------------------------------------------------------
-  private drawDuskSky(cx: number, baseY: number, sc: number) {
+  private drawScopeView(
+    cx: number,
+    cy: number,
+    R: number,
+    sx: number,
+    sy: number,
+    wave: number[],
+    sharp: number,
+    blur: number,
+    t: number,
+  ) {
     const b = this.back;
-    const topY = LAYOUT.worldTop - 4;
-    const H = baseY - topY;
-    const bands = 24;
-    const top = mixColor(PALETTE.white, PALETTE.paper, 0.55);
-    // dusk warmth: a whisper of accent at the horizon, kept very pale.
-    const bot = mixColor(PALETTE.paperDeep, this.accent.accentSoft, 0.1 + sc * 0.1);
+    const top = cy - R;
+    const H = R * 2;
+    // sky inside the optic: cream, faintly cool toward the accent up high.
+    const skyTop = mixColor(PALETTE.white, this.accent.accentSoft, 0.12);
+    const skyBot = mixColor(PALETTE.paper, this.accent.accentSoft, 0.06);
+    const bands = 22;
     for (let i = 0; i < bands; i++) {
       const u = i / (bands - 1);
-      const y = topY + u * H;
-      const c = mixColor(top, bot, u * u);
-      b.rect(0, y, LAYOUT.W, H / bands + 1).fill({ color: c, alpha: 0.92 });
+      const y = top + u * H;
+      const c = mixColor(skyTop, skyBot, u);
+      b.rect(cx - R - 2, y, R * 2 + 4, H / bands + 2).fill({ color: c, alpha: 1 });
     }
-    // a low luminous halo behind the garden's heart — the kept light gathering.
-    b.circle(cx, topY + H * 0.46, 70 + sc * 56).fill({
-      color: mixColor(PALETTE.white, this.accent.accentSoft, 0.35),
-      alpha: 0.04 + sc * 0.13,
-    });
-  }
 
-  // ------------------------------------------------------------------
-  // The low shaft of dusk light raking in from the upper-left.
-  // ------------------------------------------------------------------
-  private drawShaft(hx: number, hy: number, sparkle: number, t: number) {
-    const g = this.fan;
-    const ex = hx - 168;
-    const ey = hy - 124;
-    const dx = hx - ex;
-    const dy = hy - ey;
-    const len = Math.hypot(dx, dy);
-    const ux = dx / len;
-    const uy = dy / len;
-    const nx = -uy;
-    const ny = ux;
-    const flick = 0.86 + 0.14 * Math.sin(t * 1.7);
-    const halfW = 7 + sparkle * 3;
-    // soft wide haze then a pale warm core — the raking dusk beam.
-    for (let layer = 0; layer < 3; layer++) {
-      const w = halfW * (2.6 - layer * 0.75);
-      const a = (0.03 + layer * 0.05) * (0.5 + sparkle * 0.5) * flick;
-      g.moveTo(ex + nx * w, ey + ny * w)
-        .lineTo(hx + nx * w, hy + ny * w)
-        .lineTo(hx - nx * w, hy - ny * w)
-        .lineTo(ex - nx * w, ey - ny * w)
-        .fill({ color: mixColor(PALETTE.glow, this.accent.accentSoft, 0.16), alpha: a });
-    }
-    g.moveTo(ex, ey)
-      .lineTo(hx, hy)
-      .stroke({ width: 1.4, color: PALETTE.glow, alpha: 0.4 + sparkle * 0.35 });
-    // motes riding the shaft inward.
-    for (let i = 0; i < 5; i++) {
-      const u = (t * 0.26 + i * 0.2) % 1;
-      g.circle(ex + ux * len * u, ey + uy * len * u, 1.0 + 0.4 * Math.sin(t * 3 + i)).fill({
-        color: PALETTE.white,
-        alpha: 0.18 * flick,
-      });
-    }
-  }
-
-  // ------------------------------------------------------------------
-  // Dappled caustic light on the garden floor — the summed waveform spread as a
-  // shimmering pool of pale spectral dapples. Richer as highs are kept.
-  // ------------------------------------------------------------------
-  private drawCaustic(cx: number, baseY: number, wave: number[], sparkle: number, t: number) {
-    const g = this.fan;
+    // distant ridge silhouette, position driven by the waveform. The ridge sits
+    // a little below centre. Drawn as a soft band that is DOUBLED when blurry.
     const m = wave.length;
-    const halfW = 150;
-    const count = 80;
-    for (let j = 0; j <= count; j++) {
-      const u = j / count;
-      const x = cx - halfW + u * halfW * 2;
-      const idx = Math.min(m - 1, Math.floor(((u + t * 0.05) % 1) * (m - 1)));
-      const ripple = wave[idx] * (2 + sparkle * 3) + Math.sin(u * 20 + t * 1.5) * 1.3;
-      const y = baseY - 3 + ripple;
-      const si = Math.min(PETAL_SPECTRUM.length - 1, Math.floor(u * PETAL_SPECTRUM.length));
-      const col = mixColor(PETAL_SPECTRUM[si], PALETTE.white, 0.4);
-      const a = (0.05 + sparkle * 0.22) * (0.35 + 0.65 * Math.abs(wave[idx]));
-      g.circle(x, y, 1.0 + sparkle * 0.9).fill({
-        color: mixColor(col, this.accent.accentSoft, 0.2),
-        alpha: a,
-      });
+    const ridgeY = cy + R * 0.34 + sy;
+    const ridgeCol = mixColor(this.accent.ink, PALETTE.paper, 0.42);
+    const passes = blur > 0.25 ? 3 : 1; // ghost copies = the double image
+    for (let pI = 0; pI < passes; pI++) {
+      // ghost offset grows with blur; centre pass is the "true" ridge.
+      const ghost = (pI - (passes - 1) / 2) * blur * 6;
+      const a = passes === 1 ? 1 : pI === (passes - 1) / 2 ? 0.6 : 0.3 * (1 - blur * 0.3);
+      const cols = 64;
+      for (let j = 0; j <= cols; j++) {
+        const u = j / cols;
+        const x = cx - R + u * R * 2;
+        const idx = Math.min(m - 1, Math.floor(u * (m - 1)));
+        const hgt = wave[idx] * (10 + sharp * 8) + Math.sin(u * 9 + t * 0.2) * 2;
+        const yTop = ridgeY - hgt + ghost;
+        // clip to circle.
+        const dx = x - cx;
+        const inner = R * R - dx * dx;
+        if (inner <= 0) continue;
+        const yBotCircle = cy + Math.sqrt(inner);
+        b.rect(x - R / cols, yTop, R * 2 / cols + 2, Math.max(0, yBotCircle - yTop)).fill({
+          color: mixColor(ridgeCol, PALETTE.paperDeep, 0.2 + blur * 0.3),
+          alpha: a,
+        });
+      }
+    }
+
+    // hazy heat-shimmer / atmospheric blur veil over the distance when unfocused.
+    if (blur > 0.04) {
+      const rows = 10;
+      const milk = mixColor(PALETTE.white, PALETTE.paperDeep, 0.35);
+      for (let rI = 0; rI < rows; rI++) {
+        const v = rI / (rows - 1);
+        const y = top + v * H;
+        const shimmer = 0.6 + 0.4 * Math.sin(t * 1.4 + rI * 0.7);
+        const a = blur * 0.16 * (0.4 + v * 0.6) * shimmer;
+        if (a < 0.01) continue;
+        // band clipped to circle width at this y.
+        const dy = y - cy;
+        const inner = R * R - dy * dy;
+        if (inner <= 0) continue;
+        const halfW = Math.sqrt(inner);
+        b.rect(cx - halfW + sx, y, halfW * 2, H / rows + 2).fill({ color: milk, alpha: a });
+      }
     }
   }
 
   // ------------------------------------------------------------------
-  // Spider-silk threads with dew beading along them. The summed waveform is the
-  // dew height; sharp + bright when highs are kept, slack + frosted when muddy.
+  // The distant TARGET: an indistinct blob when blurry, snapping into a crisp
+  // little figure / bullseye on the ridge as the view sharpens.
   // ------------------------------------------------------------------
-  private drawSilk(
+  private drawTarget(
     cx: number,
-    baseY: number,
-    heartY: number,
+    cy: number,
+    R: number,
+    sx: number,
+    sy: number,
     wave: number[],
-    sparkle: number,
-    frost: number,
+    sharp: number,
+    blur: number,
+    sc: number,
     t: number,
   ) {
     const g = this.body;
     const m = wave.length;
-    const threads = 5;
-    const span = 150;
-    const silkCol = mixColor(PALETTE.inkFaint, PALETTE.white, 0.55 + sparkle * 0.25);
-    for (let s = 0; s < threads; s++) {
-      const seed = hashUnit(s * 4.1, 2.3);
-      const y0 = heartY + 6 + s * ((baseY - heartY - 10) / threads) + seed * 6;
-      const sag = 10 + seed * 14;
-      const x0 = cx - span;
-      const x1 = cx + span;
-      // crisp thread as a faint catenary of dots; clearer when highs kept.
-      const segs = 30;
-      const tA = (0.18 + sparkle * 0.3) * (1 - frost * 0.4);
-      for (let i = 0; i <= segs; i++) {
-        const u = i / segs;
-        const x = x0 + (x1 - x0) * u;
-        const y = y0 + Math.sin(u * Math.PI) * sag;
-        g.circle(x, y, 0.5).fill({ color: silkCol, alpha: tA });
-      }
-      // dew beads sliding along the thread, height from the waveform.
-      const beads = 6;
-      for (let b = 0; b < beads; b++) {
-        const slide = (b / beads + t * (0.04 + seed * 0.05)) % 1;
-        const x = x0 + (x1 - x0) * slide;
-        const baseYline = y0 + Math.sin(slide * Math.PI) * sag;
-        const widx = Math.min(m - 1, Math.floor(((slide + s * 0.13) % 1) * (m - 1)));
-        const off = wave[widx] * (1.6 + sparkle * 2.4);
-        const by = baseYline + off;
-        const rad = 0.8 + sparkle * 1.0 + Math.abs(wave[widx]) * 0.8;
-        const tw = 0.55 + 0.45 * Math.sin(t * 3.4 + b * 1.9 + s);
-        // dew bead = pale glass droplet with a top-left glint.
-        g.circle(x, by, rad).fill({
-          color: mixColor(PALETTE.white, this.accent.accentSoft, 0.18),
-          alpha: (0.25 + sparkle * 0.45) * (1 - frost * 0.5),
-        });
-        // crisp refractive glint — the sharp high-frequency sparkle.
-        g.circle(x - rad * 0.3, by - rad * 0.3, rad * 0.42).fill({
-          color: PALETTE.white,
-          alpha: (0.3 + sparkle * 0.55) * tw,
+    // target horizontal position wanders slightly with the waveform (range
+    // drift) but the AIM is at scope centre, so it sits near-centre.
+    const drift = wave[Math.floor((t * 0.04 % 1) * (m - 1)) % m] * (4 + blur * 10);
+    const tx = cx + drift * 0.4 + sx;
+    const ty = cy + R * 0.34 + sy - 4;
+
+    const dark = mixColor(this.accent.ink, PALETTE.ink, 0.4);
+    const blobCol = mixColor(this.accent.accent, PALETTE.paperDeep, 0.3);
+
+    if (blur > 0.45) {
+      // INDISTINCT BLOB: a few overlapping smeared circles, doubled & faint.
+      for (let k = 0; k < 4; k++) {
+        const ox = Math.sin(t * 1.2 + k * 2.1) * blur * 5;
+        const oy = Math.cos(t * 1.0 + k * 1.7) * blur * 3;
+        g.circle(tx + ox, ty + oy, 5 + k * 1.2).fill({
+          color: mixColor(blobCol, PALETTE.paper, 0.2),
+          alpha: 0.12 + 0.06 * (3 - k),
         });
       }
+      return;
+    }
+
+    // CRISP FIGURE: a small bottle / bullseye target on a post. Drawn sharper
+    // and more contrasty as `sharp` rises.
+    const detail = Math.max(0, Math.min(1, (sharp - 0.3) / 0.7));
+    const post = mixColor(this.accent.ink, PALETTE.paper, 0.35);
+    // post / stand.
+    g.rect(tx - 0.8, ty, 1.6, 12).fill({ color: post, alpha: 0.5 + detail * 0.4 });
+
+    // bullseye target plate.
+    const RR = 6.5;
+    const rings = [
+      mixColor(PALETTE.white, dark, 0.1),
+      this.accent.accent,
+      mixColor(PALETTE.white, dark, 0.1),
+      this.accent.accent,
+    ];
+    for (let k = 0; k < rings.length; k++) {
+      const rr = RR * (1 - k / rings.length);
+      g.circle(tx, ty - 6, rr).fill({
+        color: mixColor(rings[k], PALETTE.paper, blur * 0.5),
+        alpha: 0.6 + detail * 0.4 - blur * 0.2,
+      });
+    }
+    // crisp dark center dot — the aim point. Sharpest detail.
+    g.circle(tx, ty - 6, 1.3 + detail * 0.4).fill({
+      color: dark,
+      alpha: 0.7 + detail * 0.3,
+    });
+    // top-left highlight on the plate (pale-luminous, light from top-left).
+    g.circle(tx - RR * 0.35, ty - 6 - RR * 0.35, RR * 0.3).fill({
+      color: PALETTE.white,
+      alpha: 0.18 + detail * 0.25,
+    });
+
+    // when fully focused & solved, a tiny "locked" tick flicks at the center.
+    if (sc > 0.7) {
+      const pulse = 0.5 + 0.5 * Math.sin(t * 4);
+      g.circle(tx, ty - 6, RR + 2 + pulse * 1.5).stroke({
+        width: 0.8,
+        color: this.accent.accent,
+        alpha: (sc - 0.7) / 0.3 * 0.4 * pulse,
+      });
     }
   }
 
   // ------------------------------------------------------------------
-  // A row of faceted glass blossoms. Each opens with score: closed frosted bud
-  // when muddy -> sharp open crystal flower scattering pale light when solved.
-  // Painter-drawn so the blooms mirror in the dew-pool.
+  // The CROSSHAIR reticle: vertical + horizontal hairlines crossing the centre,
+  // with mil-dot tick marks. Soft / smeared / doubled when blurry; razor-crisp
+  // single hairlines when sharp.
   // ------------------------------------------------------------------
-  private drawBlossoms(
-    p: Painter,
-    cx: number,
-    baseY: number,
-    sparkle: number,
-    frost: number,
-    t: number,
-  ) {
-    const count = 5;
-    const span = 120;
-    for (let i = 0; i < count; i++) {
-      const u = count > 1 ? i / (count - 1) : 0.5;
-      const seed = hashUnit(i * 9.7, 3.1);
-      const bx = cx + (u - 0.5) * span * 2;
-      // stagger heights; central blossoms taller toward the shaft's heart.
-      const central = 1 - Math.abs(u - 0.5) * 2;
-      const stemH = 26 + central * 26 + seed * 10;
-      const topY = baseY - stemH;
-
-      // --- stem: slim pale glass column, top-left lit ---
-      const stemCol = mixColor(this.accent.accentSoft, PALETTE.white, 0.45);
-      const stemSh = mixColor(this.accent.accent, this.accent.ink, 0.4);
-      const segs = Math.round(stemH / 4);
-      let sx = bx;
-      const sway = Math.sin(t * 0.9 + i * 1.3) * (1.4 + sparkle * 1.6);
-      for (let k = 0; k < segs; k++) {
-        const kt = k / Math.max(1, segs - 1);
-        sx = bx + sway * kt;
-        const y = baseY - 4 - kt * stemH;
-        p.block(sx - 1.4, y, 2.8, 4, stemCol, 0.7);
-        p.block(sx - 1.4, y, 1.2, 4, mixColor(stemCol, PALETTE.white, 0.4), 0.5);
-        p.block(sx + 0.6, y, 0.8, 4, stemSh, 0.4);
-      }
-      const flx = sx;
-      const fly = topY;
-
-      // how open the blossom is: muddy -> closed bud, solved -> wide open.
-      const open = Math.max(0, Math.min(1, sparkle * (0.55 + central * 0.45)));
-      this.drawGlassFlower(p, flx, fly, seed, open, frost, sparkle, t);
-    }
-  }
-
-  // ------------------------------------------------------------------
-  // One faceted glass flower. `open` 0 = tight frosted bud, 1 = wide crystal
-  // bloom with sharp pastel-tinted facets. Reflected via the Painter.
-  // ------------------------------------------------------------------
-  private drawGlassFlower(
-    p: Painter,
+  private drawReticle(
     cx: number,
     cy: number,
-    seed: number,
-    open: number,
-    frost: number,
-    sparkle: number,
+    R: number,
+    sx: number,
+    sy: number,
+    sharp: number,
+    blur: number,
     t: number,
   ) {
-    const petals = 6;
-    const R = (5 + seed * 3) * (0.5 + open * 0.9); // bud small, bloom large
-    // pastel glass tones, faintly accent-tinted, kept very pale.
-    const si = Math.floor(seed * PETAL_SPECTRUM.length) % PETAL_SPECTRUM.length;
-    const tint = mixColor(PETAL_SPECTRUM[si], this.accent.accentSoft, 0.4);
-    const glass = mixColor(PALETTE.white, tint, 0.45);
-    const glassLit = mixColor(PALETTE.white, tint, 0.18);
-    const glassSh = mixColor(glass, this.accent.ink, 0.28);
-    // a closed bud is muffled by frost; soften the whole flower while muddy.
-    const flowerA = 0.9 * (1 - frost * 0.35);
+    const g = this.fan;
+    const ox = cx + sx; // reticle sways with the sight picture
+    const oy = cy + sy;
+    const hairCol = mixColor(this.accent.ink, PALETTE.ink, 0.5);
+    const reach = R * 0.96;
 
-    for (let q = 0; q < petals; q++) {
-      const baseAng = (q / petals) * Math.PI * 2 - Math.PI / 2;
-      // petals fold inward (closed) when open~0, spread out when open~1.
-      const reach = R * (0.35 + open * 0.85);
-      const flutter = Math.sin(t * 1.6 + q * 1.4 + seed * 6) * 0.06 * open;
-      const ang = baseAng + flutter;
-      const px = cx + Math.cos(ang) * reach;
-      const py = cy + Math.sin(ang) * reach;
-      // diamond/teardrop petal as two facet triangles (top-left lit, lower-right shade).
-      const ux = Math.cos(ang);
-      const uy = Math.sin(ang);
-      const nx = -uy;
-      const ny = ux;
-      const halfW = (1.3 + open * 1.8) + seed * 0.6;
-      const tipx = cx + ux * reach * (1.35 + open * 0.25);
-      const tipy = cy + uy * reach * (1.35 + open * 0.25);
-      // lit facet (toward light = upper-left bias)
-      const lit = ux * -0.7 + uy * -0.7 > 0;
-      p.main
-        .moveTo(cx, cy)
-        .lineTo(px + nx * halfW, py + ny * halfW)
-        .lineTo(tipx, tipy)
-        .fill({ color: lit ? glassLit : glass, alpha: flowerA });
-      p.main
-        .moveTo(cx, cy)
-        .lineTo(px - nx * halfW, py - ny * halfW)
-        .lineTo(tipx, tipy)
-        .fill({ color: lit ? glass : glassSh, alpha: flowerA });
-      // crisp facet edge — the sharp high-frequency line. Sharper as solved.
-      p.main
-        .moveTo(cx, cy)
-        .lineTo(tipx, tipy)
-        .stroke({
-          width: 0.8,
-          color: mixColor(PALETTE.white, tint, 0.25),
-          alpha: (0.3 + open * 0.5 + sparkle * 0.2) * (1 - frost * 0.4),
-        });
-      // bright dew/refraction glint at the petal tip when open.
-      if (open > 0.25) {
-        const tw = 0.5 + 0.5 * Math.sin(t * 4 + q * 2.1 + seed * 9);
-        p.main.circle(tipx, tipy, 0.7 + open * 0.9).fill({
-          color: PALETTE.white,
-          alpha: (0.25 + open * 0.5) * tw,
-        });
-      }
-      // mirror the petal into the dew-pool (manual reflection via block dots).
-      const reflY = 2 * p.waterY - py;
-      const dist = reflY - p.waterY;
-      if (dist > 0 && dist < p.depth) {
-        const fade = Math.max(0, 1 - dist / p.depth) * 0.4;
-        const wob = Math.sin(p.t * 1.6 + reflY * 0.12) * (1 + dist * 0.03);
-        p.refl.circle(px + wob, reflY, halfW).fill({
-          color: mixColor(lit ? glassLit : glass, PALETTE.water, 0.35),
-          alpha: flowerA * fade,
-        });
-      }
+    // Thick outer "duplex" stubs from the rim toward centre (classic look),
+    // thin hairline through the middle. Doubled ghosting when blurry.
+    const ghostCount = blur > 0.2 ? 2 : 0;
+    const drawHair = (
+      x0: number,
+      y0: number,
+      x1: number,
+      y1: number,
+      width: number,
+      alpha: number,
+    ) => {
+      g.moveTo(x0, y0).lineTo(x1, y1).stroke({ width, color: hairCol, alpha });
+    };
+
+    // the soft/smeared base when blurry: ghost copies offset perpendicular.
+    for (let gi = -ghostCount; gi <= ghostCount; gi++) {
+      if (gi === 0) continue;
+      const off = gi * blur * 3;
+      const a = 0.18 * (1 - blur * 0.2);
+      // vertical ghost
+      drawHair(ox + off, oy - reach, ox + off, oy + reach, 1 + blur * 1.5, a);
+      // horizontal ghost
+      drawHair(ox - reach, oy + off, ox + reach, oy + off, 1 + blur * 1.5, a);
     }
 
-    // bright faceted core / pistil — the concentrated kept light.
-    p.main.circle(cx, cy, 1.0 + open * 1.6).fill({
-      color: mixColor(PALETTE.glow, tint, 0.3),
-      alpha: (0.4 + open * 0.45) * (1 - frost * 0.3),
+    // crisp central hairlines — width tightens & alpha rises with sharp.
+    const hw = 0.9 + blur * 1.8; // thicker/softer when blurry
+    const ha = 0.35 + sharp * 0.55;
+    // duplex thick stubs (outer thirds).
+    const stub = reach * 0.62;
+    const stubW = 2.2 + blur * 1.5;
+    // vertical
+    drawHair(ox, oy - reach, ox, oy - stub, stubW, ha);
+    drawHair(ox, oy + stub, ox, oy + reach, stubW, ha);
+    drawHair(ox, oy - stub, ox, oy + stub, hw, ha);
+    // horizontal
+    drawHair(ox - reach, oy, ox - stub, oy, stubW, ha);
+    drawHair(ox + stub, oy, ox + reach, oy, stubW, ha);
+    drawHair(ox - stub, oy, ox + stub, oy, hw, ha);
+
+    // MIL-DOT ticks along the hairlines. Crisp dots when sharp; smeared blobs
+    // when blurry.
+    const dots = 5;
+    const spacing = stub / (dots + 0.5);
+    const dotR = 1.0 + blur * 1.3;
+    const dotA = 0.3 + sharp * 0.5;
+    for (let d = 1; d <= dots; d++) {
+      const off = d * spacing;
+      const dr = dotR * (d === dots ? 0.8 : 1);
+      // vertical line dots
+      g.circle(ox, oy - off, dr).fill({ color: hairCol, alpha: dotA });
+      g.circle(ox, oy + off, dr).fill({ color: hairCol, alpha: dotA });
+      // horizontal line dots
+      g.circle(ox - off, oy, dr).fill({ color: hairCol, alpha: dotA });
+      g.circle(ox + off, oy, dr).fill({ color: hairCol, alpha: dotA });
+    }
+
+    // a crisp little open center box (aim point) that closes tight as focused.
+    const boxR = 3.5 - sharp * 1.2;
+    g.rect(ox - boxR, oy - boxR, boxR * 2, boxR * 2).stroke({
+      width: 0.8 + blur,
+      color: hairCol,
+      alpha: 0.3 + sharp * 0.5,
     });
-    if (open > 0.4) {
-      p.main.circle(cx - 0.6, cy - 0.6, 0.6 + open * 0.6).fill({
-        color: PALETTE.white,
-        alpha: 0.4 + open * 0.4,
+
+    // focus shimmer: when nearly sharp, a faint bright pulse rings the centre.
+    if (sharp > 0.55) {
+      const pulse = 0.5 + 0.5 * Math.sin(t * 3);
+      g.circle(ox, oy, 14).stroke({
+        width: 0.8,
+        color: mixColor(this.accent.accent, PALETTE.white, 0.3),
+        alpha: (sharp - 0.55) * 0.5 * pulse,
       });
     }
   }
 
   // ------------------------------------------------------------------
-  // Refracted pastel light-petals: the shaft striking the open facets fans into
-  // a soft spectrum of translucent petal-shaped light wedges. THE kept highs.
+  // The scope barrel: a big circular vignette ring with a darkened cream rim,
+  // making the whole scene unmistakably "looking down a scope".
   // ------------------------------------------------------------------
-  private drawLightPetals(
-    hx: number,
-    hy: number,
-    baseY: number,
-    wave: number[],
-    sparkle: number,
-    t: number,
-  ) {
+  private drawVignette(cx: number, cy: number, R: number) {
     const g = this.fan;
-    const n = PETAL_SPECTRUM.length;
-    const baseAng = Math.PI * 0.12; // near horizontal-down
-    const spread = Math.PI * 0.46;
-    const reach = (baseY - hy) * 1.0;
-    const m = wave.length;
-    for (let i = 0; i < n; i++) {
-      const fk = n > 1 ? i / (n - 1) : 0.5;
-      const ang = baseAng + fk * spread + Math.sin(t * 0.8 + i) * 0.012;
-      // petals grow with sparkle; high (outer) petals reach + sharpen most.
-      const len = reach * (0.5 + 0.5 * fk) * (0.3 + sparkle * 0.75);
-      if (len < 4) continue;
-      const ux = Math.cos(ang);
-      const uy = Math.sin(ang);
-      const ex = hx + ux * len;
-      const ey = hy + uy * len;
-      const nx = -uy;
-      const ny = ux;
-      // pastel colour, already pale; sharper outer petals slightly more saturated.
-      let col = mixColor(PETAL_SPECTRUM[i], PALETTE.white, 0.4 - fk * 0.2);
-      col = mixColor(col, this.accent.accentSoft, 0.18);
-      // petal-shaped wedge: narrow at the heart, bellies out, tapers to a point.
-      const belly = (1.4 + fk * 3.5) * (0.5 + sparkle * 0.7);
-      const mx = hx + ux * len * 0.55;
-      const my = hy + uy * len * 0.55;
-      const a = (0.05 + sparkle * 0.2) * (0.5 + fk * 0.5);
-      g.moveTo(hx, hy)
-        .lineTo(mx + nx * belly, my + ny * belly)
-        .lineTo(ex, ey)
-        .lineTo(mx - nx * belly, my - ny * belly)
-        .fill({ color: col, alpha: a });
-      // crisp bright vein down the petal — the sharp kept edge.
-      g.moveTo(hx, hy)
-        .lineTo(ex, ey)
-        .stroke({
-          width: 0.7 + fk * (0.6 + sparkle * 0.8),
-          color: mixColor(col, PALETTE.white, 0.4),
-          alpha: Math.min(1, a * 2.2 + sparkle * 0.25 + fk * 0.15),
-        });
-      // the brightest (outer) petal carries the dew-wave as a travelling glint.
-      if (i === n - 1) {
-        const cnt = 28;
-        for (let j = 0; j <= cnt; j++) {
-          const u = j / cnt;
-          const px = hx + (ex - hx) * u;
-          const py = hy + (ey - hy) * u;
-          const widx = Math.min(m - 1, Math.floor(((u + t * 0.1) % 1) * (m - 1)));
-          const off = wave[widx] * (2 + sparkle * 3) * Math.sin(u * Math.PI);
-          g.circle(px + nx * off, py + ny * off, 0.8).fill({
-            color: mixColor(col, PALETTE.white, 0.4),
-            alpha: (0.25 + sparkle * 0.4) * Math.sin(u * Math.PI),
-          });
-        }
-      }
-      // spectral spark at the petal tip.
-      if (sparkle > 0.2) {
-        g.circle(ex, ey, 0.8 + sparkle * 1.3 * fk).fill({
-          color: mixColor(col, PALETTE.white, 0.5),
-          alpha: 0.2 + sparkle * 0.4 * (0.4 + fk * 0.6),
-        });
-      }
-    }
-  }
-
-  // ------------------------------------------------------------------
-  // Floating pollen-prisms: drifting motes, each casting a tiny pale rainbow.
-  // ------------------------------------------------------------------
-  private drawPollen(cx: number, heartY: number, baseY: number, sparkle: number, t: number) {
-    const g = this.fan;
-    const count = 16;
-    for (let i = 0; i < count; i++) {
-      const seed = hashUnit(i * 5.7, i * 2.9);
-      const seed2 = hashUnit(i * 3.3, 8.1);
-      // slow drift loop across the garden mid-band.
-      const phase = (t * (0.03 + seed * 0.04) + seed) % 1;
-      const x = cx + (seed2 - 0.5) * 280 + Math.sin(t * 0.5 + i) * 10;
-      const y = heartY - 14 + phase * (baseY - heartY + 4);
-      const tw = 0.5 + 0.5 * Math.sin(t * 3 + i * 2.3);
-      const r = 0.9 + seed * 0.9;
-      const a = (0.12 + sparkle * 0.32) * tw;
-      // the mote itself — a pale glass speck.
-      g.circle(x, y, r).fill({
-        color: mixColor(PALETTE.white, this.accent.accentSoft, 0.2),
+    // 1. soft inner vignette darkening toward the rim (light falloff).
+    const vrings = 10;
+    for (let i = 0; i < vrings; i++) {
+      const u = i / (vrings - 1);
+      const rr = R * (0.7 + u * 0.3);
+      const a = u * u * 0.22;
+      g.circle(cx, cy, rr).stroke({
+        width: R * 0.06 + 2,
+        color: mixColor(this.accent.ink, PALETTE.ink, 0.3),
         alpha: a,
       });
-      // a tiny scattered rainbow trailing the mote (only when light is kept).
-      if (sparkle > 0.25) {
-        for (let k = 0; k < 3; k++) {
-          const si = (i + k * 2) % PETAL_SPECTRUM.length;
-          const col = mixColor(PETAL_SPECTRUM[si], PALETTE.white, 0.45);
-          g.circle(x + k * 1.4 - 1.4, y + k * 0.8, 0.6).fill({
-            color: col,
-            alpha: (sparkle - 0.25) * 0.5 * tw,
-          });
-        }
-      }
     }
-  }
 
-  // ------------------------------------------------------------------
-  // The frosted veil — the dull smooth LOWS. A milky pixel fog laid OVER the
-  // garden that thins and lifts as those lows are removed (score up / frost
-  // down), revealing the crisp sparkle beneath.
-  // ------------------------------------------------------------------
-  private drawFrost(cx: number, baseY: number, frost: number, t: number) {
-    if (frost < 0.02) return;
-    const g = this.fan;
-    const topY = LAYOUT.worldTop;
-    const H = baseY - topY;
-    const milk = mixColor(PALETTE.white, PALETTE.paperDeep, 0.3);
-    // soft milky blocks with deterministic dither so it reads as frosted glass,
-    // not a flat overlay. Denser toward the bottom where the buds sit.
-    const cols = 16;
-    const rows = 12;
-    for (let r = 0; r < rows; r++) {
-      const v = r / (rows - 1);
-      for (let cI = 0; cI < cols; cI++) {
-        const u = cI / (cols - 1);
-        const hsh = hashUnit(cI * 1.7 + r * 0.3, r * 2.1 + cI * 0.9);
-        // breathe slowly so the fog feels alive.
-        const breathe = 0.85 + 0.15 * Math.sin(t * 0.7 + cI * 0.5 + r * 0.3);
-        const a = frost * (0.16 + hsh * 0.12) * (0.6 + v * 0.6) * breathe;
-        if (a < 0.01) continue;
-        const x = u * LAYOUT.W;
-        const y = topY + v * H;
-        g.rect(x, y, LAYOUT.W / cols + 2, H / rows + 2).fill({ color: milk, alpha: a });
-      }
-    }
-    void cx;
-  }
+    // 2. the cream "outside the scope" mask: fill the four corners around the
+    //    circle with the page cream so the optic reads as a clean circle. Drawn
+    //    as a thick ring of cream beyond R, then the world edges.
+    const outer = mixColor(PALETTE.paper, PALETTE.paperDeep, 0.4);
+    // big cream ring covering everything just outside the circle.
+    g.circle(cx, cy, R + R).stroke({ width: R * 1.6, color: outer, alpha: 1 });
 
-  // ------------------------------------------------------------------
-  // Above score 0.7: the garden's radiant bloom — a warm pale core at the heart
-  // and a ring of refracted light-petals + sparkle, the lush payoff.
-  // ------------------------------------------------------------------
-  private drawBloom(hx: number, hy: number, baseY: number, sc: number, t: number) {
-    const g = this.fan;
-    const intensity = (sc - 0.7) / 0.3; // 0..1
-    // radiant pale core at the heart of the garden.
-    g.circle(hx, hy, 26 + intensity * 34).fill({
-      color: mixColor(PALETTE.glow, this.accent.accentSoft, 0.25),
-      alpha: 0.05 + intensity * 0.16,
+    // 3. the dark scope barrel ring — the bold black-ish circle. Light from the
+    //    top-left gives it a pale-luminous bevel.
+    const barrel = mixColor(this.accent.ink, PALETTE.ink, 0.6);
+    g.circle(cx, cy, R + 4).stroke({ width: 8, color: barrel, alpha: 0.95 });
+    // inner thin bright line (lens edge).
+    g.circle(cx, cy, R).stroke({
+      width: 1.4,
+      color: mixColor(PALETTE.white, this.accent.accentSoft, 0.3),
+      alpha: 0.6,
     });
-    // a corona of short pastel light-petals radiating outward.
-    const petals = 18;
-    for (let i = 0; i < petals; i++) {
-      const ang = (i / petals) * Math.PI * 2 + t * 0.2;
-      const len = (14 + intensity * 22) * (0.7 + 0.3 * Math.sin(t * 2 + i));
-      const ex = hx + Math.cos(ang) * len;
-      const ey = hy + Math.sin(ang) * len * 0.92;
-      const si = i % PETAL_SPECTRUM.length;
-      const col = mixColor(PETAL_SPECTRUM[si], PALETTE.white, 0.4);
-      g.moveTo(hx, hy)
-        .lineTo(ex, ey)
-        .stroke({
-          width: 1.2,
-          color: mixColor(col, this.accent.accentSoft, 0.2),
-          alpha: intensity * (0.18 + 0.18 * Math.sin(t * 3 + i)),
-        });
-    }
-    // drifting sparkles scattering through the bloom, deterministic.
-    const count = 18;
-    for (let i = 0; i < count; i++) {
-      const seed = hashUnit(i * 13.1, i * 7.7);
-      const ang = seed * Math.PI * 2 + t * (0.4 + seed * 0.6);
-      const rad = (16 + seed * 44) * (0.6 + intensity * 0.6);
-      const px = hx + Math.cos(ang) * rad;
-      const py = hy + Math.sin(ang) * rad * 0.85;
-      const tw = 0.5 + 0.5 * Math.sin(t * 4 + i * 1.7);
-      const si = Math.floor(seed * PETAL_SPECTRUM.length) % PETAL_SPECTRUM.length;
-      g.circle(px, py, 0.7 + seed * 1.3).fill({
-        color: mixColor(PETAL_SPECTRUM[si], PALETTE.white, 0.45),
-        alpha: intensity * (0.25 + tw * 0.45),
+    // top-left bevel highlight arc on the barrel.
+    g.arc(cx, cy, R + 4, Math.PI * 1.05, Math.PI * 1.55).stroke({
+      width: 8,
+      color: mixColor(barrel, PALETTE.white, 0.4),
+      alpha: 0.5,
+    });
+    // bottom-right shade arc.
+    g.arc(cx, cy, R + 4, Math.PI * 0.05, Math.PI * 0.55).stroke({
+      width: 8,
+      color: mixColor(barrel, PALETTE.ink, 0.5),
+      alpha: 0.5,
+    });
+  }
+
+  // ------------------------------------------------------------------
+  // A faint lens glint sweeping across the glass — drawn with the Painter so it
+  // sits as a soft pale highlight. Brighter when the optic is well-focused.
+  // ------------------------------------------------------------------
+  private drawGlint(p: Painter, cx: number, cy: number, R: number, sharp: number, t: number) {
+    const sweep = (t * 0.12) % 1;
+    const ang = -Math.PI * 0.75 + sweep * Math.PI * 0.5;
+    const gx = cx + Math.cos(ang) * R * 0.5;
+    const gy = cy + Math.sin(ang) * R * 0.5;
+    const a = 0.06 + sharp * 0.14;
+    for (let i = 0; i < 4; i++) {
+      p.main.circle(gx + i * 2, gy + i * 1.2, 6 - i * 1.2).fill({
+        color: mixColor(PALETTE.white, this.accent.accentSoft, 0.2),
+        alpha: a * (1 - i * 0.2),
       });
     }
-    void baseY;
+    // a tiny top-left lens-flare star at the brightest glint when sharp.
+    if (sharp > 0.5) {
+      const fx = cx - R * 0.5;
+      const fy = cy - R * 0.5;
+      const tw = 0.5 + 0.5 * Math.sin(t * 4);
+      p.main.circle(fx, fy, 2 + tw).fill({ color: PALETTE.white, alpha: (sharp - 0.5) * 0.5 * tw });
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Range / wind readout: small pale-luminous tick marks + a numeric-feeling
+  // scale at the bottom of the optic. Fades in CRISP only when focused — the
+  // "steady, ready" HUD. Built from blocks so it stays pixel-art, no fonts.
+  // ------------------------------------------------------------------
+  private drawReadout(
+    cx: number,
+    cy: number,
+    R: number,
+    sharp: number,
+    wave: number[],
+    t: number,
+  ) {
+    if (sharp < 0.25) return;
+    const g = this.body;
+    const a = (sharp - 0.25) / 0.75;
+    const col = mixColor(this.accent.ink, PALETTE.ink, 0.4);
+
+    // bottom range scale: a row of ticks across the lower chord of the circle.
+    const sy = cy + R * 0.72;
+    const dxw = Math.sqrt(Math.max(0, R * R - (sy - cy) * (sy - cy))) * 0.85;
+    const ticks = 11;
+    for (let i = 0; i < ticks; i++) {
+      const u = i / (ticks - 1);
+      const x = cx - dxw + u * dxw * 2;
+      const tall = i % 2 === 0 ? 4 : 2;
+      g.rect(x - 0.4, sy - tall, 0.9, tall).fill({ color: col, alpha: 0.35 * a });
+    }
+    // a small moving "wind" caret riding the waveform along that scale.
+    const m = wave.length;
+    const idx = Math.floor((t * 0.08 % 1) * (m - 1)) % m;
+    const wx = cx + wave[idx] * dxw * 0.7;
+    g.rect(wx - 1.2, sy - 7, 2.4, 2).fill({ color: this.accent.accent, alpha: 0.5 * a });
+
+    // left vertical elevation scale: short ticks up the left side of the optic.
+    const lx = cx - R * 0.72;
+    const lyTop = cy - R * 0.45;
+    const lyBot = cy + R * 0.45;
+    const vt = 9;
+    for (let i = 0; i < vt; i++) {
+      const u = i / (vt - 1);
+      const y = lyTop + u * (lyBot - lyTop);
+      const long = i % 2 === 0 ? 4 : 2;
+      // clip to circle.
+      const dy = y - cy;
+      const inner = R * R - dy * dy;
+      if (inner <= 0) continue;
+      const xEdge = cx - Math.sqrt(inner) * 0.85;
+      g.rect(xEdge, y - 0.4, long, 0.9).fill({ color: col, alpha: 0.3 * a });
+    }
+
+    // "FOCUS LOCKED" style steady indicator at top when very sharp: three pale
+    // blocks that brighten as steadiness rises.
+    if (sharp > 0.6) {
+      const lvl = (sharp - 0.6) / 0.4;
+      const ty = cy - R * 0.72;
+      for (let i = 0; i < 3; i++) {
+        const on = lvl > i / 3 ? 1 : 0.2;
+        g.rect(cx - 7 + i * 5, ty, 3.2, 3.2).fill({
+          color: mixColor(this.accent.accent, PALETTE.white, 0.2),
+          alpha: 0.5 * a * on,
+        });
+      }
+    }
   }
 
   setAccent(a: Accent) {
@@ -614,10 +511,4 @@ export class PrismRenderer implements WorldRenderer {
   destroy() {
     this.container.destroy({ children: true });
   }
-}
-
-// Deterministic hash in [0,1).
-function hashUnit(x: number, y: number): number {
-  const n = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
-  return n - Math.floor(n);
 }
