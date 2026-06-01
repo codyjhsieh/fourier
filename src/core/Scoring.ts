@@ -15,7 +15,8 @@ export type ScoreModel =
   | "phase"
   | "full"
   | "denoise"
-  | "symmetry";
+  | "symmetry"
+  | "bandMatch";
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
@@ -170,6 +171,11 @@ export function scoreShape(
       finalScore = 0.5 * parityMatch + 0.5 * wf;
       break;
     }
+    case "bandMatch":
+      // Filtering (low/high/band-pass): reward matching the target's energy
+      // across the low/mid/high bands — keep the right band, drop the rest.
+      finalScore = 0.55 * en + 0.3 * wf + 0.15 * hc;
+      break;
     case "full":
     default:
       // Level 4: combined mastery.

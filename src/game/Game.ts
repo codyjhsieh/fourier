@@ -18,6 +18,11 @@ import { GardenRenderer } from "../render/structures/GardenRenderer";
 import { ReefRenderer } from "../render/structures/ReefRenderer";
 import { OrreryRenderer } from "../render/structures/OrreryRenderer";
 import { StarfieldRenderer } from "../render/structures/StarfieldRenderer";
+import { TerrainRenderer } from "../render/structures/TerrainRenderer";
+import { PrismRenderer } from "../render/structures/PrismRenderer";
+import { LatticeRenderer } from "../render/structures/LatticeRenderer";
+import { CardiographRenderer } from "../render/structures/CardiographRenderer";
+import { KilnRenderer } from "../render/structures/KilnRenderer";
 import { LEVELS, LevelDef, buildHarmonics } from "./Levels";
 import { LAYOUT, recomputeLayout } from "../render/Layout";
 import {
@@ -199,6 +204,16 @@ export class Game {
         return new OrreryRenderer(accent);
       case "starfield":
         return new StarfieldRenderer(accent);
+      case "terrain":
+        return new TerrainRenderer(accent);
+      case "prism":
+        return new PrismRenderer(accent);
+      case "lattice":
+        return new LatticeRenderer(accent);
+      case "cardiograph":
+        return new CardiographRenderer(accent);
+      case "kiln":
+        return new KilnRenderer(accent);
     }
   }
 

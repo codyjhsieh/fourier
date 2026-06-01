@@ -15,7 +15,12 @@ export type RendererKind =
   | "garden"
   | "reef"
   | "orrery"
-  | "starfield";
+  | "starfield"
+  | "terrain"
+  | "prism"
+  | "lattice"
+  | "cardiograph"
+  | "kiln";
 
 export interface HarmonicSpec {
   index: number;
@@ -482,5 +487,194 @@ export const LEVELS: LevelDef[] = [
     ],
     start: [{ index: 1, amplitude: 0.5, phase: 0 }],
     threshold: 0.9,
+  },
+
+  // ---------------------------------------------------------------- L11
+  // LOW-PASS: a jagged, high-frequency ridge. Remove the high stones to erode
+  // it into smooth rolling hills (match the low-band energy profile).
+  {
+    id: 11,
+    indexLabel: "EXTREME 11",
+    title: "THE WORN RIDGE",
+    subtitle: "erode the jagged peaks into rolling hills",
+    instructions:
+      "the ridge is jagged with high frequencies\nremove the high stones to smooth it into gentle hills",
+    accentKey: "jade",
+    scenery: "pine",
+    time: "day",
+    renderer: "terrain",
+    targetWaveStyle: "dotted",
+    scoreModel: "bandMatch",
+    palette: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    control: {
+      indices: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+      stoneToggle: true, stoneAmplitude: true, stonePhase: false,
+      showAmplitudeRow: false, showPhaseRow: false,
+      amplitudeInteractive: false, phaseInteractive: false,
+    },
+    target: [
+      { index: 1, amplitude: 0.9 },
+      { index: 2, amplitude: 0.5 },
+      { index: 3, amplitude: 0.2 },
+    ],
+    start: [
+      { index: 1, amplitude: 0.9 },
+      { index: 2, amplitude: 0.5 },
+      { index: 3, amplitude: 0.2 },
+      { index: 6, amplitude: 0.6 },
+      { index: 7, amplitude: 0.5 },
+      { index: 8, amplitude: 0.5 },
+      { index: 9, amplitude: 0.4 },
+    ],
+    threshold: 0.85,
+  },
+
+  // ---------------------------------------------------------------- L12
+  // HIGH-PASS: keep only the sharp high frequencies the prism refracts. Remove
+  // the broad, washed-out low band so only the vivid high colours remain.
+  {
+    id: 12,
+    indexLabel: "EXTREME 12",
+    title: "THE KEPT LIGHT",
+    subtitle: "drop the dull lows — keep the sharp colours",
+    instructions:
+      "low frequencies wash the spectrum pale\nremove the low stones to keep only the vivid high rays",
+    accentKey: "rose",
+    scenery: "crystal",
+    time: "dusk",
+    renderer: "prism",
+    targetWaveStyle: "dotted",
+    scoreModel: "bandMatch",
+    palette: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    control: {
+      indices: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+      stoneToggle: true, stoneAmplitude: true, stonePhase: false,
+      showAmplitudeRow: false, showPhaseRow: false,
+      amplitudeInteractive: false, phaseInteractive: false,
+    },
+    target: [
+      { index: 6, amplitude: 0.5 },
+      { index: 7, amplitude: 0.4 },
+      { index: 8, amplitude: 0.4 },
+      { index: 9, amplitude: 0.3 },
+    ],
+    start: [
+      { index: 1, amplitude: 0.9 },
+      { index: 2, amplitude: 0.6 },
+      { index: 3, amplitude: 0.4 },
+      { index: 6, amplitude: 0.5 },
+      { index: 7, amplitude: 0.4 },
+      { index: 8, amplitude: 0.4 },
+      { index: 9, amplitude: 0.3 },
+    ],
+    threshold: 0.85,
+  },
+
+  // ---------------------------------------------------------------- L13
+  // BAND-PASS: isolate the middle band of the weave. Remove BOTH the low and
+  // the high threads so only the mid lanes glow.
+  {
+    id: 13,
+    indexLabel: "EXTREME 13",
+    title: "THE MIDDLE WEAVE",
+    subtitle: "drop the low and high — isolate the middle band",
+    instructions:
+      "the weave is crowded above and below the middle\nremove the lowest and highest stones to isolate the mid band",
+    accentKey: "indigo",
+    scenery: "willow",
+    time: "night",
+    renderer: "lattice",
+    targetWaveStyle: "dotted",
+    scoreModel: "bandMatch",
+    palette: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    control: {
+      indices: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+      stoneToggle: true, stoneAmplitude: true, stonePhase: false,
+      showAmplitudeRow: false, showPhaseRow: false,
+      amplitudeInteractive: false, phaseInteractive: false,
+    },
+    target: [
+      { index: 3, amplitude: 0.6 },
+      { index: 4, amplitude: 0.5 },
+      { index: 5, amplitude: 0.4 },
+    ],
+    start: [
+      { index: 1, amplitude: 0.8 },
+      { index: 3, amplitude: 0.6 },
+      { index: 4, amplitude: 0.5 },
+      { index: 5, amplitude: 0.4 },
+      { index: 8, amplitude: 0.5 },
+      { index: 9, amplitude: 0.4 },
+    ],
+    threshold: 0.85,
+  },
+
+  // ---------------------------------------------------------------- L14
+  // BROADBAND PULSE: a heartbeat is a sharp localized spike, which needs many
+  // harmonics of similar height. Build them up until the trace shows a clean
+  // pulse on the monitor.
+  {
+    id: 14,
+    indexLabel: "EXTREME 14",
+    title: "THE STEADY PULSE",
+    subtitle: "stack the harmonics into one clean heartbeat",
+    instructions:
+      "a sharp pulse needs many harmonics of equal height\nadd them up until the trace beats clean and steady",
+    accentKey: "crimson",
+    scenery: "dead",
+    time: "night",
+    renderer: "cardiograph",
+    targetWaveStyle: "dotted",
+    scoreModel: "waveform",
+    palette: [1, 2, 3, 4, 5, 6, 7, 8],
+    control: {
+      indices: [1, 2, 3, 4, 5, 6, 7, 8],
+      stoneToggle: true, stoneAmplitude: true, stonePhase: false,
+      showAmplitudeRow: false, showPhaseRow: false,
+      amplitudeInteractive: false, phaseInteractive: false,
+    },
+    target: [
+      { index: 1, amplitude: 0.4 },
+      { index: 2, amplitude: 0.4 },
+      { index: 3, amplitude: 0.4 },
+      { index: 4, amplitude: 0.3 },
+      { index: 5, amplitude: 0.3 },
+      { index: 6, amplitude: 0.2 },
+    ],
+    start: [{ index: 1, amplitude: 0.4 }],
+    threshold: 0.85,
+  },
+
+  // ---------------------------------------------------------------- L15
+  // HARMONIC SERIES / TIMBRE: tune the bell's overtones to a pure octave stack
+  // (1, 2, 4, 8 at 1/k) so the rings ring evenly and golden.
+  {
+    id: 15,
+    indexLabel: "EXTREME 15",
+    title: "THE TUNED BELL",
+    subtitle: "stack the overtones into a pure octave ring",
+    instructions:
+      "a true bell rings in octaves — 1, 2, 4, 8\nset those overtones until the rings space evenly",
+    accentKey: "amber",
+    scenery: "palm",
+    time: "dusk",
+    renderer: "kiln",
+    targetWaveStyle: "dotted",
+    scoreModel: "waveform",
+    palette: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    control: {
+      indices: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+      stoneToggle: true, stoneAmplitude: true, stonePhase: false,
+      showAmplitudeRow: false, showPhaseRow: false,
+      amplitudeInteractive: false, phaseInteractive: false,
+    },
+    target: [
+      { index: 1, amplitude: 1.0 },
+      { index: 2, amplitude: 0.5 },
+      { index: 4, amplitude: 0.3 },
+      { index: 8, amplitude: 0.2 },
+    ],
+    start: [{ index: 1, amplitude: 0.5 }],
+    threshold: 0.85,
   },
 ];

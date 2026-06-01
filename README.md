@@ -59,8 +59,9 @@ ever **interprets** it — drawing physical architecture, never a chart. A share
 
 ## Levels
 
-Ten levels in all: each concept is introduced, practiced, and given a boss,
-with the cathedral as the finale.
+Fifteen levels across fifteen distinct environments. The first ten teach the
+core ideas (amplitude, energy, phase, then new mechanics in new worlds); levels
+11–15 add a filtering & timbre set in five more environments.
 
 | # | Level | Teaches | Biome |
 |---|-------|---------|-------|
@@ -74,6 +75,11 @@ with the cathedral as the finale.
 | 8 | The Tideturner | energy — break the storm (boss) | dragon |
 | 9 | The Last Seal | phase — align six threads (boss) | gate |
 | 10 | The Harmonic Cathedral | **combined mastery** — amplitude + phase | cathedral (gold) |
+| 11 | The Worn Ridge | **low-pass** — erode the high frequencies | terrain |
+| 12 | The Kept Light | **high-pass** — keep the sharp colours | prism |
+| 13 | The Middle Weave | **band-pass** — isolate the mid band | lattice |
+| 14 | The Steady Pulse | **broadband pulse** — stack harmonics into a spike | cardiograph |
+| 15 | The Tuned Bell | **harmonic series** — tune the overtones | bell |
 
 - **L1 — Fractured Arch.** Two mountains joined by a stone arch bridge (2D side
   view). The deck top follows the waveform and meets each mountain ledge; pixel
