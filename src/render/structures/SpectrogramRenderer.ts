@@ -3,28 +3,29 @@ import { ShapeData } from "../../core/ShapeData";
 import { HarmonicComponent } from "../../core/Harmonic";
 import { Accent, mixColor, PALETTE } from "../../theme";
 import { LAYOUT } from "../Layout";
-import { Painter, WorldRenderer, resample } from "./common";
+import { Painter, WorldRenderer } from "./common";
 import { Species } from "./Scenery";
 
-// "The Spectrum Analyzer" — a beautiful dual-domain instrument display.
+// "Read the Bars" reimagined — a BIOLUMINESCENT FUNGAL ORGAN.
 //
-// The player is matching a target spectrum, and this renderer presents BOTH
-// domains on one glowing phosphor screen:
+// The clinical equalizer is gone. In its place: a GLOWING MUSHROOM GROVE — a
+// dense row of living luminous fungal towers (coral organ-pipes), one per
+// frequency, that the player grows or shrinks to match a softly-glowing GHOST
+// silhouette of target caps hovering at each target height.
 //
-//   • TOP  — a TIME-DOMAIN scope: the live reconstructed waveform traced as a
-//            luminous phosphor line, with a faint dotted TARGET ghost behind it.
-//   • MID  — a scrolling SPECTROGRAM strip: a heat-band that brightens where
-//            harmonic energy sits, scrolling with `t` for the classic look.
-//   • BOT  — a FREQUENCY-DOMAIN bar graph: one vertical bar per harmonic, height
-//            ∝ |amplitude|, topped with a soft glow cap. Faint TARGET bars sit
-//            behind the live ones so the goal reads as "raise each bar up to its
-//            target."
+//   • Each frequency is one luminous STALK rising from the mossy bank. Its
+//     height is the current amplitude; you raise or lower it toward its target.
+//   • A pale GHOST CAP floats at each TARGET height — the silhouette to match.
+//   • When a stalk reaches its target the cap BLOOMS into a flowering
+//     mushroom-cap with gills and a soft burst of spores.
+//   • Spores drift on the air, moss and vines lace between the stalks, every
+//     cap pulses a soft glow. When all match (score→1) the whole grove blooms
+//     and a wave of spores lifts off.
 //
-// Everything sits on a soft glowing instrument panel (rounded screen, faint
-// graticule, top-left-lit bezel), reflected faintly below the waterline via the
-// Painter. White-first cream; the accent is the phosphor / glow colour. As the
-// score rises the bars snap onto their targets and the panel glows; past 0.7 a
-// soft bloom washes the screen. Fully deterministic (sin hash, no Math.random).
+// White-first cream; the accent is the soft luminous spore-glow. Light reads
+// from the top-left, everything is soft pixel-art, and the grove reflects in
+// the still water below via the Painter. Fully deterministic (sin/hash only —
+// no Math.random, no Date). Bounded loops, 60fps mobile.
 
 // cheap deterministic hash in [0,1)
 function hash(x: number, y: number): number {
@@ -36,353 +37,304 @@ export class SpectrogramRenderer implements WorldRenderer {
   container = new Container();
   species: Species = "blossom";
 
-  private bezel = new Graphics(); // panel chassis (auto-reflected via Painter)
+  private bank = new Graphics(); // mossy bank + stalks (reflected via Painter)
   private refl = new Graphics();
-  private screen = new Graphics(); // graticule, traces, bars, heat (not reflected)
-  private glow = new Graphics(); // glow caps, bloom, phosphor halos
+  private flora = new Graphics(); // moss, vines, ghost silhouettes (not reflected)
+  private glow = new Graphics(); // caps glow, spores, blooms
 
   private accent: Accent;
 
   constructor(accent: Accent) {
     this.accent = accent;
-    this.container.addChild(this.refl, this.bezel, this.screen, this.glow);
+    this.container.addChild(this.refl, this.bank, this.flora, this.glow);
   }
 
-  // amplitude in [0,1] for a harmonic by list index (across the width)
+  // amplitude in [0,1] for a harmonic
   private amp(h: HarmonicComponent | undefined): number {
     if (!h || !h.enabled) return 0;
     return Math.min(1, Math.abs(h.amplitude));
   }
 
   update(
-    shape: ShapeData,
-    target: ShapeData,
+    _shape: ShapeData,
+    _target: ShapeData,
     score: number,
     t: number,
     harmonics: HarmonicComponent[],
     targetHarmonics: HarmonicComponent[],
   ) {
-    const b = this.bezel;
+    const bk = this.bank;
     const r = this.refl;
-    const s = this.screen;
+    const fl = this.flora;
     const gl = this.glow;
-    b.clear();
+    bk.clear();
     r.clear();
-    s.clear();
+    fl.clear();
     gl.clear();
     const accent = this.accent;
-    const p = new Painter(b, r, LAYOUT.waterY, LAYOUT.reflectionDepth, t);
+    const p = new Painter(bk, r, LAYOUT.waterY, LAYOUT.reflectionDepth, t);
 
-    // phosphor tones — accent is the glow; everything reads white-first cream.
-    const phosphor = mixColor(accent.accent, PALETTE.white, 0.12);
-    const phosphorSoft = mixColor(accent.accentSoft, PALETTE.white, 0.3);
-    const screenInk = mixColor(accent.ink, 0x000000, 0.18);
-    const grid = mixColor(accent.accentSoft, PALETTE.white, 0.5);
+    // ---- luminous fungal palette — white-first cream, soft spore glow -------
+    const flesh = mixColor(PALETTE.paper, accent.accentSoft, 0.22); // stalk body
+    const fleshLit = mixColor(flesh, PALETTE.white, 0.55); // top-left light
+    const fleshShade = mixColor(flesh, accent.ink, 0.34); // shaded right
+    const capGlow = mixColor(accent.accentSoft, PALETTE.white, 0.4); // soft halo
+    const capCore = mixColor(PALETTE.white, accent.accentSoft, 0.18); // bright cap
+    const mossDeep = mixColor(accent.ink, PALETTE.paperDeep, 0.45);
+    const mossLit = mixColor(accent.accentSoft, PALETTE.white, 0.5);
+    const ghostInk = mixColor(accent.accentSoft, PALETTE.white, 0.55);
+    const vine = mixColor(accent.ink, accent.accentSoft, 0.45);
 
-    // ---- panel geometry ----------------------------------------------------
+    const lift = 0.5 + 0.5 * Math.sin(t * 0.6); // gentle living pulse [0,1]
+
+    // ---- grove geometry ----------------------------------------------------
     const W = LAYOUT.W;
-    const cx = W / 2;
     const margin = 30;
-    const panelX = margin;
-    const panelW = W - margin * 2;
-    const top = LAYOUT.worldTop + 6;
-    const bottom = LAYOUT.waterY - 14;
-    const panelY = top;
-    const panelH = bottom - top;
-    const radius = 16;
+    const groveX = margin;
+    const groveW = W - margin * 2;
+    const top = LAYOUT.worldTop + 8;
+    const baseY = LAYOUT.waterY - 6; // stalks root at the waterline bank
+    const groveH = baseY - top;
+    const maxH = groveH * 0.9;
 
-    const lift = 1 + 0.4 * Math.sin(t * 0.6); // gentle living glow
-
-    // ---- bezel / chassis (reflected) ---------------------------------------
-    // Build the rounded panel out of Painter blocks so it mirrors in the water.
-    // Body fill.
-    const chassis = mixColor(PALETTE.paperDeep, accent.inkSoft, 0.22);
-    const chassisLight = mixColor(chassis, PALETTE.white, 0.5);
-    const chassisShade = mixColor(chassis, accent.ink, 0.4);
+    // ---- soft ground haze behind the grove (luminous understory) -----------
     {
-      const step = 4;
-      for (let y = panelY; y < panelY + panelH; y += step) {
-        const dyTop = y - panelY;
-        const dyBot = panelY + panelH - y;
-        const dyEdge = Math.min(dyTop, dyBot);
-        // rounded-corner inset: shrink the row width near top/bottom
-        let inset = 0;
-        if (dyEdge < radius) {
-          const u = dyEdge / radius;
-          inset = (1 - Math.sin((u * Math.PI) / 2)) * radius;
-        }
-        const rx = panelX + inset;
-        const rw = panelW - inset * 2;
-        if (rw <= 0) continue;
-        p.block(rx, y, rw, step, chassis, 0.96);
-      }
-      // top-left lit bevel + bottom-right shade
-      p.block(panelX + radius, panelY, panelW - radius * 2, 3, chassisLight, 0.6);
-      p.block(panelX, panelY + radius, 3, panelH - radius * 2, chassisLight, 0.5);
-      p.block(
-        panelX + radius,
-        panelY + panelH - 3,
-        panelW - radius * 2,
-        3,
-        chassisShade,
-        0.5,
-      );
-      p.block(
-        panelX + panelW - 3,
-        panelY + radius,
-        3,
-        panelH - radius * 2,
-        chassisShade,
-        0.45,
-      );
+      const haze = mixColor(accent.accentSoft, PALETTE.white, 0.62);
+      gl.rect(groveX - 8, baseY - groveH * 0.5, groveW + 16, groveH * 0.5).fill({
+        color: haze,
+        alpha: 0.05 + 0.03 * lift,
+      });
     }
 
-    // inner screen rectangle (inset from the bezel)
-    const pad = 12;
-    const scX = panelX + pad;
-    const scY = panelY + pad;
-    const scW = panelW - pad * 2;
-    const scH = panelH - pad * 2;
+    const n = Math.max(1, harmonics.length);
+    const slot = groveW / n;
+    const stalkW = Math.max(3, slot * 0.42);
+    const baseX = groveX;
 
-    // dark glassy screen background (on the non-reflected screen layer)
-    s.roundRect(scX, scY, scW, scH, 8).fill({
-      color: mixColor(screenInk, accent.accent, 0.08),
-      alpha: 0.9,
-    });
-    // soft vignette / inner glow
-    s.roundRect(scX, scY, scW, scH, 8).stroke({
-      width: 2,
-      color: phosphorSoft,
-      alpha: 0.22 + 0.04 * lift,
-    });
+    // snap factor: as score rises, shown stalks ease toward their targets
+    const snap = Math.max(0, Math.min(1, (score - 0.2) / 0.8));
 
-    // ---- three stacked regions inside the screen ---------------------------
-    const gap = 8;
-    const scopeH = scH * 0.34;
-    const heatH = scH * 0.14;
-    const barsH = scH - scopeH - heatH - gap * 2;
-    const scopeTop = scY + 2;
-    const scopeBot = scopeTop + scopeH;
-    const heatTop = scopeBot + gap;
-    const heatBot = heatTop + heatH;
-    const barsTop = heatBot + gap;
-    const barsBot = scY + scH - 4;
-
-    // faint graticule across the whole screen
+    // ---- mossy bank the stalks root into (reflected via Painter) -----------
     {
-      const cols = 8;
-      const rows = 5;
-      for (let i = 1; i < cols; i++) {
-        const x = scX + (scW * i) / cols;
-        s.moveTo(x, scY + 3)
-          .lineTo(x, scY + scH - 3)
-          .stroke({ width: 1, color: grid, alpha: 0.08 });
-      }
-      for (let j = 1; j < rows; j++) {
-        const y = scY + (scH * j) / rows;
-        s.moveTo(scX + 3, y)
-          .lineTo(scX + scW - 3, y)
-          .stroke({ width: 1, color: grid, alpha: 0.08 });
+      const bankH = 10;
+      for (let x = groveX - 6; x < groveX + groveW + 6; x += 6) {
+        const wob = Math.sin(x * 0.18 + 1.3) * 2 + Math.sin(x * 0.07) * 2;
+        const col = mixColor(mossDeep, mossLit, hash(x, 7) * 0.4);
+        p.block(x, baseY - 2 + wob * 0.4, 6.5, bankH, col, 0.92);
+        // lit top crust
+        p.block(
+          x,
+          baseY - 2 + wob * 0.4,
+          6.5,
+          2.4,
+          mixColor(col, PALETTE.white, 0.4),
+          0.6,
+        );
       }
     }
 
-    // ====================================================================
-    // TIME DOMAIN — scope trace of the live reconstructed waveform
-    // ====================================================================
-    {
-      const cols = 140;
-      const live = resample(shape, cols); // [-1,1]
-      const ghost = resample(target, cols); // [-1,1]
-      const midY = (scopeTop + scopeBot) / 2;
-      const amp = scopeH * 0.42;
-      const xAt = (i: number) => scX + 4 + ((scW - 8) * i) / (cols - 1);
-      const yAt = (v: number) => midY - v * amp;
+    // ---- pass 1: GHOST target silhouettes (the caps to match) --------------
+    // Drawn first so live stalks rise in front of their pale goal.
+    for (let i = 0; i < n; i++) {
+      const tgt = this.amp(targetHarmonics[i]);
+      if (tgt < 0.02) continue;
+      const cx = baseX + slot * i + slot / 2;
+      const tgtY = baseY - tgt * maxH;
+      const capR = stalkW * 0.95;
 
-      // centreline
-      s.moveTo(scX + 4, midY)
-        .lineTo(scX + scW - 4, midY)
-        .stroke({ width: 1, color: grid, alpha: 0.12 });
-
-      // TARGET ghost — faint dotted
-      for (let i = 0; i < cols - 1; i += 3) {
-        s.moveTo(xAt(i), yAt(ghost[i]))
-          .lineTo(xAt(i + 1.4 < cols ? i + 1 : i), yAt(ghost[Math.min(cols - 1, i + 1)]))
-          .stroke({ width: 1.4, color: phosphorSoft, alpha: 0.3 });
-      }
-
-      // LIVE trace — bright phosphor, with a soft underglow
-      // underglow pass
-      s.moveTo(xAt(0), yAt(live[0]));
-      for (let i = 1; i < cols; i++) s.lineTo(xAt(i), yAt(live[i]));
-      s.stroke({ width: 4, color: phosphor, alpha: 0.18 + 0.08 * lift });
-      // core line
-      s.moveTo(xAt(0), yAt(live[0]));
-      for (let i = 1; i < cols; i++) s.lineTo(xAt(i), yAt(live[i]));
-      s.stroke({ width: 1.8, color: mixColor(phosphor, PALETTE.white, 0.4), alpha: 0.9 });
-
-      // a travelling scan dot riding the trace
-      const sp = (Math.sin(t * 0.5) * 0.5 + 0.5) * (cols - 1);
-      const si = Math.max(0, Math.min(cols - 1, Math.round(sp)));
-      gl.circle(xAt(si), yAt(live[si]), 2.4).fill({ color: PALETTE.white, alpha: 0.8 });
-      gl.circle(xAt(si), yAt(live[si]), 6).fill({ color: phosphorSoft, alpha: 0.22 });
-    }
-
-    // ====================================================================
-    // SPECTROGRAM strip — scrolling heat-band brightening where energy sits
-    // ====================================================================
-    {
-      const n = Math.max(1, harmonics.length);
-      const cells = 48;
-      const cw = (scW - 8) / cells;
-      const heatX = scX + 4;
-      for (let i = 0; i < cells; i++) {
-        // map cell -> a harmonic bin; scroll the phase with t
-        const u = i / (cells - 1);
-        const bin = Math.min(n - 1, Math.floor(u * n));
-        const a = this.amp(harmonics[bin]);
-        // scrolling shimmer so the band reads as a live spectrogram
-        const scroll = 0.5 + 0.5 * Math.sin(t * 1.3 - u * 6.2 + hash(bin, 1) * 6.28);
-        const e = Math.min(1, a * (0.65 + 0.45 * scroll));
-        if (e < 0.02) continue;
-        // heat ramp: ink -> accent -> white as energy rises
-        let col: number;
-        if (e < 0.5) col = mixColor(screenInk, accent.accent, e * 2);
-        else col = mixColor(accent.accent, PALETTE.white, (e - 0.5) * 2 * 0.7);
-        s.rect(heatX + i * cw, heatTop, cw + 0.6, heatBot - heatTop).fill({
-          color: col,
-          alpha: 0.16 + 0.6 * e,
+      // faint dotted stalk guide from the bank up to the ghost cap
+      for (let y = baseY; y > tgtY + capR * 0.4; y -= 7) {
+        fl.rect(cx - 0.7, y - 3.5, 1.4, 3).fill({
+          color: ghostInk,
+          alpha: 0.22,
         });
       }
-      // thin frame above/below the strip
-      s.rect(scX + 4, heatTop - 1, scW - 8, 1).fill({ color: grid, alpha: 0.18 });
-      s.rect(scX + 4, heatBot, scW - 8, 1).fill({ color: grid, alpha: 0.18 });
+      // ghost mushroom-cap silhouette (a soft dome)
+      fl.ellipse(cx, tgtY, capR, capR * 0.62).fill({
+        color: ghostInk,
+        alpha: 0.16 + 0.05 * lift,
+      });
+      fl.ellipse(cx, tgtY, capR, capR * 0.62).stroke({
+        width: 1.2,
+        color: ghostInk,
+        alpha: 0.4,
+      });
     }
 
-    // ====================================================================
-    // FREQUENCY DOMAIN — one luminous bar per harmonic, vs target bars
-    // ====================================================================
+    // ---- pass 2: hanging vines lacing between adjacent stalks ---------------
     {
-      const n = Math.max(1, harmonics.length);
-      const slot = (scW - 8) / n;
-      const barW = Math.max(2, slot * 0.56);
-      const baseY = barsBot;
-      const maxH = barsBot - barsTop;
-      const baseX = scX + 4;
-
-      // baseline
-      s.rect(baseX, baseY, scW - 8, 1.4).fill({ color: grid, alpha: 0.3 });
-
-      // snap factor: as score rises, live bars lerp toward targets
-      const snap = Math.max(0, Math.min(1, (score - 0.2) / 0.8));
-
+      const shownH: number[] = [];
       for (let i = 0; i < n; i++) {
-        const slotX = baseX + slot * i + (slot - barW) / 2;
-
         const live = this.amp(harmonics[i]);
         const tgt = this.amp(targetHarmonics[i]);
-        // displayed live height eases toward the target as mastery grows
-        const shown = live + (tgt - live) * snap * 0.35;
-
-        const liveH = Math.max(0, shown) * maxH;
-        const tgtH = Math.max(0, tgt) * maxH;
-
-        // --- TARGET bar (faint, behind) — the goal height to reach ---
-        if (tgtH > 0.5) {
-          s.rect(slotX, baseY - tgtH, barW, tgtH).fill({
-            color: phosphorSoft,
-            alpha: 0.14,
-          });
-          // dotted target cap line
-          s.rect(slotX - 1, baseY - tgtH, barW + 2, 1.4).fill({
-            color: phosphorSoft,
-            alpha: 0.4,
-          });
-        }
-
-        // --- LIVE bar (luminous phosphor) ---
-        if (liveH > 0.5) {
-          // body with a top-light gradient via two stacked fills
-          const matched = tgtH > 1 && Math.abs(liveH - tgtH) < maxH * 0.06;
-          const bodyCol = matched
-            ? mixColor(accent.accent, PALETTE.white, 0.25)
-            : phosphor;
-          s.rect(slotX, baseY - liveH, barW, liveH).fill({
-            color: bodyCol,
-            alpha: 0.7,
-          });
-          // bright left edge (top-left lit)
-          s.rect(slotX, baseY - liveH, Math.max(1, barW * 0.3), liveH).fill({
-            color: mixColor(bodyCol, PALETTE.white, 0.4),
-            alpha: 0.5,
-          });
-          // shaded right edge
-          s.rect(
-            slotX + barW - Math.max(1, barW * 0.22),
-            baseY - liveH,
-            Math.max(1, barW * 0.22),
-            liveH,
-          ).fill({ color: mixColor(bodyCol, 0x000000, 0.25), alpha: 0.35 });
-
-          // soft glow cap atop the bar
-          const capX = slotX + barW / 2;
-          const capY = baseY - liveH;
-          gl.circle(capX, capY, barW * 0.7).fill({
-            color: phosphorSoft,
-            alpha: 0.25 + 0.12 * lift,
-          });
-          gl.circle(capX, capY, Math.max(1.4, barW * 0.32)).fill({
-            color: mixColor(PALETTE.white, accent.accentSoft, 0.2),
-            alpha: matched ? 0.9 : 0.6,
-          });
-          // a little upward sparkle when this bar matches its target
-          if (matched) {
-            const spk = (t * 22 + i * 17) % 30;
-            gl.circle(
-              capX + (hash(i, 2) - 0.5) * barW,
-              capY - spk,
-              1,
-            ).fill({ color: PALETTE.white, alpha: 0.5 * (1 - spk / 30) });
+        shownH.push(Math.max(0, live + (tgt - live) * snap * 0.35) * maxH);
+      }
+      for (let i = 0; i < n - 1; i++) {
+        const x0 = baseX + slot * i + slot / 2;
+        const x1 = baseX + slot * (i + 1) + slot / 2;
+        const y0 = baseY - shownH[i];
+        const y1 = baseY - shownH[i + 1];
+        if (shownH[i] < 6 || shownH[i + 1] < 6) continue;
+        // a catenary-ish vine sagging between two cap rims, gently swaying
+        const seg = 6;
+        for (let k = 0; k <= seg; k++) {
+          const u = k / seg;
+          const sag = Math.sin(u * Math.PI) * (10 + 8 * hash(i, 3));
+          const sway = Math.sin(t * 0.8 + i + u * 3) * 1.5;
+          const vx = x0 + (x1 - x0) * u + sway;
+          const vy = y0 + (y1 - y0) * u + sag + 6;
+          fl.circle(vx, vy, 1.3).fill({ color: vine, alpha: 0.3 });
+          // an occasional luminous moss bead on the vine
+          if (hash(i * 7 + k, 9) > 0.78) {
+            gl.circle(vx, vy, 1.6).fill({ color: capGlow, alpha: 0.4 });
           }
         }
       }
     }
 
-    // ---- panel ambient glow (warms with the score) -------------------------
-    gl.roundRect(scX, scY, scW, scH, 8).stroke({
-      width: 1.5,
-      color: phosphor,
-      alpha: 0.1 + 0.18 * score,
-    });
-    gl.circle(cx, (scopeTop + barsBot) / 2, scW * 0.6).fill({
-      color: phosphorSoft,
-      alpha: 0.02 + 0.05 * score + 0.01 * lift,
-    });
+    // ---- pass 3: the living luminous STALKS (reflected) + caps -------------
+    let allMatched = true;
+    for (let i = 0; i < n; i++) {
+      const cx = baseX + slot * i + slot / 2;
+      const slotX = cx - stalkW / 2;
 
-    // ---- high-mastery bloom (score > 0.7) ----------------------------------
+      const live = this.amp(harmonics[i]);
+      const tgt = this.amp(targetHarmonics[i]);
+      const shown = live + (tgt - live) * snap * 0.35;
+
+      const liveH = Math.max(0, shown) * maxH;
+      const tgtH = Math.max(0, tgt) * maxH;
+      const matched = tgtH > 4 && Math.abs(liveH - tgtH) < maxH * 0.06;
+      if (tgt >= 0.02 && !matched) allMatched = false;
+
+      if (liveH < 2) continue;
+
+      const capY = baseY - liveH;
+      // a soft breathing sway so the grove feels alive
+      const sway = Math.sin(t * 0.7 + i * 0.9) * (liveH / maxH) * 2.2;
+
+      // --- stalk body: tapered, top-left lit (reflects in water) ---
+      const rows = Math.max(2, Math.round(liveH / 5));
+      for (let rr = 0; rr < rows; rr++) {
+        const u = rr / rows; // 0 at base, 1 at cap
+        const y = baseY - u * liveH;
+        const wob = sway * u; // sway grows toward the cap
+        // gentle bulge — fungal stalks swell slightly toward the cap
+        const ww = stalkW * (0.78 + 0.22 * Math.sin(u * Math.PI));
+        const sx = cx - ww / 2 + wob;
+        p.block(sx, y - liveH / rows - 1, ww, liveH / rows + 1.5, flesh, 0.9);
+        // top-left light stripe + shaded right edge
+        p.block(sx, y - liveH / rows - 1, Math.max(1, ww * 0.32), liveH / rows + 1.5, fleshLit, 0.6);
+        p.block(
+          sx + ww - Math.max(1, ww * 0.22),
+          y - liveH / rows - 1,
+          Math.max(1, ww * 0.22),
+          liveH / rows + 1.5,
+          fleshShade,
+          0.5,
+        );
+        // faint luminous freckles climbing the stalk
+        if (hash(i * 5 + rr, 2) > 0.8) {
+          gl.circle(sx + ww * 0.5, y - 2, 1.3).fill({
+            color: capGlow,
+            alpha: 0.35 + 0.2 * lift,
+          });
+        }
+      }
+
+      const capX = cx + sway;
+      const capR = stalkW * (matched ? 1.0 : 0.62);
+
+      // --- soft luminous halo around every cap (pulses) ---
+      gl.circle(capX, capY, capR * (matched ? 2.0 : 1.5)).fill({
+        color: capGlow,
+        alpha: (matched ? 0.28 : 0.16) + 0.1 * lift,
+      });
+
+      if (matched) {
+        // --- BLOOMED mushroom-cap: a flowering dome with gills ---
+        // dome body, top-left lit
+        for (let gy = 0; gy >= -3; gy--) {
+          const u = -gy / 3;
+          const rw = capR * Math.cos(u * 1.2) * 1.05;
+          if (rw < 0.4) continue;
+          const yy = capY + gy * 2.2 - 1;
+          const lit = mixColor(capCore, PALETTE.white, 0.3);
+          bk.rect(capX - rw, yy, rw * 2, 2.6).fill({ color: capCore, alpha: 0.95 });
+          bk.rect(capX - rw, yy, rw * 0.7, 2.6).fill({ color: lit, alpha: 0.7 });
+          bk.rect(capX + rw * 0.5, yy, rw * 0.5, 2.6).fill({
+            color: mixColor(capCore, accent.ink, 0.3),
+            alpha: 0.5,
+          });
+        }
+        // gills under the cap rim
+        for (let g = -2; g <= 2; g++) {
+          bk.rect(capX + g * (capR * 0.32), capY + 1, 1, 3).fill({
+            color: mixColor(accent.accentSoft, accent.ink, 0.3),
+            alpha: 0.5,
+          });
+        }
+        // bright bloom core + spore burst rising
+        gl.circle(capX, capY, capR * 0.5).fill({ color: PALETTE.white, alpha: 0.85 });
+        for (let sp = 0; sp < 5; sp++) {
+          const ph = (t * 18 + i * 13 + sp * 11) % 40;
+          const ang = sp * 1.3 + i;
+          const dx = Math.cos(ang) * ph * 0.5;
+          const sy = capY - ph;
+          p.dot(capX + dx, sy, 1.1, capGlow, 0.5 * (1 - ph / 40));
+        }
+      } else {
+        // --- unbloomed bud: a tight glowing knob atop the stalk ---
+        bk.circle(capX, capY, capR).fill({ color: capCore, alpha: 0.85 });
+        bk.circle(capX - capR * 0.3, capY - capR * 0.3, capR * 0.45).fill({
+          color: mixColor(capCore, PALETTE.white, 0.5),
+          alpha: 0.7,
+        });
+        gl.circle(capX, capY, Math.max(1.2, capR * 0.4)).fill({
+          color: PALETTE.white,
+          alpha: 0.5 + 0.2 * lift,
+        });
+      }
+    }
+
+    // ---- drifting ambient spores across the whole grove --------------------
+    {
+      const spores = 26;
+      for (let i = 0; i < spores; i++) {
+        const hx = hash(i, 11);
+        const hy = hash(i, 13);
+        const drift = (t * (4 + hx * 6) + i * 23) % (groveH + 40);
+        const sx =
+          groveX + hx * groveW + Math.sin(t * 0.5 + i) * 6;
+        const sy = baseY - drift + 20;
+        const a = 0.18 + 0.18 * hy;
+        p.dot(sx, sy, 0.8 + hy * 0.9, capGlow, a * (0.6 + 0.4 * lift));
+      }
+    }
+
+    // ---- whole-grove bloom when fully mastered (score → 1) -----------------
     if (score > 0.7) {
       const k = (score - 0.7) / 0.3;
-      // screen-wide bloom wash
-      gl.roundRect(scX, scY, scW, scH, 8).fill({
-        color: PALETTE.white,
-        alpha: 0.06 * k * (0.7 + 0.3 * lift),
+      // broad luminous wash lifting through the canopy
+      gl.rect(groveX - 10, top - 6, groveW + 20, groveH).fill({
+        color: mixColor(PALETTE.glow, accent.accentSoft, 0.35),
+        alpha: 0.05 * k * (0.7 + 0.3 * lift),
       });
-      // radiant halo behind the panel
-      gl.circle(cx, scY + scH / 2, scW * 0.62).fill({
-        color: mixColor(PALETTE.glow, accent.accentSoft, 0.4),
-        alpha: 0.08 * k,
-      });
-      // orbiting glints around the screen frame when fully mastered
-      if (k > 0.5) {
-        const m = (k - 0.5) / 0.5;
-        for (let i = 0; i < 14; i++) {
-          const ang = (i / 14) * Math.PI * 2 + t * 0.4;
-          const rx = scW * 0.5 + 6;
-          const ry = scH * 0.5 + 6;
-          gl.circle(
-            cx + Math.cos(ang) * rx,
-            scY + scH / 2 + Math.sin(ang) * ry,
-            1.3,
-          ).fill({ color: accent.accent, alpha: 0.45 * m });
+      // a rising wave of liberated spores
+      if (allMatched || k > 0.4) {
+        const m = Math.min(1, allMatched ? 1 : (k - 0.4) / 0.6);
+        for (let i = 0; i < 18; i++) {
+          const hx = hash(i, 21);
+          const rise = (t * 16 + i * 31) % (groveH * 0.9);
+          const sx = groveX + hx * groveW + Math.sin(t + i) * 8;
+          const sy = baseY - rise;
+          p.dot(
+            sx,
+            sy,
+            1 + hash(i, 23) * 1.4,
+            mixColor(PALETTE.white, accent.accentSoft, 0.3),
+            0.5 * m * (1 - rise / (groveH * 0.9)),
+          );
         }
       }
     }
@@ -390,7 +342,7 @@ export class SpectrogramRenderer implements WorldRenderer {
     // ---- soft glow at the waterline base (echoes other structures) ---------
     gl.circle(LAYOUT.glowX, LAYOUT.glowY, 70).fill({
       color: mixColor(accent.accentSoft, PALETTE.white, 0.5),
-      alpha: 0.05 + 0.04 * score,
+      alpha: 0.05 + 0.05 * score + 0.02 * lift,
     });
   }
 

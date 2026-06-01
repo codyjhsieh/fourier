@@ -8,27 +8,26 @@ import { Species, flora } from "./Scenery";
 
 // Level 11 — "THE WORN RIDGE", a LOW-PASS / "erosion" level.
 //
-// A vast, hazy mountain RANGE recedes in 3–4 parallax strata, each paler and
-// softer with distance (atmospheric perspective). The NEAREST ridge is the live
-// reconstructed waveform (`resample`); the farther echoes are progressively
-// smoothed copies of it, so the whole horizon breathes as the player edits.
+// The ridge is no longer a plain mountain: it is the SPINED BACK of a COLOSSAL
+// SLEEPING EARTH-GIANT, half-sunk in a misty valley and mirrored in a still
+// tarn. The crest of its back is the live reconstructed waveform (`resample`),
+// and the high-frequency content (`aggression`) is its skin:
 //
-// The high-frequency content (`aggression`) drives a real TRANSFORMATION on the
-// near ridge:
-//   - HIGH aggression => SHARP alpine crag: knife peaks, exposed dark rock,
-//     scree slopes, snow caps, and ANIMATED rockfall/avalanche dust sliding
-//     down the steep faces (driven by `t`).
-//   - LOW aggression (highs removed) => LUSH rolling green hills: meadows, a
-//     thin WATERFALL spilling off a cliff, a winding melt-river, and trees
-//     (`flora`) climbing the gentler slopes.
+//   - HIGH aggression (jagged) => a bristling ridge of SHARP STONE SPINES and
+//     crystal quills runs down the giant's spine — spiky, unresolved, cold,
+//     trembling. The thing has not yet been allowed to rest.
+//   - LOW aggression (highs removed) => the spines erode under MOSS, FERNS,
+//     TURF and a blossoming MEADOW that creep over its back. The giant settles
+//     into a gently BREATHING, moss-blanketed slumber: pines (`flora`) take
+//     root along its spine, flowers open, a thin STREAM trickles down a flank.
 //
-// Overhead: a warm alpenglow sun, drifting CLOUDS, gliding BIRDS, and valley
-// MIST that pools low and rises with `t`. A still LAKE at the waterline mirrors
-// the nearest ridge + sky via the Painter. At score>0.7 a lush bloom blesses
-// the valley: a rainbow over the falls, a flock, and a blossoming meadow.
+// The whole giant breathes (a slow rock with `t`), MIST drifts and rises, BIRDS
+// wheel overhead, and a still TARN at the waterline mirrors everything via the
+// Painter. At score>0.7 a lush bloom blesses the valley: blossom drift, a denser
+// flock, and a rainbow in the rising mist.
 //
-// Everything is deterministic (sin-hash, no Math.random), bounded, and redrawn
-// each frame.
+// Everything is deterministic (sin-hash, no Math.random / Date), bounded, and
+// redrawn each frame.
 
 // cheap deterministic hash in [0,1)
 function hash(x: number, y: number): number {
@@ -36,16 +35,16 @@ function hash(x: number, y: number): number {
   return n - Math.floor(n);
 }
 
-const COLS = 130; // near-ridge crest resolution across the width
+const COLS = 130; // spine crest resolution across the width
 
-// One receding mountain layer: depth 0 = nearest, 1 = farthest.
+// One receding ridge layer behind the giant: depth 0 = nearest, 1 = farthest.
 interface Stratum {
   depth: number; // 0..1
   smoothRadius: number; // how blurred the echo is
   haze: number; // 0 = crisp, 1 = washed into the sky
   yOffset: number; // how far the band sits below the near crest
   span: number; // vertical reach of this layer
-  parallax: number; // horizontal drift factor for clouds/feel
+  parallax: number; // horizontal drift factor
 }
 
 export class TerrainRenderer implements WorldRenderer {
@@ -53,10 +52,10 @@ export class TerrainRenderer implements WorldRenderer {
   species: Species = "pine";
 
   private sky = new Graphics(); // sky gradient, sun, clouds, rainbow
-  private far = new Graphics(); // receding parallax mountain strata
-  private body = new Graphics(); // near ridge + ground + trees + falls
-  private refl = new Graphics(); // water double of the body
-  private bloom = new Graphics(); // birds / mist / bloom
+  private far = new Graphics(); // receding parallax ridge strata
+  private body = new Graphics(); // the giant: spine + flesh + moss + flora
+  private refl = new Graphics(); // tarn double of the body
+  private bloom = new Graphics(); // birds / mist / blossom bloom
 
   private accent: Accent;
 
@@ -86,35 +85,41 @@ export class TerrainRenderer implements WorldRenderer {
     const waterY = LAYOUT.waterY;
     const acc = this.accent;
 
-    // How jagged the near ridge is. High aggression (lots of high harmonics)
-    // => sharp craggy peaks; as it erodes toward 0 the crest smooths into
-    // rolling hills.
+    // High aggression => bristling sharp spines; as it erodes toward 0 the back
+    // softens under moss and turf. `smooth` is the erosion / slumber progress.
     const rough = Math.max(0, Math.min(1, aggression(shape)));
-    const smooth = 1 - rough; // erosion progress
+    const smooth = 1 - rough;
 
-    // --- sky: white-first cream with sun, alpenglow, drifting clouds --------
+    // The giant's slow breathing: deeper and calmer the more it has settled.
+    // A gentle vertical swell of its whole back, rocking the scene with `t`.
+    const breathRate = 0.5 + smooth * 0.35; // slower, calmer when at rest
+    const breath = Math.sin(t * breathRate); // -1..1
+    const breathLift = breath * (1.5 + smooth * 4.5); // px, bigger when slumbering
+
+    // --- sky: white-first cream with sun, clouds, (later) a rainbow ----------
     this.drawSky(score, rough, t, smooth);
 
-    // --- the live near-ridge crest ------------------------------------------
+    // --- the live spine crest (the giant's back) -----------------------------
     const raw = resample(shape, COLS); // [-1,1]
     const colW = W / (COLS - 1);
     const smoothed = this.smoothPass(raw, 4);
-    const crestSpan = (waterY - top) * 0.74; // vertical room for the ridge
-    const baseLine = waterY - crestSpan * 0.18; // mean ridge height above water
+    const crestSpan = (waterY - top) * 0.74; // vertical room for the back
+    const baseLine = waterY - crestSpan * 0.18; // mean back height above water
 
+    // Crest height of the giant's back at spine column `col`. The breathing
+    // lift gently raises/lowers the whole back; spikiness adds jagged crag when
+    // jagged, which the eye reads as bristling stone spines.
     const crestY = (col: number): number => {
       const v = smoothed[col] * smooth + raw[col] * rough;
       const crag = (hash(col, 7) - 0.5) * rough * 0.18;
       const h = v * 0.5 + 0.5 + crag; // ~[0,1]
-      return baseLine - h * crestSpan * 0.62;
+      return baseLine - h * crestSpan * 0.62 - breathLift;
     };
 
-    // --- receding parallax strata (atmospheric perspective) -----------------
-    // Farther ridges are heavily smoothed echoes of the same waveform, pushed
-    // up the screen and washed toward the sky tone. Drawn back-to-front.
-    this.drawFarStrata(raw, rough, score, t, top, waterY, crestSpan);
+    // --- receding parallax strata (distant sibling-giants in the haze) -------
+    this.drawFarStrata(raw, rough, score, t, top, waterY, crestSpan, breathLift);
 
-    // --- the lake (still water band under the waterline) --------------------
+    // --- the tarn (still water band under the waterline) ---------------------
     const water = mixColor(PALETTE.water, acc.inkSoft, 0.1);
     this.body
       .rect(0, waterY, W, LAYOUT.reflectionDepth + 26)
@@ -123,21 +128,24 @@ export class TerrainRenderer implements WorldRenderer {
       .rect(0, waterY, W, 2)
       .fill({ color: mixColor(water, PALETTE.white, 0.4), alpha: 0.6 });
 
-    // --- near-ridge materials -----------------------------------------------
-    const rock = mixColor(PALETTE.inkSoft, 0x6f786a, 0.42);
-    const rockDark = mixColor(rock, acc.ink, 0.5);
-    const rockLit = mixColor(rock, PALETTE.white, 0.3);
-    const grass = mixColor(0x8fa079, PALETTE.inkFaint, 0.28);
-    const grassDark = mixColor(grass, acc.ink, 0.4);
-    const grassLit = mixColor(grass, PALETTE.white, 0.34);
-    const snow = mixColor(PALETTE.white, 0xeef0ec, 0.35);
-    const meadow = mixColor(grass, PALETTE.white, 0.42);
-    const scree = mixColor(rock, PALETTE.inkFaint, 0.4);
+    // --- the giant's materials: skin-stone, moss, turf, meadow ---------------
+    // Warm earthen flesh-stone for the sleeping body; cool quartz for the spines.
+    const flesh = mixColor(PALETTE.inkSoft, 0x9a8c78, 0.5); // pale earthen skin
+    const fleshDark = mixColor(flesh, acc.ink, 0.5);
+    const fleshLit = mixColor(flesh, PALETTE.white, 0.34);
+    const quill = mixColor(PALETTE.inkSoft, acc.accentSoft, 0.3); // crystal spine
+    const quillLit = mixColor(quill, PALETTE.white, 0.5);
+    const quillDark = mixColor(quill, acc.ink, 0.45);
+    const moss = mixColor(0x8fa079, PALETTE.inkFaint, 0.24); // moss blanket
+    const mossDark = mixColor(moss, acc.ink, 0.42);
+    const mossLit = mixColor(moss, PALETTE.white, 0.36);
+    const turf = mixColor(moss, PALETTE.white, 0.42); // lush meadow turf
+    const fern = mixColor(0x86a06f, PALETTE.white, 0.2);
 
-    const ss = 6; // strata block size (pixel grain)
+    const ss = 6; // body block size (pixel grain)
 
-    // Highest summit (smallest crestY) and its column — anchors alpenglow,
-    // snow, and the waterfall cliff.
+    // Highest hump of the back (smallest crestY) — anchors the spine ridge,
+    // the head, and the stream's source flank.
     let summitY = waterY;
     let summitCol = 0;
     for (let c = 0; c < COLS; c++) {
@@ -148,18 +156,19 @@ export class TerrainRenderer implements WorldRenderer {
       }
     }
 
-    // Find the steepest descending face (for the waterfall, when smooth).
-    let fallCol = -1;
-    let fallSteep = 0;
+    // Find the steepest descending flank (where the thin stream trickles down,
+    // once the back is mossy enough to weep one).
+    let streamCol = -1;
+    let streamSteep = 0;
     for (let c = 2; c < COLS - 2; c++) {
-      const drop = crestY(c + 2) - crestY(c - 2); // positive => falls to the right
-      if (drop > fallSteep) {
-        fallSteep = drop;
-        fallCol = c;
+      const drop = crestY(c + 2) - crestY(c - 2);
+      if (drop > streamSteep) {
+        streamSteep = drop;
+        streamCol = c;
       }
     }
 
-    // Track meadow stretches per screen column so trees only plant on grass.
+    // Track which screen columns are mossy/turfed (so flora roots only there).
     const cols = Math.ceil(W / ss);
     const grassy = new Array<boolean>(cols).fill(false);
     const colCrestY = new Array<number>(cols).fill(waterY);
@@ -176,30 +185,36 @@ export class TerrainRenderer implements WorldRenderer {
       const yPrev = crestY(Math.max(0, c0 - 1));
       const yNext = crestY(Math.min(COLS - 1, c1 + 1));
       const slope = Math.min(1, Math.abs(yNext - yPrev) / (colW * 2.2));
-      const cragness = Math.min(1, slope * 0.7 + rough * 0.55);
+      const spikiness = Math.min(1, slope * 0.7 + rough * 0.55);
 
-      const litFace = yNext < yPrev ? 0.0 : 0.18; // lit when ground rises right
+      const litFace = yNext < yPrev ? 0.0 : 0.18; // lit when back rises to the right
 
       const elev = Math.max(0, Math.min(1, (waterY - cy) / crestSpan));
-      const snowLine = 0.62 + smooth * 0.3;
+      // moss climbs from the base upward as the giant settles; the high spine
+      // is the last to be reclaimed.
+      const mossLine = 0.62 + smooth * 0.3;
 
-      grassy[i] = cragness < 0.42 && elev < 0.6;
+      grassy[i] = spikiness < 0.42 && elev < 0.6;
 
       for (let y = cy; y < waterY; y += ss) {
-        const depth = (y - cy) / Math.max(1, waterY - cy); // 0 crest .. 1 base
+        const depth = (y - cy) / Math.max(1, waterY - cy); // 0 spine .. 1 base
         const hs = hash(Math.round(x / ss), Math.round(y / ss));
 
-        const rockMix = Math.max(
+        // How "bare/spiny" this block reads: high near the jagged spine crest.
+        const bare = Math.max(
           0,
-          Math.min(1, cragness * 0.6 + (1 - depth) * 0.55 - 0.32),
+          Math.min(1, spikiness * 0.6 + (1 - depth) * 0.55 - 0.32),
         );
         let base: number;
-        if (rockMix > 0.5) {
-          base = hs < 0.4 ? rockLit : hs < 0.74 ? rock : rockDark;
-        } else if (rockMix > 0.32) {
-          base = hs < 0.5 ? mixColor(rock, grass, 0.5) : grass;
+        if (bare > 0.5) {
+          // exposed stone flesh of the giant under its bristling spine
+          base = hs < 0.4 ? fleshLit : hs < 0.74 ? flesh : fleshDark;
+        } else if (bare > 0.32) {
+          // moss creeping over the flesh
+          base = hs < 0.5 ? mixColor(flesh, moss, 0.5) : moss;
         } else {
-          base = hs < 0.42 ? grassLit : hs < 0.76 ? grass : grassDark;
+          // dense moss / turf blanket low on the body
+          base = hs < 0.42 ? mossLit : hs < 0.76 ? moss : mossDark;
         }
 
         base = mixColor(base, acc.ink, 0.04 + depth * 0.16);
@@ -209,70 +224,88 @@ export class TerrainRenderer implements WorldRenderer {
         p.block(x, y, ss, ss, base, 0.98);
       }
 
-      // crest dressing
-      if (elev > snowLine && cragness > 0.4) {
-        p.block(x, cy, ss, ss * (0.9 + cragness * 0.6), snow, 0.9);
-        if (hash(i, 3) > 0.6) p.block(x, cy - ss * 0.4, ss, ss * 0.5, PALETTE.white, 0.8);
-      } else if (cragness < 0.4) {
-        p.block(x, cy, ss, ss * 0.7, meadow, 0.55);
+      // crest dressing — the spine itself
+      if (elev > mossLine && spikiness > 0.4) {
+        // a sharp crystal QUILL bristling up off the spine (high-frequency)
+        const qh = ss * (1.1 + spikiness * 1.4 + rough * 0.8);
+        const qx = x + (hash(i, 23) - 0.5) * ss * 0.5;
+        // taper the quill to a point: a few stacked narrowing blocks
+        const tipShimmer = 0.6 + 0.4 * Math.sin(t * 3 + i); // cold trembling
+        p.block(qx, cy - qh + ss, ss, qh, quill, 0.9);
+        p.block(qx, cy - qh + ss, Math.max(1, ss * 0.4), qh, quillLit, 0.6);
+        p.block(qx + ss * 0.6, cy - qh + ss * 1.6, Math.max(1, ss * 0.36), qh * 0.7, quillDark, 0.5);
+        // bright trembling tip
+        p.block(qx + ss * 0.15, cy - qh, ss * 0.7, ss * 0.7, quillLit, 0.7 * tipShimmer);
+      } else if (spikiness < 0.4) {
+        // soft turf lip + a few fern fronds where the back is gentle
+        p.block(x, cy, ss, ss * 0.7, turf, 0.6);
+        if (hash(i, 9) > 0.62 && elev < 0.5) {
+          // a small fern: a tuft of upward flecks
+          for (let f = 0; f < 3; f++) {
+            const fx = x + (f - 1) * ss * 0.4;
+            p.block(fx, cy - ss * (0.4 + f * 0.2), ss * 0.4, ss * 0.7, fern, 0.55);
+          }
+        }
       } else {
-        if (hash(i, 9) > 0.55) p.block(x, cy + ss, ss * 0.7, ss * 0.6, scree, 0.5);
+        // partially-eroded spine: stubby moss-flecked stone nubs
+        if (hash(i, 9) > 0.5) p.block(x, cy, ss * 0.7, ss * 0.8, mixColor(flesh, moss, 0.4), 0.55);
       }
     }
 
-    // --- ANIMATED rockfall / avalanche on the steep faces (jagged only) ------
-    if (rough > 0.35) this.drawRockfall(p, rough, t, cols, ss, colCrestY, waterY, scree, snow);
+    // --- a bristling crown of stone spines down the high spine (jagged only) --
+    if (rough > 0.35) {
+      this.drawSpineCrown(p, rough, t, cols, ss, colCrestY, waterY, crestSpan, quill, quillLit, quillDark);
+    }
 
-    // --- alpenglow kissing the sharp summits --------------------------------
+    // --- pale dawn-glow kissing the highest hump of the back -----------------
     if (rough > 0.25) {
       const glow = mixColor(acc.accentSoft, PALETTE.glow, 0.4);
-      const band = LAYOUT.waterY - summitY;
       for (let i = 0; i < cols; i++) {
         const cy = colCrestY[i];
         const elev = Math.max(0, Math.min(1, (waterY - cy) / crestSpan));
         if (elev > 0.66) {
-          const a = ((elev - 0.66) / 0.34) * rough * 0.5;
+          const a = ((elev - 0.66) / 0.34) * rough * 0.42;
           if (hash(i, 17) > 0.35) {
-            p.block(i * ss, cy, ss, ss * 1.2, glow, a * (0.4 + 0.6 * Math.max(0, Math.sin(band))));
+            p.block(i * ss, cy, ss, ss * 1.2, glow, a * (0.5 + 0.5 * Math.max(0, breath)));
           }
         }
       }
     }
 
-    // --- WATERFALL down the steepest cliff (emerges as it smooths) ----------
-    if (smooth > 0.4 && fallCol >= 0 && fallSteep > crestSpan * 0.16) {
-      this.drawWaterfall(p, fallCol, colW, smooth, t, crestY, waterY);
+    // --- a thin STREAM trickling down a mossy flank (emerges as it settles) ---
+    if (smooth > 0.4 && streamCol >= 0 && streamSteep > crestSpan * 0.16) {
+      this.drawStream(p, streamCol, colW, smooth, t, crestY, waterY);
     }
 
-    // --- a winding melt-river threading the valley floor (smooth) -----------
-    if (smooth > 0.5) this.drawRiver(p, smooth, t, W, waterY);
+    // --- a winding rivulet threading the valley floor (deep slumber) ---------
+    if (smooth > 0.5) this.drawRivulet(p, smooth, t, W, waterY);
 
-    // --- trees climbing the gentler grassy slopes ---------------------------
+    // --- pines taking root and climbing the gentler mossy back ---------------
     const treeCount = 9;
     for (let i = 0; i < treeCount; i++) {
       const u = (i + 0.5) / treeCount;
       const x = 24 + u * (W - 48) + (hash(i, 31) - 0.5) * (W / treeCount) * 0.5;
       const i0 = Math.max(0, Math.min(cols - 1, Math.round(x / ss)));
-      if (!grassy[i0]) continue; // only on grassy stretches
+      if (!grassy[i0]) continue; // only on mossy/turfed stretches
       const cy = colCrestY[i0];
       const elev = Math.max(0, Math.min(1, (waterY - cy) / crestSpan));
       if (elev > 0.58) continue;
       const baseY = Math.min(waterY - 8, cy + 14 + hash(i, 41) * 12);
       if (baseY > waterY - 8) continue;
-      // hills grow lusher (bigger) trees; crags keep them stunted/sparse
+      // the lusher the slumber, the bigger the pines that root on its back
       const s = 2.4 + hash(i, 51) * 1.4 + smooth * 1.6;
       flora(p, x, baseY, s, acc, i * 17.3 + 5, this.species);
     }
 
-    // --- valley mist (always a little, rising with t) -----------------------
+    // --- valley mist (always a little, drifting and rising with t) -----------
     this.drawMist(t, W, waterY, smooth, score);
 
-    // --- gliding birds over the range ---------------------------------------
+    // --- birds wheeling over the sleeping giant -------------------------------
     this.drawBirds(t, W, summitY, 1);
 
-    // --- lush bloom at a high score -----------------------------------------
+    // --- lush bloom at a high score ------------------------------------------
     if (score > 0.7) {
-      this.drawBloom(p, score, t, summitCol, colW, crestY, fallCol, fallSteep, crestSpan, summitY, waterY, smooth);
+      this.drawBloom(p, score, t, summitCol, colW, crestY, crestSpan, summitY, waterY);
     }
   }
 
@@ -295,8 +328,8 @@ export class TerrainRenderer implements WorldRenderer {
   }
 
   // ---------------------------------------------------------------------------
-  // Sky: white-first cream gradient, a warm sun with alpenglow, drifting clouds,
-  // and (at high score) a rainbow. Lives on the dedicated, non-reflecting layer.
+  // Sky: white-first cream gradient, a soft pale sun, drifting clouds, and (as
+  // the valley greens / at high score) a rainbow in the mist. Non-reflecting.
   private drawSky(score: number, rough: number, t: number, smooth: number) {
     const W = LAYOUT.W;
     const top = LAYOUT.worldTop;
@@ -313,20 +346,19 @@ export class TerrainRenderer implements WorldRenderer {
       g.rect(0, top - 4 + i * h, W, h + 1).fill({ color: mixColor(skyHi, skyLo, tt), alpha: 0.92 });
     }
 
-    // soft warm sun + alpenglow dome (accent used sparingly, warms with score)
+    // soft pale sun (accent used sparingly, warms a touch with score)
     const gx = LAYOUT.glowX + Math.sin(t * 0.07) * 18;
     const gy = top + 44;
     const tone = mixColor(PALETTE.glow, this.accent.accentSoft, 0.45);
-    const strength = 0.05 + rough * 0.06 + Math.max(0, score - 0.5) * 0.07;
+    const strength = 0.05 + rough * 0.05 + Math.max(0, score - 0.5) * 0.07;
     for (let i = 6; i >= 1; i--) {
       const r = (i / 6) * W * 0.55;
       g.circle(gx, gy, r).fill({ color: tone, alpha: strength * (1 - i / 7) });
     }
-    // a small bright sun disc
     g.circle(gx, gy, 13).fill({ color: mixColor(PALETTE.white, this.accent.accentSoft, 0.25), alpha: 0.5 });
     g.circle(gx, gy, 8).fill({ color: PALETTE.white, alpha: 0.6 });
 
-    // drifting clouds (a handful of soft stacked lozenges at different speeds)
+    // drifting clouds (soft stacked lozenges at different speeds)
     const cloud = mixColor(PALETTE.white, PALETTE.paper, 0.2);
     const N = 6;
     for (let i = 0; i < N; i++) {
@@ -341,11 +373,10 @@ export class TerrainRenderer implements WorldRenderer {
         const ow = cw * (0.6 - Math.abs(k - 1) * 0.12);
         g.ellipse(cx + ox, cy, ow, 7 + hash(i + k, 9) * 4).fill({ color: cloud, alpha: a });
       }
-      // a faint lit top
       g.ellipse(cx, cy - 3, cw * 0.5, 5).fill({ color: PALETTE.white, alpha: a * 0.7 });
     }
 
-    // rainbow arc as the valley greens (stronger at high score), over the falls
+    // rainbow arc in the rising mist as the valley greens (stronger at high score)
     if (smooth > 0.6 || score > 0.7) {
       const arcStr = Math.min(1, (smooth - 0.5) * 1.2 + Math.max(0, score - 0.7) * 1.5);
       if (arcStr > 0.05) {
@@ -354,7 +385,6 @@ export class TerrainRenderer implements WorldRenderer {
         const colors = [0xe6a8a8, 0xe6c9a0, 0xe7e2a0, 0xa8d6a8, 0xa8c4e0, 0xc0a8d8];
         for (let b = 0; b < colors.length; b++) {
           const r = 150 + b * 7;
-          // draw the arc as short chords
           for (let a = 0.15; a <= Math.PI - 0.15; a += 0.16) {
             const x1 = cxr + Math.cos(a) * r;
             const y1 = cyr - Math.sin(a) * r;
@@ -368,16 +398,18 @@ export class TerrainRenderer implements WorldRenderer {
   }
 
   // ---------------------------------------------------------------------------
-  // Receding mountain strata: 3 echoes of the waveform behind the near ridge,
-  // each more smoothed, paler, and pushed higher (atmospheric perspective).
+  // Receding ridge strata: 3 echoes of the waveform behind the near giant — the
+  // hazed backs of its distant sleeping siblings, each more smoothed, paler, and
+  // pushed higher (atmospheric perspective). They breathe with the near giant.
   private drawFarStrata(
     raw: number[],
     rough: number,
-    score: number,
+    _score: number,
     t: number,
     top: number,
     waterY: number,
     crestSpan: number,
+    breathLift: number,
   ) {
     const W = LAYOUT.W;
     const g = this.far;
@@ -391,23 +423,21 @@ export class TerrainRenderer implements WorldRenderer {
 
     for (const s of strata) {
       const echo = this.smoothPass(raw, s.smoothRadius);
-      // base color: cool rock washed toward the sky by haze
       const rockTone = mixColor(PALETTE.inkSoft, this.accent.accentSoft, 0.18);
       const fill = mixColor(rockTone, skyTone, s.haze);
-      // alpenglow tint on far peaks when the range is craggy
       const glow = mixColor(this.accent.accentSoft, PALETTE.glow, 0.5);
 
       const top2 = top + (waterY - top) * s.yOffset;
       const span = crestSpan * s.span;
-      const baseY = top2 + span * 0.78;
-      // gentle horizontal parallax sway so the range feels deep and alive
+      // distant siblings breathe more faintly, slightly out of phase
+      const sibBreath = breathLift * (0.3 + s.depth * 0.3);
+      const baseY = top2 + span * 0.78 - sibBreath;
       const sway = Math.sin(t * 0.05 + s.depth * 3) * (3 + s.depth * 4) * s.parallax;
 
       const step = 4;
       const cols = Math.ceil(W / step);
-      // build the silhouette then fill down to a flat haze base
       for (let i = 0; i < cols; i++) {
-        const x = i * step + sway * 0.0;
+        const x = i * step;
         const f = (x / W) * (echo.length - 1);
         const i0 = Math.max(0, Math.min(echo.length - 1, Math.floor(f)));
         const i1 = Math.min(echo.length - 1, i0 + 1);
@@ -416,22 +446,21 @@ export class TerrainRenderer implements WorldRenderer {
         const cy = baseY - (v * 0.5 + 0.5) * span;
         const drawX = x + sway;
         g.rect(drawX, cy, step + 1, baseY - cy + span * 0.3).fill({ color: fill, alpha: 0.9 - s.haze * 0.35 });
-        // a thin lit/snow rim along the far crest
         const elev = (baseY - cy) / span;
         if (elev > 0.7) {
           const rim = rough > 0.4 ? mixColor(PALETTE.white, glow, 0.4) : PALETTE.white;
           g.rect(drawX, cy, step + 1, 2.5).fill({ color: rim, alpha: 0.35 - s.haze * 0.2 });
         }
       }
-      // a soft haze veil over the base of each receding layer
       g.rect(0, baseY + span * 0.05, W, span * 0.35).fill({ color: skyTone, alpha: s.haze * 0.4 });
     }
   }
 
   // ---------------------------------------------------------------------------
-  // Animated rockfall/avalanche: small stones and dust puffs sliding down the
-  // steep faces of the jagged ridge. Bounded particle count.
-  private drawRockfall(
+  // The bristling SPINE CROWN: tall sharp crystal quills standing along the high
+  // spine of the giant when jagged. They tremble faintly (cold, unresolved) and
+  // wither away as the highs erode. Bounded count.
+  private drawSpineCrown(
     p: Painter,
     rough: number,
     t: number,
@@ -439,83 +468,83 @@ export class TerrainRenderer implements WorldRenderer {
     ss: number,
     colCrestY: number[],
     waterY: number,
-    scree: number,
-    snow: number,
+    crestSpan: number,
+    quill: number,
+    quillLit: number,
+    quillDark: number,
   ) {
-    const W = LAYOUT.W;
-    const count = 14;
-    const stone = mixColor(scree, this.accent.ink, 0.3);
-    const dust = mixColor(snow, PALETTE.white, 0.5);
+    const count = 16;
     for (let i = 0; i < count; i++) {
-      // each stone owns a column near a steep face, falls on a looped phase
-      const baseX = hash(i, 201) * W;
-      const ci = Math.max(0, Math.min(cols - 1, Math.round(baseX / ss)));
+      // each quill owns a column near the high spine
+      const ci = Math.max(0, Math.min(cols - 1, Math.round(hash(i, 201) * cols)));
       const cy = colCrestY[ci];
-      // local steepness — only spawn where the face is steep
-      const left = colCrestY[Math.max(0, ci - 2)];
-      const right = colCrestY[Math.min(cols - 1, ci + 2)];
-      const drop = Math.abs(right - left);
-      if (drop < ss * 1.2) continue;
-      const dir = right > left ? 1 : -1; // slide downhill
-      const span = waterY - cy - 6;
-      if (span < 12) continue;
-      const phase = (t * (0.4 + hash(i, 202) * 0.5) + hash(i, 203)) % 1;
-      const fy = cy + 4 + phase * span;
-      const fx = baseX + dir * phase * drop * 0.9 + Math.sin(t * 6 + i) * 1.2;
-      const sz = 1.4 + hash(i, 204) * 1.6;
-      const a = (1 - phase) * 0.7 * Math.min(1, rough * 1.5);
-      // the tumbling stone
-      p.block(fx, fy, sz, sz, stone, a);
-      // a little dust trail above it
-      p.block(fx - dir * 2, fy - 3, sz * 1.6, sz * 0.9, dust, a * 0.35);
-      p.block(fx - dir * 4, fy - 5, sz * 2.0, sz * 0.8, dust, a * 0.18);
+      const elev = Math.max(0, Math.min(1, (waterY - cy) / crestSpan));
+      if (elev < 0.5) continue; // only crown the upper spine
+      const x = ci * ss + (hash(i, 202) - 0.5) * ss;
+      // quill height scales with how jagged the back is
+      const tall = (3 + hash(i, 203) * 3) * (0.5 + rough);
+      const tremble = Math.sin(t * 3.5 + i * 1.3) * rough * 1.4; // cold trembling
+      const rows = Math.max(2, Math.round(tall));
+      for (let r = 0; r <= rows; r++) {
+        const rt = r / rows; // 0 base .. 1 tip
+        const w = Math.max(1, ss * (0.9 - rt * 0.75)); // taper to a point
+        const qx = x + tremble * rt;
+        const qy = cy - r * ss * 0.9;
+        // facet: left edge lit, right edge in shade
+        p.block(qx - w / 2, qy, w, ss, quill, 0.9 * (1 - rt * 0.2));
+        p.block(qx - w / 2, qy, Math.max(1, w * 0.4), ss, quillLit, 0.55);
+        p.block(qx + w * 0.18, qy, Math.max(1, w * 0.3), ss, quillDark, 0.4);
+      }
+      // a bright cold spark at the tip
+      const tipY = cy - rows * ss * 0.9;
+      const spark = 0.5 + 0.5 * Math.sin(t * 4 + i * 2.1);
+      p.dot(x + tremble, tipY, ss * 0.4, quillLit, 0.7 * rough * spark);
     }
   }
 
   // ---------------------------------------------------------------------------
-  // A thin white waterfall spilling off the steepest cliff into the lake, with
-  // a misty plunge pool. Emerges as the ridge erodes (smooth).
-  private drawWaterfall(
+  // A thin pale STREAM trickling down the steepest mossy flank into the tarn,
+  // with a small misty pool. Emerges as the giant's back greens (smooth).
+  private drawStream(
     p: Painter,
-    fallCol: number,
+    streamCol: number,
     colW: number,
     smooth: number,
     t: number,
     crestY: (c: number) => number,
     waterY: number,
   ) {
-    const x = fallCol * colW;
-    const topY = crestY(fallCol) + 6;
+    const x = streamCol * colW;
+    const topY = crestY(streamCol) + 6;
     const a = Math.min(1, (smooth - 0.4) * 2.2);
     const water = mixColor(PALETTE.water, PALETTE.white, 0.7);
-    const fallW = 4 + smooth * 3;
-    // ribbon of falling water, animated downward streaks
+    const streamW = 3 + smooth * 2.5;
+    // a thin trickling ribbon, animated downward
     for (let y = topY; y < waterY - 2; y += 3) {
-      const wob = Math.sin(y * 0.12 + t * 2) * 1.4;
-      const streak = (y * 0.5 + t * 60) % 12 < 6 ? 1 : 0.5; // moving glints
-      p.block(x + wob, y, fallW, 3, water, a * (0.5 + streak * 0.4));
-      // side spray
-      if (hash(Math.round(y), fallCol) > 0.7) {
-        p.block(x + wob - 3, y, 2, 2, PALETTE.white, a * 0.3);
+      const wob = Math.sin(y * 0.14 + t * 2) * 1.6;
+      const glint = (y * 0.5 + t * 55) % 12 < 6 ? 1 : 0.5;
+      p.block(x + wob, y, streamW, 3, water, a * (0.45 + glint * 0.4));
+      if (hash(Math.round(y), streamCol) > 0.72) {
+        p.block(x + wob - 2, y, 2, 2, PALETTE.white, a * 0.28);
       }
     }
-    // plunge-pool foam ring at the waterline
+    // a little foam pool where it meets the tarn
     const foam = mixColor(PALETTE.white, PALETTE.water, 0.2);
     for (let i = 0; i < 5; i++) {
-      const spread = (Math.sin(t * 3 + i) * 0.5 + 0.5) * 14;
-      p.block(x - spread, waterY - 2, fallW + spread * 2, 3, foam, a * 0.4 * (1 - i / 6));
+      const spread = (Math.sin(t * 3 + i) * 0.5 + 0.5) * 12;
+      p.block(x - spread, waterY - 2, streamW + spread * 2, 3, foam, a * 0.4 * (1 - i / 6));
     }
-    // rising spray mist
+    // faint rising spray
     for (let i = 0; i < 4; i++) {
-      const rise = (t * 14 + i * 13) % 30;
-      p.dot(x + (hash(i, 9) - 0.5) * 16, waterY - 4 - rise, 2 + i, PALETTE.white, a * 0.18 * (1 - rise / 30));
+      const rise = (t * 13 + i * 13) % 28;
+      p.dot(x + (hash(i, 9) - 0.5) * 14, waterY - 4 - rise, 1.6 + i, PALETTE.white, a * 0.16 * (1 - rise / 28));
     }
   }
 
   // ---------------------------------------------------------------------------
-  // A winding melt-river drawn as a shimmering ribbon along the valley floor
-  // just above the waterline.
-  private drawRiver(p: Painter, smooth: number, t: number, W: number, waterY: number) {
+  // A winding rivulet of meltwater shimmering along the valley floor just above
+  // the tarn, threading the foot of the slumbering giant.
+  private drawRivulet(p: Painter, smooth: number, t: number, W: number, waterY: number) {
     const a = Math.min(1, (smooth - 0.5) * 2);
     const river = mixColor(PALETTE.water, PALETTE.white, 0.55);
     const y0 = waterY - 8;
@@ -531,8 +560,8 @@ export class TerrainRenderer implements WorldRenderer {
   }
 
   // ---------------------------------------------------------------------------
-  // Valley mist: low ribbons that pool above the water and rise with t. A faint
-  // amount always present; thicker as the valley greens.
+  // Valley mist: low ribbons that pool above the tarn and rise with t, veiling
+  // the giant's flanks. A faint amount always present; thicker as it slumbers.
   private drawMist(t: number, W: number, waterY: number, smooth: number, score: number) {
     const g = this.bloom;
     const mist = mixColor(PALETTE.white, this.accent.accentSoft, 0.16);
@@ -549,7 +578,7 @@ export class TerrainRenderer implements WorldRenderer {
   }
 
   // ---------------------------------------------------------------------------
-  // A skein of birds gliding over the summits, V-chevrons that gently flap.
+  // A skein of birds wheeling over the giant's back, V-chevrons that gently flap.
   private drawBirds(t: number, W: number, summitY: number, mul: number) {
     const g = this.bloom;
     const birdColor = mixColor(this.accent.ink, PALETTE.ink, 0.4);
@@ -567,9 +596,9 @@ export class TerrainRenderer implements WorldRenderer {
   }
 
   // ---------------------------------------------------------------------------
-  // The score>0.7 lush bloom: a denser flock, a blossoming meadow shimmer along
-  // the grassy crest, and extra petals drifting through the valley. (Rainbow is
-  // drawn in the sky.)
+  // The score>0.7 lush bloom: a denser celebrating flock, a blossoming meadow
+  // shimmer opening along the giant's mossy back, and petals drifting through
+  // the valley. (The rainbow is drawn in the sky.)
   private drawBloom(
     p: Painter,
     score: number,
@@ -577,32 +606,29 @@ export class TerrainRenderer implements WorldRenderer {
     summitCol: number,
     colW: number,
     crestY: (c: number) => number,
-    fallCol: number,
-    fallSteep: number,
     crestSpan: number,
     summitY: number,
     waterY: number,
-    smooth: number,
   ) {
     const W = LAYOUT.W;
     const bloom = (score - 0.7) / 0.3;
 
-    // a second, higher flock celebrating
+    // a second, higher flock celebrating the giant's rest
     this.drawBirds(t * 1.2 + 30, W, summitY - 16, bloom);
 
-    // blossom shimmer scattered along the grassy crest
+    // blossoms opening along the mossy back
     const petal = mixColor(this.accent.accentSoft, PALETTE.white, 0.4);
     for (let i = 0; i < 18; i++) {
       const c = Math.round((i + 0.5) / 18 * (COLS - 1));
       const x = (c / (COLS - 1)) * W + (hash(i, 301) - 0.5) * colW * 3;
       const cy = crestY(c);
       const elev = Math.max(0, Math.min(1, (waterY - cy) / crestSpan));
-      if (elev > 0.55) continue; // only on the gentle meadow lips
+      if (elev > 0.55) continue; // only on the gentle mossy lips
       const sway = Math.sin(t * 1.6 + i) * 2;
       p.dot(x + sway, cy - 2 + Math.sin(t + i) * 1.5, 1.4 + hash(i, 302) * 1.2, petal, 0.4 * bloom);
     }
 
-    // drifting petals through the valley
+    // drifting blossom petals through the valley
     for (let i = 0; i < 10; i++) {
       const fall = (t * 8 + i * 31) % 60;
       const x = (hash(i, 311) * W + Math.sin(t * 0.8 + i) * 10) % W;

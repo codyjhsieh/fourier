@@ -6,23 +6,23 @@ import { LAYOUT } from "../Layout";
 import { Painter, WorldRenderer, resample } from "./common";
 import { Species, flora } from "./Scenery";
 
-// A rocky coastal TIDE-POOL nestled among boulders. A still pool of water sits
-// in a basin of pixel rock — boulders ring the pool, lit from the top-left,
-// crusted with barnacles and anemones in the level accent. The water SURFACE is
-// the live waveform `resample(shape, ~120)` drawn as the pool's near edge with
-// layered ripple bands.
+// "The Still Pool" — an OVERGROWN LOTUS LAGOON at midday. A vast lily-pad
+// lagoon lies under a huge pale reflected sky; lotuses and palms crowd the
+// banks. This is a LOW-PASS "calm the water" level.
 //
-// This is a LOW-PASS "calm the water" level. The HIGH-frequency content of the
-// waveform (`aggression(shape)`) makes the surface CHOPPY — sharp crisscrossing
-// wavelets, flecks of spray, jitter. As the highs are removed the surface
-// settles into smooth, glassy concentric ripples and finally a near-perfect
-// mirror that reflects the sky and rim rocks. Tide-pool life — a starfish,
-// shells, a crab, drifting foam — grows calmer and clearer as it settles. As
-// `score` rises the pool stills to glass; above 0.7 a soft bloom glints (a
-// dragonfly skimming the mirror).
+// When the waveform carries high-frequency agitation (`aggression(shape)` high)
+// the surface THRASHES: the reflected sky and clouds SHATTER into dancing
+// shards, lily pads tip and chatter, lotuses clench shut, dragonflies scatter.
+// As the highs are removed and `score` rises, the lagoon resolves into a
+// FLAWLESS MIRROR — the reflected sky reassembles crisp and symmetric, lotuses
+// BLOOM open in slow succession, pads spread flat, dragonflies and fireflies
+// settle, mist beads on the glass and a koi glides leaving a single soft
+// ripple. Above 0.7 the whole lagoon is glass, every lotus open, a drift of
+// petals on the surface.
 //
-// White-first cream, pale aqua water, accent used sparingly. Deterministic
-// (sin-based hash, no Math.random), bounded loops, redrawn each frame.
+// The chop->mirror resolution of the REFLECTION is the centrepiece (drawn via
+// the Painter reflection layer). White-first cream + soft jade accent, daytime.
+// Deterministic (sin-based hash, no Math.random / Date), bounded loops.
 
 // cheap deterministic hash in [0,1)
 function hash(x: number, y: number): number {
@@ -32,15 +32,15 @@ function hash(x: number, y: number): number {
 
 export class TidepoolRenderer implements WorldRenderer {
   container = new Container();
-  private back = new Graphics(); // sky wash + reflected band behind the water
-  private refl = new Graphics(); // Painter reflection layer (rim rocks etc.)
-  private body = new Graphics(); // rock basin, life, surface ripples
-  private fx = new Graphics(); // spray, foam, bloom (front)
+  private back = new Graphics(); // pale sky + lagoon body + reflected sky band
+  private refl = new Graphics(); // Painter reflection layer (banks, flora)
+  private body = new Graphics(); // lily pads, lotuses, koi, surface line
+  private fx = new Graphics(); // shards, dragonflies, fireflies, mist (front)
   private accent: Accent;
   species: Species = "blossom";
 
-  private readonly left = 34;
-  private readonly right = LAYOUT.W - 34;
+  private readonly left = 18;
+  private readonly right = LAYOUT.W - 18;
 
   constructor(accent: Accent) {
     this.accent = accent;
@@ -66,7 +66,7 @@ export class TidepoolRenderer implements WorldRenderer {
 
     const W = LAYOUT.W;
     const top = LAYOUT.worldTop;
-    const waterY = LAYOUT.waterY; // surface line of the pool
+    const waterY = LAYOUT.waterY; // the mirror line of the lagoon
     const left = this.left;
     const right = this.right;
     const span = right - left;
@@ -75,114 +75,204 @@ export class TidepoolRenderer implements WorldRenderer {
 
     const agg = aggression(shape); // 0 calm .. 1 choppy
     const high = Math.min(1, shape.highFrequencyEnergy / (shape.totalEnergy + 1e-6));
-    const chop = Math.max(agg, high * 0.8); // surface roughness from the highs
+    const chop = Math.max(agg, high * 0.8); // surface agitation from the highs
     const calm = 1 - chop;
-    // how settled / glassy the pool is — score also stills the water
-    const glass = Math.min(1, Math.max(calm * 0.55, score));
+    // how settled / glassy the lagoon is — score also stills the water
+    const glass = Math.min(1, Math.max(calm * 0.5, score));
 
-    const cols = 120;
+    const cols = 128;
     const wave = resample(shape, cols);
-
-    // palette: pale aqua water over warm cream
-    const aqua = mixColor(PALETTE.white, 0x9fcfd6, 0.32);
-    const aquaDeep = mixColor(aqua, this.accent.ink, 0.22);
     const waveAt = (x: number): number => {
       const u = (x - left) / span;
       const idx = Math.max(0, Math.min(cols - 1, Math.round(u * (cols - 1))));
       return wave[idx];
     };
 
-    // ---- sky band above the pool (lightest, faint warmth) ----
-    for (let i = 0; i < 6; i++) {
-      const ft = i / 5;
-      const y = top + ft * (waterY - top) * 0.5;
-      const c = mixColor(PALETTE.glow, aqua, 0.06 + ft * 0.1);
-      b.rect(0, y, W, (waterY - top) * 0.5 / 5 + 2).fill({ color: c, alpha: 0.5 });
-    }
+    // ---- palette: pale jade water over warm cream, all daytime-light ----
+    const sky = mixColor(PALETTE.glow, this.accent.accentSoft, 0.1);
+    const aqua = mixColor(PALETTE.white, this.accent.accentSoft, 0.34);
+    const aquaDeep = mixColor(aqua, this.accent.ink, 0.18);
+    const padGreen = mixColor(this.accent.accent, PALETTE.white, 0.18);
+
+    const poolBottom = waterY + LAYOUT.reflectionDepth * 0.95;
 
     // ============================================================
-    // WATER POOL: a filled basin from the surface line down. The near
-    // edge (surface) is the waveform; below it the water deepens.
+    // PALE OVERHEAD SKY with soft drifting clouds. This is the "real" sky
+    // above the water line; its reflection in the pool is the centrepiece.
     // ============================================================
-    const poolBottom = waterY + LAYOUT.reflectionDepth * 0.9;
-    // surface line samples (x, y) with choppy jitter from the highs
+    // gradient wash from cream at the horizon up to luminous glow
+    const skyBottom = waterY;
+    for (let i = 0; i < 10; i++) {
+      const ft = i / 9;
+      const y = top + ft * (skyBottom - top);
+      const c = mixColor(sky, PALETTE.glow, 0.2 + ft * 0.4);
+      b.rect(0, y, W, (skyBottom - top) / 9 + 2).fill({ color: c, alpha: 0.7 });
+    }
+    // a soft sun-glow high on the left (top-left light)
+    const sunX = left + span * 0.26;
+    const sunY = top + (skyBottom - top) * 0.22;
+    b.circle(sunX, sunY, 46).fill({ color: PALETTE.glow, alpha: 0.18 });
+    b.circle(sunX, sunY, 24).fill({ color: PALETTE.white, alpha: 0.22 });
+
+    // cloud field: a handful of soft pixel-cumulus. Stored so we can draw a
+    // matching (shattering / reassembling) reflection below the water.
+    type Cloud = { cx: number; cy: number; w: number; h: number; seed: number };
+    const clouds: Cloud[] = [];
+    const cloudN = 5;
+    for (let i = 0; i < cloudN; i++) {
+      const drift = (t * (3 + i) + hash(i, 1) * 400) % (W + 120);
+      const cx = -60 + drift;
+      const cy = top + (skyBottom - top) * (0.18 + hash(i, 2) * 0.55);
+      const w = 26 + hash(i, 3) * 26;
+      const h = 9 + hash(i, 4) * 6;
+      clouds.push({ cx, cy, w, h, seed: i * 7 + 3 });
+    }
+    const drawCloud = (gr: Graphics, c: Cloud, alpha: number, tint: number) => {
+      const puffs = 5;
+      for (let k = 0; k < puffs; k++) {
+        const u = k / (puffs - 1) - 0.5;
+        const px = c.cx + u * c.w;
+        const lobe = c.h * (0.6 + Math.sin(k * 1.3 + c.seed) * 0.3 + 0.4);
+        const py = c.cy - Math.sin((u + 0.5) * Math.PI) * c.h * 0.3;
+        gr.circle(px, py, lobe).fill({ color: PALETTE.white, alpha });
+        gr.circle(px - lobe * 0.3, py - lobe * 0.3, lobe * 0.6).fill({
+          color: mixColor(PALETTE.glow, tint, 0.25),
+          alpha: alpha * 0.7,
+        });
+      }
+    };
+    for (const c of clouds) drawCloud(b, c, 0.55, sky);
+
+    // ============================================================
+    // SURFACE LINE: the near edge of the lagoon IS the waveform. High-freq
+    // content makes it chatter; it settles to a clean glass edge.
+    // ============================================================
     const surf: { x: number; y: number }[] = [];
     const ssteps = cols;
     for (let i = 0; i < ssteps; i++) {
       const u = i / (ssteps - 1);
       const x = left + u * span;
       const w = wave[i];
-      // gentle long swell (low freq look) + waveform body
-      const swell = Math.sin(u * Math.PI * 2 + t * 0.5) * 2.2 * (0.4 + glass * 0.6);
-      const surface = w * (5 + 3 * glass); // the waveform IS the surface
-      // choppy crisscrossing wavelets from the high-frequency content
+      const swell = Math.sin(u * Math.PI * 2 + t * 0.4) * 1.8 * (0.4 + glass * 0.6);
+      const surface = w * (4 + 3 * glass); // the waveform IS the surface
       const jag =
         chop *
-        (Math.sin(u * Math.PI * 17 + t * 3.0) * 3.0 +
-          Math.sin(u * Math.PI * 31 - t * 4.4) * 2.0 +
+        (Math.sin(u * Math.PI * 19 + t * 3.2) * 3.0 +
+          Math.sin(u * Math.PI * 33 - t * 4.6) * 2.0 +
           (hash(i, 7) - 0.5) * 2.0);
       const y = waterY + swell + surface + jag;
       surf.push({ x, y });
     }
 
-    // ---- pool body fill (down from the surface line) ----
+    // ---- lagoon body fill (down from the surface line) ----
     {
       const poly: number[] = [];
       for (const s of surf) poly.push(s.x, s.y);
       poly.push(right, poolBottom, left, poolBottom);
-      b.poly(poly).fill({ color: mixColor(aqua, aquaDeep, 0.45), alpha: 0.85 });
-      // a couple of deeper aqua bands lower down for depth
+      b.poly(poly).fill({ color: mixColor(aqua, aquaDeep, 0.35), alpha: 0.9 });
       for (let k = 1; k <= 3; k++) {
         const ky = waterY + (poolBottom - waterY) * (k / 4);
-        const poly2: number[] = [left, ky];
-        poly2.push(right, ky, right, poolBottom, left, poolBottom);
-        b.poly(poly2).fill({
-          color: mixColor(aqua, aquaDeep, 0.3 + k * 0.18),
-          alpha: 0.18,
+        b.poly([left, ky, right, ky, right, poolBottom, left, poolBottom]).fill({
+          color: mixColor(aqua, aquaDeep, 0.25 + k * 0.16),
+          alpha: 0.14,
         });
       }
     }
 
     // ============================================================
-    // MIRRORED REFLECTION BAND: the sky + rim get reflected in the pool.
-    // It is wobbly/broken when choppy, and sharpens to a clean mirror as
-    // the surface calms (glass). Drawn just under the surface line.
+    // *** CENTREPIECE *** REFLECTED SKY + CLOUDS in the lagoon.
+    // When choppy the reflection SHATTERS into dancing displaced shards;
+    // as `glass` rises the shards converge to their true mirror positions
+    // and sharpen into a flawless, symmetric double of the sky.
     // ============================================================
+    const reflect = (yAbove: number): number => 2 * waterY - yAbove; // mirror about waterY
+
+    // reflected sun-glow column shimmering down from the surface
     {
-      const reflBands = 7;
-      for (let i = 0; i < ssteps; i += 2) {
-        const s = surf[i];
-        const wob = (1 - glass) * (Math.sin(i * 0.9 + t * 2.4) * 3 + (hash(i, 12) - 0.5) * 3);
-        for (let band = 0; band < reflBands; band++) {
-          const dy = 2 + band * 3;
-          const y = s.y + dy;
-          if (y > poolBottom) continue;
-          // sky reflection brightens toward the surface; sharper when glassy
-          const tone = mixColor(PALETTE.glow, aqua, 0.1 + band * 0.08);
-          const a = (0.04 + 0.16 * glass) * (1 - band / reflBands);
-          b.rect(s.x + wob, y, 3, 2).fill({ color: tone, alpha: a });
+      const gxr = sunX;
+      const bands = 16;
+      for (let band = 0; band < bands; band++) {
+        const fb = band / bands;
+        const y = waterY + 4 + fb * (poolBottom - waterY) * 0.9;
+        if (y > poolBottom) break;
+        // shimmer wobble dies out as the pool turns to glass
+        const wob = (1 - glass) * Math.sin(band * 0.8 + t * 3) * 6;
+        const wgl = 18 * (1 - fb * 0.4);
+        b.rect(gxr - wgl + wob, y, wgl * 2, 2).fill({
+          color: mixColor(PALETTE.glow, PALETTE.white, 0.5),
+          alpha: (0.05 + glass * 0.12) * (1 - fb),
+        });
+      }
+    }
+
+    // reflected sky wash gradient (brightest at the surface line)
+    {
+      const rb = 9;
+      for (let i = 0; i < rb; i++) {
+        const ft = i / (rb - 1);
+        const y = waterY + 2 + ft * (poolBottom - waterY) * 0.85;
+        const c = mixColor(sky, aqua, 0.2 + ft * 0.5);
+        b.rect(left, y, span, (poolBottom - waterY) * 0.85 / rb + 2).fill({
+          color: c,
+          alpha: (0.18 + glass * 0.22) * (1 - ft * 0.5),
+        });
+      }
+    }
+
+    // reflected CLOUDS, broken into shards that reconverge as it stills
+    for (const c of clouds) {
+      const reflCy = reflect(c.cy); // true mirror position
+      if (reflCy > poolBottom) continue;
+      const shards = 7;
+      for (let k = 0; k < shards; k++) {
+        const u = k / (shards - 1) - 0.5;
+        const trueX = c.cx + u * c.w;
+        // displacement: each shard flung by chop, snapping home as glass->1
+        const scatter =
+          (1 - glass) *
+          (Math.sin(k * 2.1 + t * 3.4 + c.seed) * 10 +
+            (hash(k + c.seed, 9) - 0.5) * 8);
+        const scatterY =
+          (1 - glass) * Math.sin(k * 1.7 - t * 2.8 + c.seed) * 5;
+        const px = trueX + scatter;
+        const lobe =
+          c.h * (0.6 + Math.sin(k * 1.3 + c.seed) * 0.3 + 0.4) *
+          (0.6 + glass * 0.5);
+        const py = reflCy + scatterY;
+        if (py < waterY + 2 || py > poolBottom) continue;
+        // sharper + brighter as it reassembles into a true mirror
+        const a = (0.12 + glass * 0.4) * (1 - Math.abs(u) * 0.3);
+        b.circle(px, py, lobe).fill({
+          color: mixColor(aqua, PALETTE.white, 0.4 + glass * 0.35),
+          alpha: a,
+        });
+        // a crisp mirror highlight only when nearly glass
+        if (glass > 0.55) {
+          b.circle(px - lobe * 0.25, py + lobe * 0.2, lobe * 0.5).fill({
+            color: PALETTE.white,
+            alpha: (glass - 0.55) * 0.7,
+          });
         }
       }
     }
 
-    // ---- concentric glassy ripples (emerge as the pool calms) ----
+    // ---- concentric glassy ripples spreading as the lagoon calms ----
     {
-      const rings = 4;
       const cx = LAYOUT.glowX;
-      const cy = waterY + 26;
-      for (let ring = 0; ring < rings; ring++) {
-        const phase = (t * 12 + ring * 26) % 64;
+      const cy = waterY + 30;
+      for (let ring = 0; ring < 4; ring++) {
+        const phase = (t * 11 + ring * 26) % 64;
         const rr = 8 + phase;
-        const ringA = glass * 0.16 * (1 - phase / 64);
+        const ringA = glass * 0.14 * (1 - phase / 64);
         if (ringA < 0.01) continue;
-        const n = 40;
+        const n = 44;
         for (let a = 0; a < n; a++) {
           const ang = (a / n) * Math.PI;
           const x = cx + Math.cos(ang) * rr;
-          const y = cy + Math.sin(ang) * rr * 0.42;
+          const y = cy + Math.sin(ang) * rr * 0.4;
           if (y < waterY + 2 || y > poolBottom) continue;
-          b.rect(x, y, 2, 1.4).fill({
-            color: mixColor(aqua, PALETTE.white, 0.5),
+          b.rect(x, y, 2, 1.2).fill({
+            color: mixColor(aqua, PALETTE.white, 0.55),
             alpha: ringA,
           });
         }
@@ -190,370 +280,404 @@ export class TidepoolRenderer implements WorldRenderer {
     }
 
     // ============================================================
-    // ROCK BASIN: pixel boulders ringing the pool. Top-left lit, crusted
-    // with barnacles and anemones in accent. Painter reflects them in water.
+    // CROWDED LUSH BANKS: lotuses and palms (flora) crowding both shores,
+    // reflected in the water by the Painter. Mossy reed verge at the edge.
     // ============================================================
-    this.rimRocks(p, left, right, waterY, t, agg);
+    this.banks(p, left, right, waterY, t, chop);
 
-    // ---- a couple of flora rooted on the surrounding rock ----
-    flora(p, left + 14, waterY - 30, 3.4, this.accent, 3.1, this.species);
-    flora(p, right - 16, waterY - 32, 3.8, this.accent, 8.4, this.species);
+    // lotuses and palms crowd the banks (flora reflects via Painter)
+    flora(p, left + 12, waterY - 26, 3.0, this.accent, 3.1, this.species);
+    flora(p, left + 40, waterY - 22, 2.4, this.accent, 5.7, this.species);
+    flora(p, right - 12, waterY - 28, 3.2, this.accent, 8.4, this.species);
+    flora(p, right - 42, waterY - 22, 2.5, this.accent, 1.9, this.species);
 
     // ============================================================
-    // SURFACE LINE: drawn last over the water as the bright near edge,
-    // with layered ripple bands. Choppy -> sharp spray; calm -> a clean
-    // glassy line that becomes a near-perfect mirror edge.
+    // LILY PADS floating on the lagoon: tip & chatter when choppy, spread
+    // flat as it stills. Lotuses bloom open in slow succession with glass.
     // ============================================================
-    const surfLit = mixColor(aqua, PALETTE.white, 0.65);
+    const pads: { x: number; y: number; r: number; seed: number; lotus: boolean }[] = [];
+    const padN = 9;
+    for (let i = 0; i < padN; i++) {
+      const u = (i + 0.5) / padN;
+      const baseX = left + u * span + Math.sin(i * 2.3) * 14;
+      const depth = hash(i, 31); // 0 near surface .. 1 deeper into the pool
+      const py = waterY + 8 + depth * (poolBottom - waterY) * 0.7;
+      const pr = 7 + hash(i, 32) * 7 - depth * 3;
+      const lotus = hash(i, 33) > 0.45;
+      pads.push({ x: baseX, y: py, r: pr, seed: i * 13 + 2, lotus });
+    }
+    // sort far-to-near by y so nearer pads overlap farther ones
+    pads.sort((a, b2) => a.y - b2.y);
+    for (const pad of pads) {
+      this.lilyPad(g, pad.x, pad.y, pad.r, pad.seed, t, chop, glass, padGreen, aqua);
+      if (pad.lotus) {
+        // bloom amount eases open in succession as the pool turns to glass
+        const stagger = hash(pad.seed, 40) * 0.5;
+        const bloom = Math.max(0, Math.min(1, (glass - stagger) / 0.5));
+        this.lotus(g, pad.x, pad.y - pad.r * 0.2, pad.r * 0.7, bloom, t);
+      }
+    }
+
+    // ---- a koi gliding when calm, trailing a single soft ripple ----
+    if (glass > 0.35) {
+      const kf = glass;
+      const kx = left + ((t * 16) % (span + 80)) - 40;
+      const ky = waterY + 30 + Math.sin(t * 0.5) * 10;
+      if (kx > left - 10 && kx < right + 10) {
+        this.koi(g, kx, ky, 9, t, kf);
+        // single trailing ripple
+        const rrr = ((t * 10) % 30);
+        g.ellipse(kx - 14, ky, 6 + rrr, (6 + rrr) * 0.35)
+          .stroke({ color: mixColor(aqua, PALETTE.white, 0.6), width: 1, alpha: kf * 0.2 * (1 - rrr / 30) });
+      }
+    }
+
+    // ============================================================
+    // BRIGHT SURFACE EDGE over the water, with trailing ripple bands.
+    // ============================================================
+    const surfLit = mixColor(aqua, PALETTE.white, 0.7);
     for (let i = 1; i < ssteps; i++) {
       const a = surf[i - 1];
       const c = surf[i];
-      // bright surface line
-      const steps = 2;
-      for (let k = 0; k <= steps; k++) {
-        const kk = k / steps;
+      for (let k = 0; k <= 2; k++) {
+        const kk = k / 2;
         const x = a.x + (c.x - a.x) * kk;
         const y = a.y + (c.y - a.y) * kk;
         g.rect(x, y - 0.8, 2.2, 1.6).fill({ color: surfLit, alpha: 0.5 + glass * 0.4 });
       }
     }
-    // secondary ripple bands trailing below the surface line
     for (let lane = 1; lane <= 3; lane++) {
       for (let i = 0; i < ssteps; i += 2) {
         const s = surf[i];
         const u = i / (ssteps - 1);
         const ly = s.y + lane * 5;
         if (ly > poolBottom) continue;
-        const jag = chop * Math.sin(u * Math.PI * 21 + t * 3 + lane) * 2.4;
-        g.rect(s.x, ly + jag, 2.4, 1.2).fill({
-          color: mixColor(aqua, PALETTE.white, 0.4),
-          alpha: (0.1 + 0.12 * glass) * (1 - lane * 0.22),
+        const jag = chop * Math.sin(u * Math.PI * 23 + t * 3 + lane) * 2.2;
+        g.rect(s.x, ly + jag, 2.4, 1.1).fill({
+          color: mixColor(aqua, PALETTE.white, 0.45),
+          alpha: (0.09 + 0.11 * glass) * (1 - lane * 0.22),
         });
       }
     }
 
-    // ---- spray / crisscross wavelets when choppy (front fx) ----
+    // ============================================================
+    // DRAGONFLIES scatter when choppy, settle when glass. Spread across the
+    // lagoon, skimming low.
+    // ============================================================
+    {
+      const flyN = 4;
+      for (let i = 0; i < flyN; i++) {
+        // when choppy they dart erratically; when calm they hover & settle
+        const baseX = left + (hash(i, 51) * span);
+        const baseY = waterY - 8 - hash(i, 52) * 36;
+        const dartX = (1 - glass) * Math.sin(t * (4 + i) + i) * 22 + Math.sin(t * 0.7 + i) * 8 * glass;
+        const dartY = (1 - glass) * Math.cos(t * (3 + i) + i * 2) * 14 + Math.sin(t * 1.3 + i) * 3;
+        const dx = baseX + dartX;
+        const dy = baseY + dartY;
+        // they settle toward the surface as glass->1
+        const restY = dy + glass * (waterY - 6 - dy) * 0.4;
+        this.dragonfly(f, dx, restY, t + i, 0.55 + glass * 0.4);
+      }
+    }
+
+    // ============================================================
+    // CHOP FX: the reflection's shards spray, surface flecks chatter.
+    // ============================================================
     if (chop > 0.04) {
-      const sprayN = 34;
+      // sharp crisscross wavelet flecks on the surface
+      for (let i = 0; i < ssteps; i += 3) {
+        const s = surf[i];
+        const u = i / (ssteps - 1);
+        const cr = chop * Math.sin(u * Math.PI * 31 - t * 5) * 3;
+        f.rect(s.x, s.y + cr, 2, 1).fill({ color: PALETTE.white, alpha: chop * 0.22 });
+      }
+      // flung droplets of shattered reflection
+      const sprayN = 26;
       for (let i = 0; i < sprayN; i++) {
         const u = hash(i, 21);
         const x = left + u * span;
         const sY = waveAt(x);
-        const bob = ((t * (30 + chop * 50) + hash(i, 22) * 200) % 26);
+        const bob = (t * (28 + chop * 46) + hash(i, 22) * 200) % 24;
         const y = waterY + sY - bob * chop;
-        const a = chop * 0.4 * (1 - bob / 26);
+        const a = chop * 0.35 * (1 - bob / 24);
         if (a < 0.02) continue;
-        f.circle(x + Math.sin(t * 3 + i) * 2, y, 0.7 + hash(i, 23) * 0.8).fill({
-          color: mixColor(aqua, PALETTE.white, 0.7),
+        f.circle(x + Math.sin(t * 3 + i) * 2, y, 0.7 + hash(i, 23) * 0.7).fill({
+          color: mixColor(aqua, PALETTE.white, 0.75),
           alpha: a,
         });
       }
-      // sharp crisscross wavelet flecks right on the surface
-      for (let i = 0; i < ssteps; i += 3) {
-        const s = surf[i];
-        const u = i / (ssteps - 1);
-        const cr = chop * Math.sin(u * Math.PI * 29 - t * 5) * 3;
-        f.rect(s.x, s.y + cr, 2, 1).fill({
+    }
+
+    // ============================================================
+    // CALM-STATE LIFE: fireflies & beaded mist settle as it turns to glass.
+    // ============================================================
+    if (glass > 0.4) {
+      const settle = (glass - 0.4) / 0.6;
+      // drifting fireflies — soft warm motes hovering over the still water
+      const fireN = 7;
+      for (let i = 0; i < fireN; i++) {
+        const fx = left + span * hash(i, 61) + Math.sin(t * 0.5 + i) * 10;
+        const fy = waterY - 6 - hash(i, 62) * 40 + Math.sin(t * 0.8 + i * 2) * 4;
+        const pulse = 0.5 + 0.5 * Math.sin(t * 2 + i * 1.7);
+        f.circle(fx, fy, 1.4).fill({ color: PALETTE.glow, alpha: 0.5 * settle * pulse });
+        f.circle(fx, fy, 0.7).fill({ color: PALETTE.white, alpha: 0.7 * settle * pulse });
+      }
+      // mist beading on the glass near the surface line
+      for (let i = 0; i < 10; i++) {
+        const mx = left + span * hash(i, 71);
+        const my = waterY + waveAt(mx) + 2 + hash(i, 72) * 4;
+        f.circle(mx, my, 0.6 + hash(i, 73) * 0.6).fill({
           color: PALETTE.white,
-          alpha: chop * 0.25,
+          alpha: 0.18 * settle,
         });
       }
     }
 
     // ============================================================
-    // TIDE-POOL LIFE: starfish, shells, a crab, drifting foam. Calmer and
-    // clearer as the pool settles (alpha rises with glass).
-    // ============================================================
-    const clarity = 0.45 + glass * 0.5;
-    this.starfish(g, left + span * 0.3, waterY + 34, 8, t, glass, clarity);
-    this.shell(g, left + span * 0.6, waterY + 20, 5, 1, clarity);
-    this.shell(g, left + span * 0.74, waterY + 40, 4, 4, clarity);
-    this.crab(g, left + span * 0.5, waterY + 52, 7, t, chop, glass, clarity);
-
-    // drifting foam clusters on the surface — jittery when choppy
-    {
-      const foamCol = mixColor(aqua, PALETTE.white, 0.7);
-      const foamN = 7;
-      for (let i = 0; i < foamN; i++) {
-        const drift = (t * (6 + chop * 14) + hash(i, 41) * 300) % (span + 40);
-        const x = left - 20 + drift;
-        if (x < left || x > right) continue;
-        const baseY = waterY + waveAt(x);
-        const jit = chop * Math.sin(t * 4 + i) * 2;
-        const y = baseY + 1 + jit;
-        const clump = 3 + Math.floor(hash(i, 42) * 3);
-        for (let k = 0; k < clump; k++) {
-          const ox = (hash(i, 50 + k) - 0.5) * 7;
-          const oy = (hash(i, 60 + k) - 0.5) * 2.5;
-          f.circle(x + ox, y + oy, 0.8 + hash(i, 70 + k) * 1.0).fill({
-            color: foamCol,
-            alpha: (0.2 + glass * 0.25) * (1 - chop * 0.3),
-          });
-        }
-      }
-    }
-
-    // ============================================================
-    // BLOOM at high score: the pool stills to glass, a soft glinting
-    // reflection and a dragonfly skimming the mirror.
+    // GLASS BLOOM at high score: a flawless mirror, every lotus open, a
+    // drift of petals on the surface, a soft sheen of reflected light.
     // ============================================================
     if (score > 0.7) {
       const bloom = (score - 0.7) / 0.3;
-      // a soft glint of light reflected on the now-mirror surface
-      const gx = LAYOUT.glowX + Math.sin(t * 0.4) * span * 0.2;
+      // soft sheen of the reflected sun on the now-perfect mirror
+      const gx = sunX;
       const gy = waterY + 14;
-      f.circle(gx, gy, 22).fill({ color: PALETTE.glow, alpha: 0.08 * bloom });
+      f.circle(gx, gy, 24).fill({ color: PALETTE.glow, alpha: 0.08 * bloom });
       f.circle(gx, gy, 11).fill({ color: PALETTE.white, alpha: 0.14 * bloom });
-      // a streak of mirror-sheen
       for (let i = 0; i < 18; i++) {
         const x = gx - 30 + i * 3.4;
-        f.rect(x, gy + Math.sin(i * 0.6 + t) * 1.5, 2.4, 1.2).fill({
+        f.rect(x, gy + Math.sin(i * 0.6 + t) * 1.2, 2.4, 1.1).fill({
           color: PALETTE.white,
-          alpha: 0.12 * bloom,
+          alpha: 0.1 * bloom,
         });
       }
-      // a dragonfly skimming just above the surface
-      this.dragonfly(f, gx, waterY - 10 + Math.sin(t * 1.6) * 4, t, bloom);
+      // a drift of fallen lotus petals on the still surface
+      const petalC = mixColor(this.accent.accentSoft, PALETTE.white, 0.4);
+      for (let i = 0; i < 9; i++) {
+        const drift = (t * 5 + hash(i, 81) * 300) % (span + 30);
+        const x = left - 15 + drift;
+        if (x < left || x > right) continue;
+        const y = waterY + waveAt(x) + 3 + Math.sin(t * 0.6 + i) * 1.5;
+        const ang = t * 0.3 + i;
+        f.ellipse(x, y, 2.6, 1.3)
+          .fill({ color: petalC, alpha: 0.5 * bloom });
+        f.circle(x + Math.cos(ang) * 1.2, y - 0.4, 0.7).fill({
+          color: PALETTE.white,
+          alpha: 0.3 * bloom,
+        });
+      }
     }
   }
 
-  // The ring of boulders forming the basin. Pixel rocks around the pool's
-  // perimeter, top-left lit, crusted with barnacles + a few anemones.
-  private rimRocks(
+  // The crowded mossy banks ringing the lagoon — soft verge of reeds and
+  // moss-tufts where the water meets the shore, reflected via the Painter.
+  private banks(
     p: Painter,
     left: number,
     right: number,
     waterY: number,
     t: number,
-    agg: number,
+    chop: number,
   ) {
     const W = LAYOUT.W;
-    const stoneBase = mixColor(PALETTE.inkSoft, this.accent.inkSoft, 0.4);
+    const earth = mixColor(PALETTE.inkSoft, this.accent.inkSoft, 0.45);
+    const earthLit = mixColor(earth, PALETTE.white, 0.4);
+    const moss = mixColor(this.accent.accent, PALETTE.white, 0.32);
 
-    // boulders along the left bank, the right bank, and a back rim behind
-    // the pool. Each boulder is a rounded lump of bevelled stones.
-    const boulder = (cx: number, baseY: number, size: number, seed: number) => {
-      const base = mixColor(stoneBase, seed % 2 ? PALETTE.paperDeep : PALETTE.inkFaint, 0.3);
-      const lit = mixColor(base, PALETTE.white, 0.42);
-      const sh = mixColor(base, 0x000000, 0.3);
-      const R = size;
-      for (let gy = -R; gy <= R * 0.7; gy += 1.7) {
-        for (let gx = -R; gx <= R; gx += 1.7) {
-          const e = (gx * gx) / (R * R) + (gy * gy) / ((R * 0.85) * (R * 0.85));
-          if (e > 1) continue;
-          const light = (-gx) * 0.7 + (-gy) * 0.7;
-          const l = light / R;
-          const col = l > 0.4 ? lit : l > -0.2 ? base : sh;
-          p.dot(cx + gx, baseY + gy, 1.5, col, 0.95);
-        }
+    // soft earthen verge along both side margins, sitting at the waterline
+    const verge = (cx: number, sideW: number, seed: number) => {
+      for (let gy = -10; gy <= 4; gy += 2) {
+        const wob = Math.sin(gy * 0.5 + seed) * 3;
+        const w = sideW * (1 - Math.abs(gy) / 16) + wob;
+        if (w <= 0) continue;
+        const y = waterY - 2 + gy;
+        const lit = gy < -2;
+        p.block(cx - (cx < W / 2 ? 0 : w), y, w, 2.2, lit ? earthLit : earth, 0.9);
       }
-      // barnacles speckled on the lit upper-left face, accent rarely
+      // moss tufts crowning the verge
       for (let i = 0; i < 5; i++) {
-        const bx = cx + (hash(seed, 80 + i) - 0.5) * size * 1.4;
-        const by = baseY - size * 0.3 + (hash(seed, 90 + i) - 0.5) * size * 0.7;
-        const accentB = hash(seed, 100 + i) > 0.7;
-        const bc = accentB
-          ? mixColor(this.accent.accentSoft, PALETTE.white, 0.3)
-          : mixColor(base, PALETTE.white, 0.3);
-        p.dot(bx, by, 1.2, bc, 0.85);
-        p.dot(bx, by, 0.5, this.accent.ink, 0.4);
-      }
-      // an occasional anemone tucked at the waterline
-      if (hash(seed, 5) > 0.55) {
-        this.anemone(p, cx + size * 0.4, baseY + size * 0.5, 3 + hash(seed, 6) * 2, seed, t, agg);
+        const mx = cx + (hash(seed, i) - 0.5) * sideW * (cx < W / 2 ? 1.4 : -1.4);
+        const my = waterY - 8 - hash(seed, i + 5) * 6;
+        p.dot(mx, my, 1.6 + hash(seed, i + 9) * 1.2, moss, 0.85);
+        p.dot(mx - 0.6, my - 0.6, 0.8, mixColor(moss, PALETTE.white, 0.4), 0.7);
       }
     };
+    verge(left, 26, 11);
+    verge(right, 26, 23);
 
-    // left bank — a stack rising toward the screen edge
-    boulder(left + 6, waterY - 4, 16, 1);
-    boulder(left + 22, waterY - 2, 11, 2);
-    boulder(left - 6, waterY - 18, 14, 3);
-    // right bank
-    boulder(right - 6, waterY - 4, 16, 4);
-    boulder(right - 24, waterY - 2, 10, 5);
-    boulder(right + 8, waterY - 16, 13, 6);
-    // back rim behind the pool (smaller, hazier — sits above the surface)
-    for (let i = 0; i < 5; i++) {
-      const u = (i + 0.5) / 5;
-      const bx = left + u * (right - left);
-      const by = waterY - 30 - hash(i, 9) * 8;
-      boulder(bx, by, 7 + hash(i, 10) * 4, 20 + i);
-    }
-    // a wet dark waterline band where rock meets water
-    p.block(0, waterY - 1, W, 2, mixColor(stoneBase, 0x000000, 0.25), 0.3);
-  }
-
-  // A soft anemone clinging to the rock — tentacles flutter with aggression.
-  private anemone(
-    p: Painter,
-    cx: number,
-    cy: number,
-    size: number,
-    seed: number,
-    t: number,
-    agg: number,
-  ) {
-    const body = mixColor(this.accent.accentSoft, PALETTE.white, 0.3);
-    const tipC = mixColor(this.accent.accent, PALETTE.white, 0.2);
-    for (let gy = 0; gy <= 2; gy++) {
-      p.dot(cx, cy - gy * 1.4, size * (1 - gy * 0.22) * 0.5, mixColor(body, this.accent.ink, gy * 0.15), 0.85);
-    }
-    const tents = 7;
-    for (let i = 0; i < tents; i++) {
-      const off = (i / (tents - 1) - 0.5) * size * 1.3;
-      const len = size * (0.7 + hash(seed, 120 + i) * 0.5);
-      const steps = Math.max(2, Math.round(len / 2));
-      const wob = 0.4 + agg * 1.2;
-      for (let k = 1; k <= steps; k++) {
+    // reeds poking up at the margins, swaying more when choppy
+    const reedC = mixColor(this.accent.accent, this.accent.ink, 0.25);
+    const reedLit = mixColor(reedC, PALETTE.white, 0.4);
+    const reed = (rx: number, seed: number) => {
+      const h = 14 + hash(seed, 1) * 14;
+      const steps = Math.round(h / 2.2);
+      const sway = 0.6 + chop * 1.6;
+      for (let k = 0; k <= steps; k++) {
         const kt = k / steps;
-        const sway = Math.sin(t * 2 + i + k * 0.5) * wob * kt * 1.6;
-        p.dot(cx + off + sway, cy - 2 - len * kt, (1 - kt) * 0.9 + 0.4, mixColor(body, tipC, kt), 0.75 - kt * 0.2);
+        const swx = Math.sin(t * 1.6 + seed + kt * 2) * sway * kt;
+        const x = rx + swx;
+        const y = waterY - 4 - kt * h;
+        p.dot(x, y, (1 - kt) * 1.0 + 0.5, kt > 0.7 ? reedLit : reedC, 0.85);
       }
+      // a soft seed-head tip
+      const tx = rx + Math.sin(t * 1.6 + seed + 2) * sway;
+      p.dot(tx, waterY - 4 - h, 1.4, mixColor(reedLit, PALETTE.white, 0.3), 0.8);
+    };
+    for (let i = 0; i < 4; i++) {
+      reed(left + 4 + i * 6 + hash(i, 2) * 3, i * 5 + 1);
+      reed(right - 4 - i * 6 - hash(i, 3) * 3, i * 5 + 30);
     }
+
+    // a faint wet waterline band where bank meets water
+    p.block(0, waterY - 1, W, 2, mixColor(earth, 0x000000, 0.2), 0.22);
   }
 
-  // A five-armed starfish resting on the pool floor; arms ease open as the
-  // water clears (glass), drawn under the surface so the reflection band sits
-  // over it.
-  private starfish(
+  // A floating lily pad: a notched disc that tips/chatters when choppy and
+  // lies flat and broad as the water turns to glass.
+  private lilyPad(
     g: Graphics,
     cx: number,
     cy: number,
     R: number,
+    seed: number,
     t: number,
+    chop: number,
     glass: number,
-    clarity: number,
+    green: number,
+    aqua: number,
   ) {
-    const star = mixColor(this.accent.accent, PALETTE.white, 0.2);
-    const starLit = mixColor(star, PALETTE.white, 0.4);
-    const starSh = mixColor(this.accent.accent, this.accent.ink, 0.4);
-    const arms = 5;
-    const wobble = (1 - glass) * 0.3;
-    for (let a = 0; a < arms; a++) {
-      const ang = -Math.PI / 2 + (a / arms) * Math.PI * 2 + Math.sin(t * 0.5 + a) * wobble;
-      const len = R * (1 + Math.sin(t * 0.6 + a) * wobble * 0.4);
-      const steps = Math.max(3, Math.round(len / 1.6));
-      for (let k = 0; k <= steps; k++) {
-        const kt = k / steps;
-        const x = cx + Math.cos(ang) * len * kt;
-        const y = cy + Math.sin(ang) * len * kt * 0.7; // foreshorten on the floor
-        // top-left arms catch light
-        const lit = Math.cos(ang) < 0 && Math.sin(ang) < 0;
-        const col = kt < 0.4 ? (lit ? starLit : star) : kt < 0.8 ? star : starSh;
-        g.circle(x, y, (1 - kt) * 1.6 + 0.7).fill({ color: col, alpha: clarity });
+    const padLit = mixColor(green, PALETTE.white, 0.42);
+    const padBase = green;
+    const padSh = mixColor(green, this.accent.ink, 0.4);
+    // tilt: the pad foreshortens (squashes vertically) when it tips; lies flat
+    // (full vertical extent) when calm.
+    const chatter = (1 - glass) * Math.sin(t * 5 + seed) * 0.22 * chop;
+    const flatten = 0.45 + glass * 0.2; // vertical squash of the ellipse
+    const squashY = flatten + chatter;
+    // notch direction (the lily pad's wedge cut) rotates slowly
+    const notch = seed * 1.7;
+    const cells = Math.max(6, Math.round(R));
+    for (let gy = -cells; gy <= cells; gy++) {
+      for (let gx = -cells; gx <= cells; gx++) {
+        const ex = (gx) / cells;
+        const ey = (gy) / cells;
+        if (ex * ex + ey * ey > 1) continue;
+        const ang = Math.atan2(ey, ex);
+        // cut a thin wedge notch out of the disc
+        let d = ang - notch;
+        d = Math.atan2(Math.sin(d), Math.cos(d));
+        if (Math.abs(d) < 0.32 && ex * ex + ey * ey > 0.04) continue;
+        const x = cx + ex * R;
+        const y = cy + ey * R * squashY;
+        // top-left lit, radial veins darker
+        const lit = ex < 0 && ey < 0;
+        const rim = ex * ex + ey * ey > 0.78;
+        let col = lit ? padLit : padBase;
+        if (rim) col = mixColor(padBase, padSh, 0.5);
+        g.rect(x, y, 1.6, 1.6).fill({ color: col, alpha: 0.92 });
       }
     }
-    // central disc + speckle
-    g.circle(cx, cy, R * 0.4).fill({ color: star, alpha: clarity });
-    g.circle(cx - R * 0.12, cy - R * 0.12, R * 0.18).fill({ color: starLit, alpha: clarity });
-    for (let i = 0; i < 5; i++) {
-      const ang = (i / 5) * Math.PI * 2;
-      g.circle(cx + Math.cos(ang) * R * 0.45, cy + Math.sin(ang) * R * 0.3, 0.7).fill({
-        color: starLit,
-        alpha: clarity * 0.7,
-      });
+    // a few radial veins from the notch outward
+    for (let v = 0; v < 5; v++) {
+      const va = notch + Math.PI + (v / 4 - 0.5) * 2.4;
+      for (let k = 2; k <= cells; k += 2) {
+        const kt = k / cells;
+        const x = cx + Math.cos(va) * R * kt;
+        const y = cy + Math.sin(va) * R * squashY * kt;
+        g.rect(x, y, 1, 1).fill({ color: padSh, alpha: 0.28 });
+      }
     }
+    // a soft reflective sheen on the wet upper-left
+    g.ellipse(cx - R * 0.3, cy - R * squashY * 0.3, R * 0.3, R * squashY * 0.3)
+      .fill({ color: mixColor(aqua, PALETTE.white, 0.6), alpha: 0.18 });
   }
 
-  // A little spiral / fan shell on the floor.
-  private shell(g: Graphics, cx: number, cy: number, size: number, seed: number, clarity: number) {
-    const sh = mixColor(this.accent.accentSoft, PALETTE.white, 0.45);
-    const shLit = mixColor(sh, PALETTE.white, 0.4);
-    const shEdge = mixColor(this.accent.accent, this.accent.ink, 0.3);
-    if (seed % 2 === 0) {
-      // a fan/scallop: ribbed half-disc
-      const ribs = 5;
-      for (let i = 0; i < ribs; i++) {
-        const ang = -Math.PI + (i / (ribs - 1)) * Math.PI;
-        const len = size * (0.8 + 0.2 * Math.sin(i));
-        for (let k = 1; k <= 4; k++) {
-          const kt = k / 4;
-          const x = cx + Math.cos(ang) * len * kt;
-          const y = cy + Math.sin(ang) * len * kt * 0.6;
-          g.circle(x, y, (1 - kt) * 1.0 + 0.5).fill({
-            color: i < ribs / 2 ? shLit : sh,
-            alpha: clarity,
-          });
+  // A lotus flower: clenched shut when bloom~0, opening petal-by-petal into a
+  // full open blossom as bloom->1. Soft accent petals, white-tipped.
+  private lotus(g: Graphics, cx: number, cy: number, R: number, bloom: number, t: number) {
+    const petal = mixColor(this.accent.accentSoft, PALETTE.white, 0.4);
+    const petalLit = mixColor(petal, PALETTE.white, 0.4);
+    const petalDeep = mixColor(this.accent.accent, PALETTE.white, 0.25);
+    const heart = mixColor(this.accent.accent, PALETTE.glow, 0.5);
+
+    const layers = 2;
+    const petalsPer = 6;
+    for (let layer = 0; layer < layers; layer++) {
+      const lf = layer / layers;
+      for (let i = 0; i < petalsPer; i++) {
+        const baseAng = -Math.PI / 2 + (i / petalsPer) * Math.PI * 2 + layer * 0.5;
+        // closed: petals stand near-vertical & tight; open: they splay outward
+        const openAng = baseAng;
+        const closedAng = -Math.PI / 2 + (baseAng + Math.PI / 2) * 0.18;
+        const ang = closedAng + (openAng - closedAng) * bloom;
+        const len = R * (0.7 + lf * 0.4) * (0.5 + bloom * 0.6);
+        const sway = Math.sin(t * 0.8 + i) * 0.04 * bloom;
+        const steps = 4;
+        for (let k = 1; k <= steps; k++) {
+          const kt = k / steps;
+          const a = ang + sway;
+          const x = cx + Math.cos(a) * len * kt;
+          const y = cy + Math.sin(a) * len * kt - (1 - bloom) * 2; // lift when shut
+          const lit = Math.cos(a) < 0;
+          const col = kt > 0.8 ? petalLit : kt < 0.4 ? petalDeep : (lit ? petalLit : petal);
+          g.circle(x, y, (1 - kt) * 1.4 + 1.0).fill({ color: col, alpha: 0.9 });
         }
       }
-      g.circle(cx, cy + size * 0.1, 1.1).fill({ color: shEdge, alpha: clarity });
-    } else {
-      // a little spiral snail shell
-      const turns = 8;
-      for (let i = 0; i < turns; i++) {
-        const tt = i / turns;
-        const ang = tt * Math.PI * 3;
-        const rr = size * (1 - tt * 0.7);
-        const x = cx + Math.cos(ang) * rr * 0.6;
-        const y = cy + Math.sin(ang) * rr * 0.4;
-        g.circle(x, y, (1 - tt) * 1.4 + 0.5).fill({
-          color: mixColor(shLit, shEdge, tt),
-          alpha: clarity,
+    }
+    // golden heart, revealed only as it opens
+    if (bloom > 0.2) {
+      const hr = R * 0.32 * bloom;
+      g.circle(cx, cy, hr).fill({ color: heart, alpha: 0.9 * bloom });
+      g.circle(cx - hr * 0.3, cy - hr * 0.3, hr * 0.5).fill({
+        color: PALETTE.white,
+        alpha: 0.8 * bloom,
+      });
+      // a ring of stamen flecks
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2 + t * 0.2;
+        g.circle(cx + Math.cos(a) * hr * 1.2, cy + Math.sin(a) * hr * 1.2, 0.7).fill({
+          color: mixColor(heart, PALETTE.white, 0.5),
+          alpha: 0.7 * bloom,
         });
       }
     }
   }
 
-  // A small crab scuttling on the floor — twitchy when the water is choppy,
-  // calm and slow when it settles.
-  private crab(
-    g: Graphics,
-    cx0: number,
-    cy: number,
-    size: number,
-    t: number,
-    chop: number,
-    glass: number,
-    clarity: number,
-  ) {
-    // sidle slowly left/right; jitter when choppy
-    const span = (this.right - this.left) * 0.18;
-    const cx = cx0 + Math.sin(t * (0.3 + glass * 0.2)) * span + Math.sin(t * 8) * chop * 3;
-    const body = mixColor(this.accent.accent, PALETTE.inkMid, 0.2);
-    const bodyLit = mixColor(body, PALETTE.white, 0.4);
-    const legC = mixColor(body, this.accent.ink, 0.3);
-
-    // shell (rounded carapace, top-left lit)
-    for (let gy = -size * 0.5; gy <= size * 0.5; gy += 1.4) {
-      for (let gx = -size; gx <= size; gx += 1.4) {
-        const e = (gx * gx) / (size * size) + (gy * gy) / ((size * 0.55) * (size * 0.55));
-        if (e > 1) continue;
-        const lit = gx < 0 && gy < 0;
-        g.circle(cx + gx, cy + gy, 1.0).fill({ color: lit ? bodyLit : body, alpha: clarity });
+  // A koi gliding beneath the surface, soft accent-marbled, fins fanning.
+  private koi(g: Graphics, cx: number, cy: number, size: number, t: number, alpha: number) {
+    const body = mixColor(this.accent.accentSoft, PALETTE.white, 0.35);
+    const mark = mixColor(this.accent.accent, PALETTE.white, 0.25);
+    const wig = Math.sin(t * 3) * 0.5;
+    // tapered body
+    for (let k = 0; k <= 6; k++) {
+      const kt = k / 6;
+      const x = cx + kt * size * 1.6;
+      const y = cy + Math.sin(t * 3 - kt * 2) * 1.2 * kt;
+      const w = (1 - Math.abs(kt - 0.35) * 1.2) * size * 0.5 + 1;
+      g.ellipse(x, y, w, w * 0.7).fill({ color: body, alpha: alpha * 0.55 });
+      if (kt > 0.2 && kt < 0.7) {
+        g.circle(x, y, w * 0.35).fill({ color: mark, alpha: alpha * 0.5 });
       }
     }
-    // legs, three per side, twitch when choppy
-    for (const side of [-1, 1]) {
-      for (let l = 0; l < 3; l++) {
-        const twitch = Math.sin(t * 9 + l + side) * chop * 1.6;
-        const lx = cx + side * (size * 0.7 + l * 1.5);
-        const ly = cy + size * 0.3 + l * 1.4 + twitch;
-        g.circle(lx, ly, 0.8).fill({ color: legC, alpha: clarity });
-        g.circle(lx + side * 1.4, ly + 1.6, 0.7).fill({ color: legC, alpha: clarity });
-      }
-      // a claw out front
-      const claw = cx + side * size * 1.1;
-      g.circle(claw, cy - size * 0.3, 1.6).fill({ color: bodyLit, alpha: clarity });
-      g.circle(claw + side, cy - size * 0.5, 0.9).fill({ color: legC, alpha: clarity });
+    // forked tail
+    const tx = cx + size * 1.6;
+    const ty = cy + wig;
+    for (const s of [-1, 1]) {
+      g.ellipse(tx + size * 0.4, ty + s * size * 0.35, size * 0.4, size * 0.18)
+        .fill({ color: body, alpha: alpha * 0.4 });
     }
-    // two eyes on stalks
-    for (const side of [-1, 1]) {
-      g.circle(cx + side * size * 0.3, cy - size * 0.6, 0.9).fill({ color: PALETTE.white, alpha: clarity });
-      g.circle(cx + side * size * 0.3, cy - size * 0.6, 0.5).fill({ color: PALETTE.ink, alpha: clarity });
-    }
+    // head + eye
+    g.circle(cx - size * 0.1, cy, size * 0.35).fill({ color: body, alpha: alpha * 0.5 });
   }
 
-  // A dragonfly skimming the glassy surface at high score.
-  private dragonfly(f: Graphics, cx: number, cy: number, t: number, bloom: number) {
+  // A dragonfly skimming above the lagoon, wings shimmering.
+  private dragonfly(f: Graphics, cx: number, cy: number, t: number, alpha: number) {
     const bodyC = mixColor(this.accent.accent, this.accent.ink, 0.2);
     const wingC = mixColor(PALETTE.white, this.accent.accentSoft, 0.3);
-    // slender body
     for (let i = 0; i < 6; i++) {
-      f.circle(cx + i * 1.6 - 4, cy, 1.0 - i * 0.1).fill({ color: bodyC, alpha: 0.8 * bloom });
+      f.circle(cx + i * 1.5 - 4, cy, 1.0 - i * 0.1).fill({ color: bodyC, alpha: 0.8 * alpha });
     }
-    // head
-    f.circle(cx + 6, cy, 1.3).fill({ color: bodyC, alpha: 0.85 * bloom });
-    // four shimmering wings, beating fast
+    f.circle(cx + 6, cy, 1.3).fill({ color: bodyC, alpha: 0.85 * alpha });
     const beat = Math.sin(t * 18) * 0.4;
     for (const side of [-1, 1]) {
       for (const fwd of [-1, 1]) {
@@ -563,12 +687,13 @@ export class TidepoolRenderer implements WorldRenderer {
           const kt = k / 5;
           const x = wx + fwd * kt * 6;
           const y = wy + side * (kt * 4 + beat * kt * 4);
-          f.circle(x, y, (1 - kt) * 1.2 + 0.3).fill({ color: wingC, alpha: 0.4 * bloom * (1 - kt * 0.5) });
+          f.circle(x, y, (1 - kt) * 1.2 + 0.3).fill({
+            color: wingC,
+            alpha: 0.4 * alpha * (1 - kt * 0.5),
+          });
         }
       }
     }
-    // its reflection glinting just below
-    f.circle(cx, cy + 8, 2).fill({ color: this.accent.accentSoft, alpha: 0.1 * bloom });
   }
 
   setAccent(a: Accent) {
