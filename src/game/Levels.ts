@@ -104,7 +104,7 @@ export const LEVELS: LevelDef[] = [
       { index: 3, amplitude: 0.32 },
     ],
     start: [{ index: 1, amplitude: 0.45 }],
-    threshold: 0.85,
+    threshold: 0.991,
   },
 
   // ---------------------------------------------------------------- L2
@@ -136,7 +136,7 @@ export const LEVELS: LevelDef[] = [
       { index: 5, amplitude: 0.3 },
     ],
     start: [{ index: 2, amplitude: 0.3 }],
-    threshold: 0.85,
+    threshold: 0.985,
   },
 
   // ---------------------------------------------------------------- L3
@@ -169,7 +169,7 @@ export const LEVELS: LevelDef[] = [
       { index: 8, amplitude: 0.2 },
     ],
     start: [{ index: 1, amplitude: 0.5 }],
-    threshold: 0.85,
+    threshold: 0.991,
   },
 
   // ---------------------------------------------------------------- L4
@@ -208,7 +208,7 @@ export const LEVELS: LevelDef[] = [
       { index: 7, amplitude: -0.1 },
     ],
     start: [{ index: 1, amplitude: 0.4 }],
-    threshold: 0.86,
+    threshold: 0.984,
   },
 
   // ---------------------------------------------------------------- L5
@@ -249,7 +249,7 @@ export const LEVELS: LevelDef[] = [
       { index: 3, amplitude: 0.45, phase: 3.4 },
       { index: 4, amplitude: 0.32, phase: 5.0 },
     ],
-    threshold: 0.85,
+    threshold: 0.997,
   },
 
   // ---------------------------------------------------------------- L6
@@ -285,7 +285,7 @@ export const LEVELS: LevelDef[] = [
       { index: 6, amplitude: 0.2 },
     ],
     start: [{ index: 1, amplitude: 0.4 }],
-    threshold: 0.86,
+    threshold: 0.986,
   },
 
   // ---------------------------------------------------------------- L7
@@ -319,7 +319,7 @@ export const LEVELS: LevelDef[] = [
       { index: 5, amplitude: 0.3 },
     ],
     start: [{ index: 1, amplitude: 0.3 }],
-    threshold: 0.86,
+    threshold: 0.991,
   },
 
   // ---------------------------------------------------------------- L8
@@ -363,7 +363,7 @@ export const LEVELS: LevelDef[] = [
       { index: 9, amplitude: 0.5, phase: 1.7 },
       { index: 10, amplitude: 0.55, phase: 2.0 },
     ],
-    threshold: 0.86,
+    threshold: 0.997,
   },
 
   // ---------------------------------------------------------------- L9
@@ -403,7 +403,7 @@ export const LEVELS: LevelDef[] = [
       { index: 8, amplitude: 0.5 },
       { index: 9, amplitude: 0.4 },
     ],
-    threshold: 0.87,
+    threshold: 0.993,
   },
 
   // ---------------------------------------------------------------- L10
@@ -442,7 +442,7 @@ export const LEVELS: LevelDef[] = [
       { index: 8, amplitude: 0.5 },
       { index: 9, amplitude: 0.4 },
     ],
-    threshold: 0.87,
+    threshold: 0.992,
   },
 
   // ---------------------------------------------------------------- L11
@@ -483,7 +483,7 @@ export const LEVELS: LevelDef[] = [
       { index: 8, amplitude: 0.4 },
       { index: 9, amplitude: 0.3 },
     ],
-    threshold: 0.87,
+    threshold: 0.993,
   },
 
   // ---------------------------------------------------------------- L12
@@ -528,7 +528,7 @@ export const LEVELS: LevelDef[] = [
       { index: 8, amplitude: 0.7, phase: Math.PI / 6 },
       { index: 9, amplitude: 0.5, phase: (2 * Math.PI) / 3 },
     ],
-    threshold: 0.87,
+    threshold: 0.997,
   },
 
   // ---------------------------------------------------------------- L13
@@ -568,7 +568,7 @@ export const LEVELS: LevelDef[] = [
       { index: 8, amplitude: 0.5, phase: (5 * Math.PI) / 6 },
       { index: 9, amplitude: 0.4, phase: Math.PI / 3 },
     ],
-    threshold: 0.88,
+    threshold: 0.996,
   },
 
   // ---------------------------------------------------------------- L14
@@ -617,7 +617,7 @@ export const LEVELS: LevelDef[] = [
       { index: 6, amplitude: 0.4 },
       { index: 7, amplitude: 0.3 },
     ],
-    threshold: 0.88,
+    threshold: 0.995,
   },
 
   // ---------------------------------------------------------------- L15
@@ -649,7 +649,7 @@ export const LEVELS: LevelDef[] = [
       { index: 3, amplitude: 0.3, phase: Math.PI },
     ],
     start: [{ index: 1, amplitude: 0.4, phase: Math.PI }],
-    threshold: 0.88,
+    threshold: 0.991,
   },
 
   // ---------------------------------------------------------------- L16
@@ -688,7 +688,7 @@ export const LEVELS: LevelDef[] = [
       { index: 4, amplitude: 0.2, phase: Math.PI / 2 },
     ],
     start: [{ index: 1, amplitude: 0.4, phase: 0 }],
-    threshold: 0.89,
+    threshold: 0.992,
   },
 
   // ---------------------------------------------------------------- L17
@@ -733,7 +733,7 @@ export const LEVELS: LevelDef[] = [
       { index: 3, amplitude: 0.4, phase: Math.PI / 2 },
       { index: 4, amplitude: 0.3, phase: Math.PI / 2 },
     ],
-    threshold: 0.89,
+    threshold: 0.996,
   },
 
   // ---------------------------------------------------------------- L18
@@ -773,7 +773,7 @@ export const LEVELS: LevelDef[] = [
       { index: 3, amplitude: 0.4, phase: 0 },
       { index: 4, amplitude: 0.3, phase: 0 },
     ],
-    threshold: 0.89,
+    threshold: 0.993,
   },
 
   // ---------------------------------------------------------------- L19
@@ -820,7 +820,7 @@ export const LEVELS: LevelDef[] = [
       { index: 4, amplitude: 0.6, phase: Math.PI / 3 },
       { index: 5, amplitude: 0.6, phase: (3 * Math.PI) / 2 },
     ],
-    threshold: 0.9,
+    threshold: 0.992,
   },
 
   // ---------------------------------------------------------------- L20  (finale)
@@ -858,7 +858,7 @@ export const LEVELS: LevelDef[] = [
       { index: 8, amplitude: 0.25, phase: 1.5 },
     ],
     start: [{ index: 1, amplitude: 0.5, phase: 0 }],
-    threshold: 0.92,
+    threshold: 0.997,
   },
 ];
 
