@@ -72,16 +72,22 @@ export class PrismRenderer implements WorldRenderer {
     const highFrac = Math.max(0, Math.min(1, shape.highFrequencyEnergy / tot));
     const lowFrac = Math.max(0, Math.min(1, shape.lowFrequencyEnergy / tot));
     // sharp ~1 = razor focus & steady; ~0 = blurry, doubled, wobbling.
-    const sharp = Math.max(0, Math.min(1, 0.45 * highFrac + 0.55 * sc));
+    // smoothstep on the blend gives an obvious, non-linear "snap" to focus.
+    const raw = Math.max(0, Math.min(1, 0.45 * highFrac + 0.55 * sc));
+    const sharp = raw * raw * (3 - 2 * raw); // smoothstep — clearer transition
     const blur = 1 - sharp; // 1 = max haze/double image
     const unsteady = Math.max(0, Math.min(1, lowFrac * (1 - sc * 0.9) + blur * 0.3));
 
-    // Heartbeat / breathing sway of the whole sight picture. Steadies as sharp.
-    const breath = Math.sin(t * 0.9);
-    const beat = Math.sin(t * 2.4) * Math.max(0, Math.sin(t * 2.4)); // sharp pulse
-    const swayAmt = unsteady * 7 + 0.4;
-    const swayX = (breath * 0.7 + Math.sin(t * 1.31 + 1.0) * 0.3) * swayAmt;
-    const swayY = (Math.cos(t * 0.8) * 0.7 + beat * 0.5) * swayAmt;
+    // Held-breath aim: a slow breathing rise/fall plus a faint heartbeat. The
+    // sway shrinks toward zero as the view sharpens — the calm of a steady hold.
+    // ease the amplitude so the last bit of focus visibly "settles".
+    const calm = sharp * sharp; // sway dies off fast near full focus
+    const breath = Math.sin(t * 0.85);
+    const breath2 = Math.sin(t * 0.85 + 1.6) * 0.5; // slight lateral lean
+    const beat = Math.sin(t * 2.4) * Math.max(0, Math.sin(t * 2.4)); // pulse spike
+    const swayAmt = (unsteady * 7 + 0.5) * (1 - calm * 0.92);
+    const swayX = (breath * 0.7 + breath2 * 0.4 + Math.sin(t * 1.31 + 1.0) * 0.25) * swayAmt;
+    const swayY = (Math.cos(t * 0.78) * 0.7 + beat * 0.5) * swayAmt;
 
     const wave = resample(shape, 96);
 
@@ -208,28 +214,36 @@ export class PrismRenderer implements WorldRenderer {
 
     const dark = mixColor(this.accent.ink, PALETTE.ink, 0.4);
     const blobCol = mixColor(this.accent.accent, PALETTE.paperDeep, 0.3);
+    const plateY = ty - 6; // centre of the target plate
 
-    if (blur > 0.45) {
-      // INDISTINCT BLOB: a few overlapping smeared circles, doubled & faint.
+    // The blob and the crisp figure CROSS-FADE so there is no hard pop. The blob
+    // shows mostly while blurry; the figure resolves in as `sharp` rises.
+    const blobShow = Math.max(0, Math.min(1, (blur - 0.3) / 0.45)); // 0..1 haze
+    const detail = Math.max(0, Math.min(1, (sharp - 0.28) / 0.72)); // 0..1 crisp
+
+    if (blobShow > 0.01) {
+      // INDISTINCT BLOB: overlapping smeared circles, doubled & wobbling. Reads
+      // as "something is there" but you cannot tell what until it focuses.
       for (let k = 0; k < 4; k++) {
         const ox = Math.sin(t * 1.2 + k * 2.1) * blur * 5;
         const oy = Math.cos(t * 1.0 + k * 1.7) * blur * 3;
-        g.circle(tx + ox, ty + oy, 5 + k * 1.2).fill({
+        g.circle(tx + ox, plateY + oy, 5 + k * 1.2).fill({
           color: mixColor(blobCol, PALETTE.paper, 0.2),
-          alpha: 0.12 + 0.06 * (3 - k),
+          alpha: (0.12 + 0.06 * (3 - k)) * blobShow,
         });
       }
-      return;
     }
 
-    // CRISP FIGURE: a small bottle / bullseye target on a post. Drawn sharper
-    // and more contrasty as `sharp` rises.
-    const detail = Math.max(0, Math.min(1, (sharp - 0.3) / 0.7));
-    const post = mixColor(this.accent.ink, PALETTE.paper, 0.35);
-    // post / stand.
-    g.rect(tx - 0.8, ty, 1.6, 12).fill({ color: post, alpha: 0.5 + detail * 0.4 });
+    if (detail < 0.01) return;
 
-    // bullseye target plate.
+    // CRISP FIGURE: a small bullseye target plate on a post. Contrast and edge
+    // crispness ride `detail`; everything fades up together for a clean reveal.
+    const post = mixColor(this.accent.ink, PALETTE.paper, 0.35);
+    // post / stand, with a tiny base foot.
+    g.rect(tx - 0.8, ty, 1.6, 12).fill({ color: post, alpha: (0.5 + detail * 0.4) });
+    g.rect(tx - 2.2, ty + 11, 4.4, 1.4).fill({ color: post, alpha: 0.4 + detail * 0.35 });
+
+    // bullseye target plate — alternating cream / accent rings.
     const RR = 6.5;
     const rings = [
       mixColor(PALETTE.white, dark, 0.1),
@@ -239,26 +253,47 @@ export class PrismRenderer implements WorldRenderer {
     ];
     for (let k = 0; k < rings.length; k++) {
       const rr = RR * (1 - k / rings.length);
-      g.circle(tx, ty - 6, rr).fill({
+      g.circle(tx, plateY, rr).fill({
         color: mixColor(rings[k], PALETTE.paper, blur * 0.5),
-        alpha: 0.6 + detail * 0.4 - blur * 0.2,
+        alpha: (0.6 + detail * 0.4) * detail,
       });
     }
     // crisp dark center dot — the aim point. Sharpest detail.
-    g.circle(tx, ty - 6, 1.3 + detail * 0.4).fill({
+    g.circle(tx, plateY, 1.3 + detail * 0.5).fill({
       color: dark,
-      alpha: 0.7 + detail * 0.3,
+      alpha: (0.7 + detail * 0.3) * detail,
     });
     // top-left highlight on the plate (pale-luminous, light from top-left).
-    g.circle(tx - RR * 0.35, ty - 6 - RR * 0.35, RR * 0.3).fill({
+    g.circle(tx - RR * 0.35, plateY - RR * 0.35, RR * 0.3).fill({
       color: PALETTE.white,
-      alpha: 0.18 + detail * 0.25,
+      alpha: (0.18 + detail * 0.3) * detail,
     });
 
-    // when fully focused & solved, a tiny "locked" tick flicks at the center.
+    // LOCK BRACKET: four crisp corner ticks framing the subject — the unmistakable
+    // "target acquired" feel. Tightens snugly onto the plate as focus completes.
+    if (detail > 0.35) {
+      const la = (detail - 0.35) / 0.65;
+      const settle = 1 - Math.max(0, Math.min(1, sc)); // breathe-in only while unsolved
+      const br = RR + 3 + settle * 2.2; // bracket half-size eases inward as it locks
+      const len = 2.6 + la * 1.2; // arm length
+      const lac = this.accent.accent;
+      const lw = 0.9;
+      const corner = (sgnX: number, sgnY: number) => {
+        const x = tx + sgnX * br;
+        const y = plateY + sgnY * br;
+        g.moveTo(x, y).lineTo(x - sgnX * len, y).stroke({ width: lw, color: lac, alpha: 0.55 * la });
+        g.moveTo(x, y).lineTo(x, y - sgnY * len).stroke({ width: lw, color: lac, alpha: 0.55 * la });
+      };
+      corner(-1, -1);
+      corner(1, -1);
+      corner(-1, 1);
+      corner(1, 1);
+    }
+
+    // when fully focused & solved, a tiny "locked" ring pulses at the center.
     if (sc > 0.7) {
       const pulse = 0.5 + 0.5 * Math.sin(t * 4);
-      g.circle(tx, ty - 6, RR + 2 + pulse * 1.5).stroke({
+      g.circle(tx, plateY, RR + 2 + pulse * 1.5).stroke({
         width: 0.8,
         color: this.accent.accent,
         alpha: (sc - 0.7) / 0.3 * 0.4 * pulse,
@@ -301,15 +336,32 @@ export class PrismRenderer implements WorldRenderer {
       g.moveTo(x0, y0).lineTo(x1, y1).stroke({ width, color: hairCol, alpha });
     };
 
-    // the soft/smeared base when blurry: ghost copies offset perpendicular.
+    // the soft/smeared base when blurry: ghost copies offset perpendicular, and
+    // gently WOBBLING so the double image visibly shivers until focus arrives.
+    const wob = blur * Math.sin(t * 1.7) * 1.4;
     for (let gi = -ghostCount; gi <= ghostCount; gi++) {
       if (gi === 0) continue;
-      const off = gi * blur * 3;
-      const a = 0.18 * (1 - blur * 0.2);
+      const off = gi * (blur * 3) + wob;
+      const a = 0.2 * blur; // ghosts fade out completely as the view sharpens
       // vertical ghost
       drawHair(ox + off, oy - reach, ox + off, oy + reach, 1 + blur * 1.5, a);
       // horizontal ghost
       drawHair(ox - reach, oy + off, ox + reach, oy + off, 1 + blur * 1.5, a);
+    }
+
+    // faint chromatic fringe on the central hairlines when blurry — a cool/warm
+    // edge a hair off the true line, the optical "colour bleed" of a soft image.
+    if (blur > 0.18) {
+      const cf = blur * 1.6;
+      const fa = blur * 0.16;
+      const cool = mixColor(hairCol, this.accent.accentSoft, 0.6);
+      const warm = mixColor(hairCol, PALETTE.paperDeep, 0.5);
+      const fringe = (x0: number, y0: number, x1: number, y1: number, col: number) =>
+        g.moveTo(x0, y0).lineTo(x1, y1).stroke({ width: 0.9, color: col, alpha: fa });
+      fringe(ox - cf, oy - reach, ox - cf, oy + reach, cool);
+      fringe(ox + cf, oy - reach, ox + cf, oy + reach, warm);
+      fringe(ox - reach, oy - cf, ox + reach, oy - cf, cool);
+      fringe(ox - reach, oy + cf, ox + reach, oy + cf, warm);
     }
 
     // crisp central hairlines — width tightens & alpha rises with sharp.
@@ -331,17 +383,19 @@ export class PrismRenderer implements WorldRenderer {
     // when blurry.
     const dots = 5;
     const spacing = stub / (dots + 0.5);
-    const dotR = 1.0 + blur * 1.3;
-    const dotA = 0.3 + sharp * 0.5;
+    const dotR = 1.0 + blur * 1.4; // fat smeared blobs blurry -> tight dots sharp
+    const dotA = (0.25 + sharp * 0.55) * (0.4 + sharp * 0.6); // resolve in cleanly
     for (let d = 1; d <= dots; d++) {
       const off = d * spacing;
       const dr = dotR * (d === dots ? 0.8 : 1);
+      // a faint blurry-blob wobble shifts the dots when unfocused.
+      const jw = blur * Math.sin(t * 1.6 + d) * 0.8;
       // vertical line dots
-      g.circle(ox, oy - off, dr).fill({ color: hairCol, alpha: dotA });
-      g.circle(ox, oy + off, dr).fill({ color: hairCol, alpha: dotA });
+      g.circle(ox + jw, oy - off, dr).fill({ color: hairCol, alpha: dotA });
+      g.circle(ox + jw, oy + off, dr).fill({ color: hairCol, alpha: dotA });
       // horizontal line dots
-      g.circle(ox - off, oy, dr).fill({ color: hairCol, alpha: dotA });
-      g.circle(ox + off, oy, dr).fill({ color: hairCol, alpha: dotA });
+      g.circle(ox - off, oy + jw, dr).fill({ color: hairCol, alpha: dotA });
+      g.circle(ox + off, oy + jw, dr).fill({ color: hairCol, alpha: dotA });
     }
 
     // a crisp little open center box (aim point) that closes tight as focused.
@@ -369,15 +423,17 @@ export class PrismRenderer implements WorldRenderer {
   // ------------------------------------------------------------------
   private drawVignette(cx: number, cy: number, R: number) {
     const g = this.fan;
-    // 1. soft inner vignette darkening toward the rim (light falloff).
-    const vrings = 10;
+    // 1. soft inner vignette darkening toward the rim (light falloff). More rings
+    //    + overlapping widths = a clean continuous gradient with no banding.
+    const vrings = 16;
+    const vcol = mixColor(this.accent.ink, PALETTE.ink, 0.3);
     for (let i = 0; i < vrings; i++) {
       const u = i / (vrings - 1);
-      const rr = R * (0.7 + u * 0.3);
-      const a = u * u * 0.22;
+      const rr = R * (0.6 + u * 0.4);
+      const a = u * u * 0.2; // quadratic falloff — dark only near the rim
       g.circle(cx, cy, rr).stroke({
-        width: R * 0.06 + 2,
-        color: mixColor(this.accent.ink, PALETTE.ink, 0.3),
+        width: R * 0.09 + 2,
+        color: vcol,
         alpha: a,
       });
     }
@@ -393,11 +449,22 @@ export class PrismRenderer implements WorldRenderer {
     //    top-left gives it a pale-luminous bevel.
     const barrel = mixColor(this.accent.ink, PALETTE.ink, 0.6);
     g.circle(cx, cy, R + 4).stroke({ width: 8, color: barrel, alpha: 0.95 });
-    // inner thin bright line (lens edge).
+    // inner thin bright line (lens edge) with a faint chromatic coating: a cool
+    // ring just inside and a warm one just outside — the coated-glass shimmer.
+    g.circle(cx, cy, R - 1).stroke({
+      width: 1.0,
+      color: mixColor(PALETTE.white, this.accent.accentSoft, 0.6),
+      alpha: 0.3,
+    });
     g.circle(cx, cy, R).stroke({
       width: 1.4,
       color: mixColor(PALETTE.white, this.accent.accentSoft, 0.3),
       alpha: 0.6,
+    });
+    g.circle(cx, cy, R + 1.2).stroke({
+      width: 0.9,
+      color: mixColor(this.accent.accentSoft, PALETTE.paperDeep, 0.5),
+      alpha: 0.28,
     });
     // top-left bevel highlight arc on the barrel.
     g.arc(cx, cy, R + 4, Math.PI * 1.05, Math.PI * 1.55).stroke({
@@ -423,10 +490,12 @@ export class PrismRenderer implements WorldRenderer {
     const gx = cx + Math.cos(ang) * R * 0.5;
     const gy = cy + Math.sin(ang) * R * 0.5;
     const a = 0.06 + sharp * 0.14;
-    for (let i = 0; i < 4; i++) {
-      p.main.circle(gx + i * 2, gy + i * 1.2, 6 - i * 1.2).fill({
+    // a short diagonal streak of softening dots — a clean lens glint, not a blob.
+    for (let i = 0; i < 5; i++) {
+      const u = i / 4;
+      p.main.circle(gx + (u - 0.5) * 10, gy + (u - 0.5) * 6, 5.5 - i * 0.8).fill({
         color: mixColor(PALETTE.white, this.accent.accentSoft, 0.2),
-        alpha: a * (1 - i * 0.2),
+        alpha: a * (1 - Math.abs(u - 0.5) * 1.2),
       });
     }
     // a tiny top-left lens-flare star at the brightest glint when sharp.
@@ -453,7 +522,9 @@ export class PrismRenderer implements WorldRenderer {
   ) {
     if (sharp < 0.25) return;
     const g = this.body;
+    // numerals only sharpen in once focus is well underway (the crisp reward).
     const a = (sharp - 0.25) / 0.75;
+    const na = Math.max(0, (sharp - 0.5) / 0.5); // numeral legibility
     const col = mixColor(this.accent.ink, PALETTE.ink, 0.4);
 
     // bottom range scale: a row of ticks across the lower chord of the circle.
@@ -469,8 +540,27 @@ export class PrismRenderer implements WorldRenderer {
     // a small moving "wind" caret riding the waveform along that scale.
     const m = wave.length;
     const idx = Math.floor((t * 0.08 % 1) * (m - 1)) % m;
-    const wx = cx + wave[idx] * dxw * 0.7;
+    const wval = wave[idx];
+    const wx = cx + wval * dxw * 0.7;
     g.rect(wx - 1.2, sy - 7, 2.4, 2).fill({ color: this.accent.accent, alpha: 0.5 * a });
+
+    // RANGE / WINDAGE numerals — pixel-block digits that resolve crisp on focus.
+    if (na > 0.02) {
+      // range derived from the optic size (a stable big number); windage from the
+      // wind caret. Both are deterministic functions of the sight picture.
+      const range = 300 + Math.round(R) * 2; // e.g. ~"628"
+      const windRaw = Math.round(Math.abs(wval) * 12); // 0..12 mils
+      this.drawNumber(g, range, cx + dxw - 18, sy + 4, col, 0.5 * na);
+      // windage tag with L/R direction shown as a leading bar block.
+      const wcol = this.accent.accent;
+      const wnx = cx - dxw + 2;
+      // direction marker block (left vs right of zero).
+      g.rect(wnx - 3, sy + 4, 2, 5).fill({
+        color: wval < 0 ? wcol : col,
+        alpha: 0.5 * na,
+      });
+      this.drawNumber(g, windRaw, wnx, sy + 4, wcol, 0.5 * na);
+    }
 
     // left vertical elevation scale: short ticks up the left side of the optic.
     const lx = cx - R * 0.72;
@@ -501,6 +591,55 @@ export class PrismRenderer implements WorldRenderer {
           alpha: 0.5 * a * on,
         });
       }
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Tiny 3x5 pixel-block numerals (no fonts) for the range / windage HUD.
+  // Each digit is a 15-bit bitmap, rows top→bottom, 3 columns each.
+  // ------------------------------------------------------------------
+  private static DIGITS: number[] = [
+    0b111101101101111, // 0
+    0b010110010010111, // 1
+    0b111001111100111, // 2
+    0b111001111001111, // 3
+    0b101101111001001, // 4
+    0b111100111001111, // 5
+    0b111100111101111, // 6
+    0b111001010010010, // 7
+    0b111101111101111, // 8
+    0b111101111001111, // 9
+  ];
+
+  private drawNumber(
+    g: Graphics,
+    value: number,
+    x: number,
+    y: number,
+    color: number,
+    alpha: number,
+  ) {
+    const s = Math.max(0, Math.round(value)).toString();
+    const px = 1; // pixel size
+    const dw = 3 * px + 1; // digit advance
+    let cxp = x;
+    // bounded: at most 4 digits.
+    const max = Math.min(4, s.length);
+    for (let di = 0; di < max; di++) {
+      const d = s.charCodeAt(di) - 48;
+      if (d < 0 || d > 9) {
+        cxp += dw;
+        continue;
+      }
+      const bits = PrismRenderer.DIGITS[d];
+      for (let row = 0; row < 5; row++) {
+        for (let colP = 0; colP < 3; colP++) {
+          const bit = (bits >> (14 - (row * 3 + colP))) & 1;
+          if (!bit) continue;
+          g.rect(cxp + colP * px, y + row * px, px, px).fill({ color, alpha });
+        }
+      }
+      cxp += dw;
     }
   }
 

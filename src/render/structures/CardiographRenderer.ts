@@ -114,9 +114,20 @@ export class CardiographRenderer implements WorldRenderer {
     p.dot(bx + 18, by + bh - 9, 2.4, mixColor(metalDark, bpmCol, blink), 0.95);
     p.dot(bx + 18, by + bh - 9, 4.2, bpmCol, 0.18 * blink);
 
+    // a thin inner bevel line just inside the bezel for a crisper frame edge
+    p.block(bx + 6, by + 6, bw - 12, 1, metalLight, 0.4);
+    p.block(bx + 6, by + 6, 1, bh - 12, metalLight, 0.36);
+    p.block(bx + 6, by + bh - 7, bw - 12, 1, metalDark, 0.4);
+    p.block(bx + bw - 7, by + 6, 1, bh - 12, metalDark, 0.4);
+
     // dark screen recess (just inside the bezel) painted into the casing layer
     const recess = mixColor(this.accent.ink, 0x000000, 0.25);
     p.block(sx - 3, sy - 3, sw + 6, sh + 6, recess, 0.9);
+    // crisp inner rim framing the glass: lit top-left, shaded bottom-right
+    p.block(sx - 3, sy - 3, sw + 6, 1, mixColor(recess, 0x000000, 0.4), 0.8);
+    p.block(sx - 3, sy - 3, 1, sh + 6, mixColor(recess, 0x000000, 0.4), 0.7);
+    p.block(sx - 1, sy - 1, sw + 2, 1, metalLight, 0.3);
+    p.block(sx - 1, sy - 1, 1, sh + 2, metalLight, 0.26);
 
     // --- screen interior: pale phosphor backing + faint graticule ---
     // White-first: a very pale background washed with the accent glow.
@@ -156,13 +167,15 @@ export class CardiographRenderer implements WorldRenderer {
       .rect(sx, baselineY - 0.5, sw, 1)
       .fill({ color: gridCol, alpha: 0.28 });
 
-    // gentle scanline texture (deterministic, bounded)
-    const scan = Math.floor(sh / 4);
+    // gentle scanline texture (deterministic, bounded) — finer & alternating
+    // so it reads as a CRT raster rather than a flat wash.
+    const scan = Math.floor(sh / 3);
     for (let i = 0; i < scan; i++) {
       const ly = sy + (i / scan) * sh;
+      const even = i % 2 === 0;
       screen
         .rect(sx, ly, sw, 1)
-        .fill({ color: this.accent.ink, alpha: 0.018 });
+        .fill({ color: this.accent.ink, alpha: even ? 0.022 : 0.01 });
     }
 
     // --- the live reconstructed waveform ---
@@ -205,11 +218,58 @@ export class CardiographRenderer implements WorldRenderer {
     const beat = Math.pow(0.5 + 0.5 * Math.sin(beatPhase), 6); // sharp throb
     const pulse = 0.85 + 0.15 * beat * score;
 
+    // --- gentle BEAT FLASH that ripples the grid in time with the heartbeat ---
+    // Only when the reconstruction is clean enough to form a real spike, so the
+    // grid breathes with each PQRST throb. Drawn into the trace layer behind the
+    // waveform; subtle, accent-tinted, and centred on the beat.
+    if (score > 0.3 && beat > 0.05) {
+      const flash = beat * (score - 0.3) / 0.7;
+      const flashCol = mixColor(gridCol, this.accent.accent, 0.5);
+      // brighten the major graticule lines on the throb
+      for (let c = 0; c <= cells; c += 5) {
+        const gx = sx + (c / cells) * sw;
+        trace.rect(gx - 0.5, sy, 1, sh).fill({ color: flashCol, alpha: 0.18 * flash });
+      }
+      trace.rect(sx, sy + sh / 2 - 0.5, sw, 1).fill({ color: flashCol, alpha: 0.2 * flash });
+      trace.rect(sx, baselineY - 0.5, sw, 1).fill({ color: flashCol, alpha: 0.24 * flash });
+      // a faint full-screen bloom wash so the whole phosphor lifts on the beat
+      trace.rect(sx, sy, sw, sh).fill({
+        color: mixColor(PALETTE.white, this.accent.accent, 0.25),
+        alpha: 0.04 * flash,
+      });
+    }
+
     // --- phosphor TRACE with decay tail ---
     // Draw as short segments between consecutive samples; brightness depends on
     // each sample's recency relative to the sweep dot (older = dimmer).
     const traceCol = mixColor(this.accent.accent, PALETTE.white, 0.12);
     const traceHot = mixColor(this.accent.accent, PALETTE.white, 0.55);
+
+    // First pass: a broad, soft phosphor HALO under the whole visible trace so
+    // the line sits in a continuous bloom rather than discrete glints. Drawn
+    // before the crisp line so the bright core reads on top.
+    for (let i = 1; i < this.cols; i++) {
+      const x0 = xAt(i - 1);
+      const x1 = xAt(i);
+      const top = sy + 1.5;
+      const bot = sy + sh - 1.5;
+      const y0 = Math.max(top, Math.min(bot, yAt(w[i - 1], i - 1)));
+      const y1 = Math.max(top, Math.min(bot, yAt(w[i], i)));
+      let age = sweepU - i / (this.cols - 1);
+      if (age < 0) age += 1;
+      // smoother (eased) decay for a longer, gentler afterimage tail
+      const decay = Math.max(0.08, Math.pow(Math.max(0, 1 - age * 1.05), 1.4));
+      trace
+        .moveTo(x0, y0)
+        .lineTo(x1, y1)
+        .stroke({
+          width: 6 + decay * 5 + beat * score * 1.6,
+          color: this.accent.accent,
+          alpha: decay * 0.07 * pulse,
+          cap: "round",
+          join: "round",
+        });
+    }
 
     for (let i = 1; i < this.cols; i++) {
       const x0 = xAt(i - 1);
@@ -225,27 +285,41 @@ export class CardiographRenderer implements WorldRenderer {
       // recency: how far behind the sweep dot this sample sits (0..1)
       let age = sweepU - i / (this.cols - 1);
       if (age < 0) age += 1; // wrap so just-ahead samples are the "oldest"
-      const decay = Math.max(0.12, 1 - age * 1.1); // older -> dimmer
+      // eased decay -> a smoother, longer-fading afterimage tail
+      const decay = Math.max(0.12, Math.pow(Math.max(0, 1 - age * 1.05), 1.4));
       const alpha = decay * (0.85 * pulse);
 
       const col = mixColor(traceCol, traceHot, decay * 0.8);
       const lw = 1.4 + decay * 1.1 + beat * score * 0.8;
+
+      // soft mid under-glow hugging the line for an antialiased phosphor edge
+      trace
+        .moveTo(x0, y0)
+        .lineTo(x1, y1)
+        .stroke({
+          width: lw + 2,
+          color: this.accent.accent,
+          alpha: alpha * 0.22,
+          cap: "round",
+          join: "round",
+        });
 
       trace
         .moveTo(x0, y0)
         .lineTo(x1, y1)
         .stroke({ width: lw, color: col, alpha, cap: "round", join: "round" });
 
-      // soft under-glow for the brightest (most recent) part of the trace
+      // bright crisp core on the freshest part of the sweep
       if (decay > 0.55) {
         trace
           .moveTo(x0, y0)
           .lineTo(x1, y1)
           .stroke({
-            width: lw + 3,
-            color: this.accent.accent,
-            alpha: alpha * 0.18,
+            width: Math.max(0.6, lw - 0.9),
+            color: mixColor(traceHot, PALETTE.white, 0.5),
+            alpha: alpha * 0.7,
             cap: "round",
+            join: "round",
           });
       }
     }
@@ -256,14 +330,30 @@ export class CardiographRenderer implements WorldRenderer {
       Math.min(sy + sh - 1.5, yAt(w[sweepI], sweepI)),
     );
     const sdX = xAt(sweepI);
-    trace.circle(sdX, sdY, 1.8 + beat * 0.8).fill({
-      color: PALETTE.white,
-      alpha: 0.95,
-    });
+
+    // short fading afterimage tail trailing the dot along the trace
+    for (let k = 1; k <= 6; k++) {
+      const ti = sweepI - k;
+      if (ti < 0) continue;
+      const tx = xAt(ti);
+      const ty = Math.max(sy + 1.5, Math.min(sy + sh - 1.5, yAt(w[ti], ti)));
+      const f = 1 - k / 7;
+      trace.circle(tx, ty, 1.4 * f + 0.4).fill({
+        color: mixColor(this.accent.accent, PALETTE.white, 0.5),
+        alpha: 0.4 * f * pulse,
+      });
+    }
+
     trace.circle(sdX, sdY, 4.5 + beat * 1.5).fill({
       color: this.accent.accent,
       alpha: 0.3 * pulse,
     });
+    trace.circle(sdX, sdY, 1.8 + beat * 0.8).fill({
+      color: PALETTE.white,
+      alpha: 0.95,
+    });
+    // tiny hot core for a crisper, brighter beam head
+    trace.circle(sdX, sdY, 0.9).fill({ color: PALETTE.white, alpha: 1 });
 
     // --- heartbeat glow that pulses behind the trace ---
     if (score > 0.35) {

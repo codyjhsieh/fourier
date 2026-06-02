@@ -144,8 +144,14 @@ export class ChladniRenderer implements WorldRenderer {
     // high score -> a tight, clean line. waveform resample drives a faint
     // per-row breathing so the figure feels alive.
     const breath = resample(_shape, this.grid);
-    const nodeBand = 0.16 - score * 0.1; // half-width of the |field| nodal band
+    const nodeBand = 0.17 - score * 0.12; // half-width of the |field| nodal band
     const ghostBand = 0.1;
+    // smooth settle envelope: grains migrate onto the nodal line as the figure
+    // locks. eased so the snap feels gentle, not abrupt.
+    const lock = score * score * (3 - 2 * score); // smoothstep(score)
+    // sharpen proximity onto the line with score: gamma > 1 pulls the
+    // distribution toward the node so the figure reads as a crisp curve.
+    const crispPow = 1 + lock * 1.6;
 
     for (let gy = 0; gy < this.grid; gy++) {
       for (let gx = 0; gx < this.grid; gx++) {
@@ -172,26 +178,33 @@ export class ChladniRenderer implements WorldRenderer {
         const fv = Math.abs(this.field(harmonics, nx, ny)) / peakP;
         if (fv >= nodeBand) continue;
 
-        // proximity to the node: 1 right on the line, 0 at the band edge
-        const prox = 1 - fv / nodeBand;
+        // proximity to the node: 1 right on the line, 0 at the band edge.
+        // gamma-sharpened with score so grains crowd the nodal line crisply.
+        const prox = Math.pow(1 - fv / nodeBand, crispPow);
 
         // deterministic per-cell scatter so grains read as discrete sand, not a
         // solid fill. Lower scatter survival away from the node -> tapered edge.
+        // as the figure locks the edge survival tightens so off-line scatter
+        // thins out and the curve cleans up.
         const h = this.hash(gx * 1.7 + 0.3, gy * 2.3 + 0.7);
-        if (h > 0.35 + prox * 0.6) continue;
+        if (h > (0.35 - lock * 0.18) + prox * (0.6 + lock * 0.3)) continue;
 
-        // a little deterministic jitter inside the cell
-        const jx = (this.hash(gx + 11, gy + 3) - 0.5) * cell * 0.9;
-        const jy = (this.hash(gx + 5, gy + 19) - 0.5) * cell * 0.9;
+        // a little deterministic jitter inside the cell, settling toward the
+        // grid centre as the figure locks (tighter line, less fuzz)
+        const js = cell * (0.9 - lock * 0.55);
+        const jx = (this.hash(gx + 11, gy + 3) - 0.5) * js;
+        const jy = (this.hash(gx + 5, gy + 19) - 0.5) * js;
 
-        // tiny vibration of individual grains, damped by score (they settle as
-        // the figure locks in)
-        const vib = (1 - score) * 1.4;
-        const vx = Math.sin(t * 13 + gx * 0.9 + gy * 0.4) * vib;
-        const vy = Math.cos(t * 12 + gy * 0.8 + gx * 0.3) * vib;
+        // grain motion: an energetic vibration when off-resonance that eases
+        // into a faint locked shimmer. smooth, low-frequency settling so the
+        // sand appears to migrate rather than twitch.
+        const vib = (1 - lock) * 1.4 + 0.18;
+        const ph = gx * 0.9 + gy * 0.4;
+        const vx = Math.sin(t * (4.5 + (1 - lock) * 8) + ph) * vib;
+        const vy = Math.cos(t * (4.0 + (1 - lock) * 8) + ph * 0.8) * vib;
 
         const bx = px + jx + vx;
-        const by = py + jy + vy + breath[gx] * 0.6;
+        const by = py + jy + vy + breath[gx] * 0.6 * (1 - lock * 0.5);
 
         // grain size & color: brighter, fatter, accent-tinted on the node line
         const r = (0.55 + prox * 0.95) * (cell * 0.5);
@@ -212,14 +225,16 @@ export class ChladniRenderer implements WorldRenderer {
         if (Math.abs(this.field(harmonics, nx, ny)) / peakP > nodeBand) continue;
         const px = L + nx * size;
         const py = Tp + ny * size;
+        // a faint locked shimmer breathing along the nodal line
+        const shimmer = 0.05 + 0.02 * Math.sin(t * 3 + i);
         this.fx
-          .circle(px, py, cell * (0.8 + gv * 0.9))
-          .fill({ color: this.accent.accentSoft, alpha: 0.05 * gv });
+          .circle(px, py, cell * (0.7 + gv * 0.8))
+          .fill({ color: this.accent.accentSoft, alpha: shimmer * gv });
       }
       // a wide central halo
       this.fx
         .circle(cx, Tp + size / 2, size * 0.5)
-        .fill({ color: this.accent.accentSoft, alpha: 0.05 * gv });
+        .fill({ color: this.accent.accentSoft, alpha: 0.045 * gv });
     }
 
     // --- score > 0.7: a few grains leaping off the snapped figure ---
@@ -261,14 +276,23 @@ export class ChladniRenderer implements WorldRenderer {
       color: frame,
       alpha: 0.95,
     });
+    // crisp top-left lit edges, darker bottom-right, for a clean bevel read
     g.rect(L - b, T - b, size + b * 2, b).fill({
-      color: mixColor(frame, PALETTE.white, 0.4),
-      alpha: 0.7,
+      color: mixColor(frame, PALETTE.white, 0.45),
+      alpha: 0.75,
     }); // top light
+    g.rect(L - b, T - b, b, size + b * 2).fill({
+      color: mixColor(frame, PALETTE.white, 0.35),
+      alpha: 0.6,
+    }); // left light
     g.rect(L - b, T + size, size + b * 2, b).fill({
-      color: mixColor(frame, 0x000000, 0.3),
-      alpha: 0.5,
+      color: mixColor(frame, 0x000000, 0.32),
+      alpha: 0.55,
     }); // bottom shade
+    g.rect(L + size, T - b, b, size + b * 2).fill({
+      color: mixColor(frame, 0x000000, 0.22),
+      alpha: 0.4,
+    }); // right shade
 
     // plate face base
     g.rect(L, T, size, size).fill({ color: steel, alpha: 1 });
@@ -284,10 +308,20 @@ export class ChladniRenderer implements WorldRenderer {
     }
     // a soft top-left corner glint
     g.rect(L, T, size * 0.4, size * 0.4).fill({ color: steelLit, alpha: 0.12 });
-    // faint engraved center anchor point (where the plate is driven)
-    g.circle(L + size / 2, T + size / 2, Math.max(2, size * 0.012)).fill({
-      color: mixColor(frame, 0x000000, 0.2),
+    // engraved center driver point (where the plate is driven): a small ring
+    // with a top-left highlight and a dark core
+    const dr = Math.max(2.2, size * 0.016);
+    g.circle(L + size / 2, T + size / 2, dr * 1.5).fill({
+      color: mixColor(steel, 0x000000, 0.12),
+      alpha: 0.5,
+    });
+    g.circle(L + size / 2 - dr * 0.3, T + size / 2 - dr * 0.3, dr * 0.7).fill({
+      color: steelLit,
       alpha: 0.4,
+    });
+    g.circle(L + size / 2, T + size / 2, dr).fill({
+      color: mixColor(frame, 0x000000, 0.25),
+      alpha: 0.55,
     });
   }
 
@@ -323,8 +357,21 @@ export class ChladniRenderer implements WorldRenderer {
     const footW = neckW * 2.4;
     const footY = baseY + neckH;
     p.block(cx - footW / 2, footY, footW, 6, stone, 0.95);
-    p.block(cx - footW / 2, footY, footW, 2, stoneLight, 0.5);
+    p.block(cx - footW / 2, footY, footW, 2, stoneLight, 0.55);
+    p.block(cx + footW / 2 - 2, footY, 2, 6, stoneDark, 0.5); // right edge shade
     p.block(cx - footW * 0.6, footY + 5, footW * 1.2, 4, stoneDark, 0.6);
+
+    // the driver beneath the foot: a small coil/voice-coil that shakes the
+    // plate. A squat cylinder with a lit top rim and ribbed body.
+    const drvW = footW * 0.72;
+    const drvY = footY + 9;
+    const drvH = Math.max(6, (LAYOUT.waterY - drvY) * 0.7);
+    p.block(cx - drvW / 2, drvY, drvW, drvH, stoneDark, 0.92);
+    p.block(cx - drvW / 2, drvY, drvW, 2, stoneLight, 0.5); // top rim light
+    p.block(cx - drvW / 2, drvY, Math.max(1, drvW * 0.22), drvH, stone, 0.4); // left lit
+    // two faint coil ribs
+    p.block(cx - drvW / 2, drvY + drvH * 0.4, drvW, 1, stone, 0.35);
+    p.block(cx - drvW / 2, drvY + drvH * 0.7, drvW, 1, stone, 0.35);
   }
 
   setAccent(a: Accent) {

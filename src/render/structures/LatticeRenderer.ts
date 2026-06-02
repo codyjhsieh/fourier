@@ -122,11 +122,17 @@ export class LatticeRenderer implements WorldRenderer {
     const fieldY = bottom - height * 0.1;
     const groundTop = mixColor(this.ground, this.accent.ink, 0.25);
     p.block(left - 8, fieldY, span + 16, bottom - fieldY + 6, this.ground, 0.6);
-    p.block(left - 8, fieldY, span + 16, 3, groundTop, 0.5);
+    // crisp horizon line: a bright top lip over a soft shadow band, sharpening
+    // as the signal locks in.
+    p.block(left - 8, fieldY, span + 16, 1,
+      mixColor(groundTop, PALETTE.white, 0.35), 0.3 + 0.4 * lock);
+    p.block(left - 8, fieldY + 1, span + 16, 2, groundTop, 0.45);
 
     // ---- saucer geometry --------------------------------------------------
     const saucerCX = cx;
-    const saucerCY = top + height * 0.26 + Math.sin(t * 0.7) * 3; // gentle hover bob
+    // gentle hover bob (two-rate so it never reads mechanical)
+    const bob = Math.sin(t * 0.7) * 3 + Math.sin(t * 0.31 + 1.3) * 1.2;
+    const saucerCY = top + height * 0.26 + bob;
     const discR = span * 0.30; // half-width of the saucer disc
     const discH = discR * 0.34; // disc thickness
     const domeR = discR * 0.46;
@@ -136,29 +142,32 @@ export class LatticeRenderer implements WorldRenderer {
 
     // ---- cloud the saucer hides in when full of static -------------------
     if (staticAmt > 0.02) {
-      for (let i = 0; i < 5; i++) {
+      for (let i = 0; i < 6; i++) {
         const ph = hash(i * 3.1, 1.7);
-        const cxk = saucerCX + (ph - 0.5) * discR * 2.4 + Math.sin(t * 0.4 + i) * 6;
-        const cyk = saucerCY + (hash(i, 4.4) - 0.5) * discH * 2.2;
-        this.fx.circle(cxk, cyk, discR * (0.45 + ph * 0.4)).fill({
+        const cxk = saucerCX + (ph - 0.5) * discR * 2.6 + Math.sin(t * 0.4 + i) * 6;
+        const cyk = saucerCY + (hash(i, 4.4) - 0.5) * discH * 2.4;
+        this.fx.circle(cxk, cyk, discR * (0.45 + ph * 0.45)).fill({
           color: mixColor(this.night, PALETTE.white, 0.5),
-          alpha: 0.06 * staticAmt,
+          alpha: 0.07 * staticAmt,
         });
       }
     }
 
     // ---- the tractor BEAM (drawn behind hull so the hull caps it) --------
+    const beamTopY = saucerCY + discH * 0.6;
+    const beamTopW = discR * 0.5;
+    const beamBotW = discR * 1.15;
+    const beamBotY = fieldY + 2;
     if (beamOn > 0.01) {
-      const beamTopY = saucerCY + discH * 0.6;
-      const beamTopW = discR * 0.5;
-      const beamBotW = discR * 1.15;
-      const beamBotY = fieldY + 2;
       const cone = mixColor(this.beam, PALETTE.white, 0.35);
-      // soft filled cone, layered for a volumetric glow
-      const layers = 5;
+      const flicker = 0.92 + 0.08 * Math.sin(t * 5.3) * Math.sin(t * 1.9 + 0.7);
+      // soft filled cone — many thin nested layers give a smooth volumetric
+      // falloff that is brightest along the central axis and fades to the edge.
+      const layers = 9;
       for (let l = layers; l >= 1; l--) {
-        const f = l / layers;
-        const a = beamOn * (0.05 + 0.05 * (1 - f)) * (0.85 + 0.15 * Math.sin(t * 2 + l));
+        const f = l / layers; // 1 = full width edge, →0 = bright core
+        const edgeFade = 1 - f * 0.85; // brighter toward the centre
+        const a = beamOn * flicker * 0.05 * edgeFade;
         this.fx
           .poly([
             saucerCX - beamTopW * f, beamTopY,
@@ -168,7 +177,7 @@ export class LatticeRenderer implements WorldRenderer {
           ])
           .fill({ color: cone, alpha: a });
       }
-      // bright beam core edges
+      // bright soft-edged beam boundary
       this.fx
         .poly([
           saucerCX - beamTopW, beamTopY,
@@ -176,7 +185,18 @@ export class LatticeRenderer implements WorldRenderer {
           saucerCX + beamBotW, beamBotY,
           saucerCX - beamBotW, beamBotY,
         ])
-        .stroke({ width: 1.5, color: PALETTE.white, alpha: 0.18 + 0.3 * beamOn });
+        .stroke({ width: 1.5, color: PALETTE.white, alpha: (0.12 + 0.28 * beamOn) * flicker });
+      // a crisp inner shaft of light right down the axis
+      const shaftTopW = beamTopW * 0.16;
+      const shaftBotW = beamBotW * 0.16;
+      this.fx
+        .poly([
+          saucerCX - shaftTopW, beamTopY,
+          saucerCX + shaftTopW, beamTopY,
+          saucerCX + shaftBotW, beamBotY,
+          saucerCX - shaftBotW, beamBotY,
+        ])
+        .fill({ color: mixColor(cone, PALETTE.white, 0.5), alpha: 0.1 * beamOn * flicker });
 
       // descending scan rings that travel down the beam
       const rings = 4;
@@ -189,35 +209,68 @@ export class LatticeRenderer implements WorldRenderer {
           .stroke({ width: 1.4, color: cone, alpha: beamOn * 0.4 * (1 - rv) });
       }
 
+      // dust motes drifting upward inside the cone, swept toward the saucer.
+      const motes = 12;
+      for (let i = 0; i < motes; i++) {
+        // each mote rises on its own loop; mv 0 at the floor → 1 at the rim
+        const mv = 1 - ((t * (0.18 + hash(i, 7.3) * 0.16) + hash(i * 2.1, 1.9)) % 1);
+        const my = beamTopY + mv * (beamBotY - beamTopY);
+        const halfW = beamTopW + mv * (beamBotW - beamTopW);
+        // sway, narrower near the saucer so motes funnel inward
+        const sway = Math.sin(t * 1.3 + i * 1.7) * (halfW - shaftTopW) * 0.7;
+        const mx = saucerCX + (hash(i, 3.3) - 0.5) * halfW * 0.4 + sway;
+        const fade = Math.sin(mv * Math.PI); // dim at both ends
+        this.fx.circle(mx, my, 0.7 + hash(i, 9.9) * 0.8).fill({
+          color: mixColor(cone, PALETTE.white, 0.6),
+          alpha: 0.5 * beamOn * fade,
+        });
+      }
+
       // ---- beam glow pooled on the ground + reflected (Painter) ----------
+      const poolPulse = 0.85 + 0.15 * Math.sin(t * 2.3);
       const poolW = beamBotW * 1.4;
+      // layered pool: wide soft halo, then a hot core, both reflected.
       p.block(saucerCX - poolW, fieldY - 3, poolW * 2, 6,
         mixColor(this.beam, PALETTE.white, 0.4), 0.18 * beamOn);
-      p.dot(saucerCX, fieldY, poolW * 0.5, mixColor(this.beam, PALETTE.white, 0.5), 0.12 * beamOn);
+      p.dot(saucerCX, fieldY, poolW * 0.5,
+        mixColor(this.beam, PALETTE.white, 0.5), 0.12 * beamOn * poolPulse);
       this.fx.ellipse(saucerCX, fieldY, poolW, poolW * 0.22).fill({
         color: mixColor(this.beam, PALETTE.white, 0.55),
-        alpha: 0.12 * beamOn * (0.8 + 0.2 * Math.sin(t * 2.3)),
+        alpha: 0.12 * beamOn * poolPulse,
+      });
+      this.fx.ellipse(saucerCX, fieldY, poolW * 0.45, poolW * 0.1).fill({
+        color: PALETTE.white,
+        alpha: 0.14 * beamOn * poolPulse,
       });
     }
 
     // ---- the abductee: a little cow silhouette lifted in the beam --------
     {
       const groundRest = fieldY - 8;
-      const lifted = groundRest - abduct * (groundRest - (saucerCY + discH * 1.6));
+      const lifted = groundRest - abduct * (groundRest - (beamTopY + discH * 1.0));
+      // gentle lateral wobble + vertical float; the higher it rises the more it
+      // sways, drifting toward the beam axis.
+      const wob = Math.sin(t * 1.6 + 0.5) * abduct * 5;
+      const cowX = saucerCX + wob;
       const cowY = lifted + Math.sin(t * 2 + 1) * (1 + abduct * 2);
-      const tilt = Math.sin(t * 3) * abduct * 0.25;
+      const tilt = Math.sin(t * 3) * abduct * 0.3 + wob * 0.01;
       const cowCol = mixColor(this.accent.ink, 0x000000, 0.25);
       const ca = 0.55 + 0.3 * abduct;
       const w = 11, h = 7;
-      // body
-      this.drawCow(this.fx, saucerCX, cowY, w, h, tilt, cowCol, ca);
-      // a faint rim-light from the beam on the lifted cow
+      // soft shadow on the ground that shrinks as the cow rises
+      if (abduct < 0.95 && beamOn > 0.01) {
+        this.fx.ellipse(saucerCX, fieldY - 1, w * 0.6 * (1 - abduct * 0.7), h * 0.18)
+          .fill({ color: 0x000000, alpha: 0.18 * (1 - abduct) });
+      }
+      // a faint rim-light from the beam glows behind the lifted cow
       if (abduct > 0.05) {
-        this.fx.circle(saucerCX, cowY, w * 0.9).fill({
+        this.fx.circle(cowX, cowY, w * 0.95).fill({
           color: mixColor(this.beam, PALETTE.white, 0.5),
-          alpha: 0.08 * abduct,
+          alpha: 0.09 * abduct,
         });
       }
+      // body
+      this.drawCow(this.fx, cowX, cowY, w, h, tilt, cowCol, ca);
     }
 
     // ---- the FLYING SAUCER ------------------------------------------------
@@ -229,9 +282,15 @@ export class LatticeRenderer implements WorldRenderer {
     });
     // main hull disc
     g.ellipse(saucerCX, saucerCY, discR, discH).fill({ color: this.hull, alpha: hullA });
-    // top-left lit crescent of the disc
+    // shaded under-belly (lower-right falls into shadow)
+    g.ellipse(saucerCX + discR * 0.1, saucerCY + discH * 0.32, discR * 0.9, discH * 0.5)
+      .fill({ color: mixColor(this.hull, this.accent.ink, 0.45), alpha: hullA * 0.55 });
+    // top-left lit crescent of the disc (metallic sheen)
     g.ellipse(saucerCX - discR * 0.12, saucerCY - discH * 0.28, discR * 0.86, discH * 0.55)
       .fill({ color: this.hullLit, alpha: hullA * 0.7 });
+    // a tight specular glint on the upper-left of the hull
+    this.fx.ellipse(saucerCX - discR * 0.4, saucerCY - discH * 0.3, discR * 0.22, discH * 0.18)
+      .fill({ color: PALETTE.white, alpha: 0.3 * hullA });
     // crisp rim
     g.ellipse(saucerCX, saucerCY, discR, discH)
       .stroke({ width: 1 + lock, color: mixColor(this.hull, this.accent.ink, 0.5), alpha: hullA });
@@ -248,61 +307,80 @@ export class LatticeRenderer implements WorldRenderer {
       }
       pts.push(saucerCX + domeR, domeCY, saucerCX - domeR, domeCY);
       g.poly(pts).fill({ color: mixColor(this.hull, PALETTE.white, 0.25), alpha: hullA });
-      // glassy lit highlight top-left
-      this.fx.ellipse(saucerCX - domeR * 0.3, domeCY - domeR * 0.35, domeR * 0.4, domeR * 0.3)
-        .fill({ color: PALETTE.white, alpha: 0.22 * hullA });
-      // dome glow when locked
+      // shaded lower-right of the dome for roundness
+      this.fx.ellipse(saucerCX + domeR * 0.28, domeCY - domeR * 0.18, domeR * 0.5, domeR * 0.5)
+        .fill({ color: mixColor(this.hull, this.accent.ink, 0.4), alpha: 0.22 * hullA });
+      // dome glow when locked (sits under the glass)
       this.fx.ellipse(saucerCX, domeCY - domeR * 0.2, domeR * 0.8, domeR * 0.8).fill({
         color: mixColor(this.accent.accentSoft, PALETTE.white, 0.6),
         alpha: 0.1 * lock * (0.7 + 0.3 * Math.sin(t * 1.5)),
       });
+      // glassy lit highlight top-left (soft pool + tight glint)
+      this.fx.ellipse(saucerCX - domeR * 0.32, domeCY - domeR * 0.34, domeR * 0.42, domeR * 0.32)
+        .fill({ color: PALETTE.white, alpha: 0.2 * hullA });
+      this.fx.ellipse(saucerCX - domeR * 0.4, domeCY - domeR * 0.42, domeR * 0.14, domeR * 0.11)
+        .fill({ color: PALETTE.white, alpha: 0.42 * hullA });
     }
 
     // ---- the RING OF RUNNING LIGHTS around the hull ----------------------
-    const nLights = 9;
+    const nLights = 12;
     for (let i = 0; i < nLights; i++) {
       const u = i / nLights;
       const ang = u * Math.PI * 2;
       const lx = saucerCX + Math.cos(ang) * discR * 0.82;
       const ly = saucerCY + discH * 0.25 + Math.sin(ang) * discH * 0.7;
-      // a chase: brightness sweeps around the ring
-      const chase = 0.5 + 0.5 * Math.sin(t * 3 - i * (Math.PI * 2 / nLights) * 1.5);
-      const front = Math.sin(ang) > -0.2 ? 1 : 0.3; // dim the lights on the far side
-      const la = (0.2 + 0.7 * lock) * chase * front;
-      const lcol = mixColor(this.accent.accent, PALETTE.white, 0.3 + 0.4 * chase);
-      this.fx.circle(lx, ly, 1.6 + lock * 0.8).fill({ color: lcol, alpha: la });
-      // little halo on the brightest ones
-      if (chase > 0.7 && lock > 0.3) {
-        this.fx.circle(lx, ly, 4).fill({
+      // a smooth chase: a single bright crest sweeps continuously around the
+      // ring. phase progresses with t and with the light's angular position.
+      const chasePhase = t * 2.2 - ang;
+      const chase = Math.pow(0.5 + 0.5 * Math.sin(chasePhase), 2.2); // sharp crest
+      // the near (lower) lights face us; the far (upper) ones read dimmer.
+      const front = 0.32 + 0.68 * (0.5 + 0.5 * Math.sin(ang));
+      const la = (0.18 + 0.72 * lock) * (0.35 + 0.65 * chase) * front;
+      const lcol = mixColor(this.accent.accent, PALETTE.white, 0.3 + 0.45 * chase);
+      this.fx.circle(lx, ly, 1.5 + lock * 0.8 + chase * 0.7).fill({ color: lcol, alpha: la });
+      // soft halo on the crest of the chase
+      if (chase > 0.55 && lock > 0.25) {
+        this.fx.circle(lx, ly, 3.5 + chase * 1.5).fill({
           color: mixColor(this.accent.accentSoft, PALETTE.white, 0.6),
-          alpha: 0.18 * lock * chase,
+          alpha: 0.16 * lock * chase * front,
         });
       }
     }
 
     // ---- SKY STATIC: jittery scan-line bands when not locked -------------
     if (staticAmt > 0.04) {
-      const bands = 14;
+      const bands = 22;
+      // a slow vertical roll bar that crawls down the screen, TV-tuning style.
+      const rollY = top + ((t * 0.18) % 1) * height * 0.62;
+      const tick = Math.floor(t * 10); // quantized scramble clock
       for (let i = 0; i < bands; i++) {
         const baseY = top + (i / bands) * height * 0.62;
-        const jit = (Math.sin(t * 6 + i * 2.1) * 0.5 + hash(i, t * 0.6 % 10)) ;
-        const by = baseY + (jit - 0.5) * 6;
-        const segOn = hash(i * 1.7, Math.floor(t * 8) * 0.13);
-        if (segOn < 0.45) continue;
-        const sx = left + hash(i, Math.floor(t * 6) * 0.21) * span * 0.4;
-        const sw = span * (0.3 + hash(i * 2.2, 3.1) * 0.6);
-        const scol = mixColor(this.accent.inkSoft, PALETTE.white, 0.4);
-        p.block(sx, by, Math.min(sw, right - sx), 2,
-          scol, 0.1 * staticAmt * (0.5 + 0.5 * segOn));
+        // horizontal displacement jitter — broken scan lines shoved sideways.
+        const seed = hash(i * 1.7, tick * 0.13);
+        const segOn = hash(i * 2.3, tick * 0.21);
+        if (segOn < 0.4) continue;
+        const shove = (seed - 0.5) * span * 0.5;
+        const sx = left + Math.max(0, hash(i, tick * 0.31) * span * 0.3 + shove);
+        const sw = span * (0.25 + hash(i * 2.2, 3.1) * 0.6);
+        // brighten where the roll bar passes over the line
+        const nearRoll = 1 - Math.min(1, Math.abs(baseY - rollY) / 18);
+        const scol = mixColor(this.accent.inkSoft, PALETTE.white, 0.35 + 0.4 * nearRoll);
+        p.block(sx, baseY, Math.min(sw, right - sx), 1,
+          scol, (0.09 + 0.12 * nearRoll) * staticAmt * (0.5 + 0.5 * segOn));
       }
-      // a couple of bright horizontal glitch streaks
+      // bright horizontal glitch streaks that snap on with the scramble clock.
       for (let i = 0; i < 3; i++) {
-        const gy = top + (hash(i * 4.4, Math.floor(t * 4) * 0.5)) * height * 0.55;
+        const gy = top + hash(i * 4.4, tick * 0.5) * height * 0.6;
         this.fx.rect(left, gy, span, 1).fill({
           color: PALETTE.white,
           alpha: 0.12 * staticAmt * (0.5 + 0.5 * Math.sin(t * 9 + i)),
         });
       }
+      // the roll bar itself: a faint travelling brightening band.
+      this.fx.rect(left, rollY - 4, span, 8).fill({
+        color: mixColor(this.accent.inkSoft, PALETTE.white, 0.55),
+        alpha: 0.05 * staticAmt,
+      });
     }
 
     // ---- clean signal WAVEFORM pulsing across the sky (resample) ---------
@@ -364,17 +442,26 @@ export class LatticeRenderer implements WorldRenderer {
     alpha: number,
   ) {
     const dx = Math.sin(tilt) * h * 0.3;
-    // body
-    gr.ellipse(cx, cy, w * 0.55, h * 0.5).fill({ color: col, alpha });
-    // head (front-left)
-    gr.ellipse(cx - w * 0.55 + dx, cy - h * 0.1, w * 0.22, h * 0.3).fill({ color: col, alpha });
-    // legs dangling
+    // rounded barrel body
+    gr.ellipse(cx, cy, w * 0.55, h * 0.46).fill({ color: col, alpha });
+    // rump cap to square off the back end a touch
+    gr.ellipse(cx + w * 0.42, cy - h * 0.04, w * 0.18, h * 0.34).fill({ color: col, alpha });
+    // neck + head (front-left), lowered as if reaching down
+    gr.ellipse(cx - w * 0.4 + dx, cy + h * 0.02, w * 0.2, h * 0.26).fill({ color: col, alpha });
+    gr.ellipse(cx - w * 0.62 + dx, cy + h * 0.06, w * 0.18, h * 0.24).fill({ color: col, alpha });
+    // snout
+    gr.ellipse(cx - w * 0.76 + dx, cy + h * 0.12, w * 0.1, h * 0.14).fill({ color: col, alpha });
+    // legs dangling (slightly splayed, gentle taper)
     for (let i = 0; i < 4; i++) {
-      const lx = cx + (i - 1.5) * w * 0.28 + dx * (1 + i * 0.2);
-      gr.rect(lx - 0.8, cy + h * 0.35, 1.6, h * 0.55).fill({ color: col, alpha });
+      const lx = cx + (i - 1.5) * w * 0.26 + dx * (1 + i * 0.2);
+      gr.rect(lx - 0.7, cy + h * 0.32, 1.4, h * 0.5).fill({ color: col, alpha });
+      // hoof
+      gr.rect(lx - 0.9, cy + h * 0.78, 1.8, 1.4).fill({ color: col, alpha });
     }
-    // little ears/horns nub
-    gr.rect(cx - w * 0.68 + dx, cy - h * 0.4, 1.4, 2).fill({ color: col, alpha });
+    // tail flicking off the back
+    gr.rect(cx + w * 0.56, cy - h * 0.1, 1, h * 0.5).fill({ color: col, alpha });
+    // ears / horn nubs
+    gr.rect(cx - w * 0.66 + dx, cy - h * 0.26, 1.4, 2).fill({ color: col, alpha });
   }
 
   setAccent(a: Accent) {

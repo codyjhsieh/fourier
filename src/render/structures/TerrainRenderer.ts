@@ -160,9 +160,10 @@ export class TerrainRenderer implements WorldRenderer {
 
     // cone stone tones — warm dusk rock, lit top-left, dark right
     const rock = mixColor(PALETTE.inkSoft, acc.ink, 0.42);
-    const rockLit = mixColor(rock, PALETTE.white, 0.40);
+    const rockLit = mixColor(rock, PALETTE.white, 0.46);
     const rockDark = mixColor(rock, PALETTE.ink, 0.45);
-    const crust = mixColor(rock, acc.accent, 0.20); // lava-stained crust
+    const rockDeep = mixColor(rock, acc.ink, 0.55); // deep flank shadow
+    const crust = mixColor(rock, acc.accent, 0.22); // lava-stained crust
     const ember = mixColor(acc.accent, PALETTE.glow, 0.30);
     const lavaHot = mixColor(acc.accent, PALETTE.white, 0.42);
     const lavaCore = mixColor(acc.accent, 0xffd9a0, 0.5);
@@ -170,6 +171,14 @@ export class TerrainRenderer implements WorldRenderer {
     // remember crater rim screen positions for plume / lava placement
     const craterLx = cx - craterHalf;
     const craterRx = cx + craterHalf;
+
+    // A few readable rock strata: horizontal bands at fixed normalized depths.
+    // Each band darkens slightly to suggest layered volcanic rock.
+    const strata = [0.30, 0.52, 0.72, 0.88];
+
+    // Lava runnels: a few fixed channels streaming straight down each slope from
+    // the crater rim. Hot/bright when erupting, cooling to dark crust dormant.
+    const runnels = [-0.62, -0.30, 0.22, 0.55, 0.80];
 
     for (let i = 0; i < cols; i++) {
       const x = i * ss;
@@ -188,40 +197,78 @@ export class TerrainRenderer implements WorldRenderer {
         topY = rimY + (1 - cu * cu) * coneH * 0.10;
       }
 
-      // light side: left of centre is lit (light from top-left)
-      const litFace = u < 0 ? 1 : 0;
+      // Smooth volumetric flank shading: a single curved light gradient across
+      // the cone, lit top-left, falling into shadow on the right flank. No
+      // per-pixel speckle — `shade` is continuous in u.
+      // shade: 1 = fully lit (left edge) .. 0 = deepest shadow (right flank)
+      const shade = clamp01(0.5 - u * 0.62);
+
+      // nearest runnel proximity for this column (0 = off a runnel, 1 = centred)
+      let runnelHot = 0;
+      if (!inCrater) {
+        for (let r = 0; r < runnels.length; r++) {
+          const d = Math.abs(u - runnels[r]);
+          if (d < 0.05) runnelHot = Math.max(runnelHot, 1 - d / 0.05);
+        }
+      }
 
       // build the column of rock from topY down to baseY
       for (let y = topY; y < baseY; y += ss) {
         const depth = (y - topY) / Math.max(1, baseY - topY); // 0 top .. 1 foot
-        const hs = hash(Math.round(x / ss), Math.round(y / ss));
 
-        let base = hs < 0.5 ? rock : hs < 0.8 ? rockDark : rockLit;
+        // base rock tone from the smooth light gradient
+        let base = mixColor(rockDeep, rockLit, shade);
 
-        // lava crust streaks running down from the crater on the cone faces
-        const streak = Math.sin(u * 26 + 0.5) * 0.5 + 0.5;
-        const isLavaStreak =
-          !inCrater &&
-          depth < 0.55 &&
-          streak > 0.7 - rough * 0.25 &&
-          hs > 0.4;
-        if (isLavaStreak) {
-          // glowing cracked crust: hotter when erupting, cooler/dimmer dormant
-          const g = clamp01((0.55 - depth) * 1.8) * heat;
-          if (g > 0.25) {
-            base = mixColor(crust, ember, clamp01(g) * (0.4 + rough * 0.5));
-          } else {
-            base = crust;
+        // readable strata: darken a thin band at each fixed depth
+        for (let s = 0; s < strata.length; s++) {
+          if (Math.abs(depth - strata[s]) < 0.025) {
+            base = mixColor(base, rockDark, 0.5);
           }
         }
 
-        // top-left lighting
-        if (litFace) base = mixColor(base, PALETTE.white, 0.10 + (1 - au) * 0.10);
-        else base = mixColor(base, PALETTE.ink, 0.06 + au * 0.10);
-        // foot sinks into shadow / dusk
-        base = mixColor(base, acc.ink, depth * 0.18);
+        // a faint top-left ridge highlight just under the strata edge
+        for (let s = 0; s < strata.length; s++) {
+          const d = depth - strata[s];
+          if (d > 0.025 && d < 0.05 && u < 0.2) {
+            base = mixColor(base, rockLit, 0.35);
+          }
+        }
 
-        p.block(x, y, ss, ss, base, 0.98);
+        // lava runnels streaming down from the crater on the faces
+        if (runnelHot > 0 && depth < 0.78) {
+          const cool = clamp01((0.78 - depth) / 0.78); // hotter near the rim
+          const g = runnelHot * cool;
+          if (heat * g > 0.18 || rough > 0.2) {
+            // glowing channel — brighter erupting, dark crust when dormant
+            const hotness = clamp01(g * (0.3 + heat * 0.9) * (0.4 + rough * 0.8));
+            base = mixColor(mixColor(crust, base, 1 - runnelHot * 0.8), ember, hotness);
+          } else {
+            base = mixColor(base, crust, runnelHot * 0.7); // cooled dark crust
+          }
+        }
+
+        // foot sinks into dusk shadow
+        base = mixColor(base, acc.ink, depth * depth * 0.22);
+
+        p.block(x, y, ss, ss, base, 0.99);
+      }
+    }
+
+    // --- crisp silhouette edge: a thin dark outline tracing the lit/shadow rims
+    {
+      const edgeLit = mixColor(rockLit, PALETTE.white, 0.4);
+      const edgeDark = mixColor(rockDeep, PALETTE.ink, 0.3);
+      for (let i = 0; i < cols; i++) {
+        const x = i * ss;
+        const u = (x - cx) / coneHalf;
+        if (u <= -1 || u >= 1) continue;
+        if (x > craterLx && x < craterRx) continue;
+        const sy = surfaceY(x);
+        if (sy >= baseY - 2) continue;
+        // lit edge highlight (left) vs dark edge (right) for a crisp silhouette
+        const col = u < 0 ? edgeLit : edgeDark;
+        const a = u < 0 ? 0.5 + rough * 0.2 : 0.4;
+        p.block(x, sy, ss, ss * 0.8, col, a);
       }
     }
 
@@ -241,30 +288,42 @@ export class TerrainRenderer implements WorldRenderer {
       rockDark,
     );
 
-    // --- a bright rim-light kiss on the lit (left) slope edge -----------------
+    // --- a defined base shadow where the cone foot meets the ground ----------
     {
-      const rim = mixColor(PALETTE.white, ember, 0.25);
+      const footShadow = mixColor(rockDeep, PALETTE.ink, 0.4);
+      const band = coneH * 0.10;
       for (let i = 0; i < cols; i++) {
         const x = i * ss;
         const u = (x - cx) / coneHalf;
-        if (u <= -1 || u >= -0.04) continue; // lit left slope only
-        const sy = surfaceY(x);
-        if (sy >= baseY - 2) continue;
-        if (hash(i, 17) > 0.45) {
-          p.block(x, sy, ss, ss * 0.9, rim, 0.30 + rough * 0.18);
+        if (u <= -1 || u >= 1) continue;
+        // shadow strongest on the shaded right flank
+        const a = (0.10 + clamp01(u * 0.5 + 0.4) * 0.22);
+        for (let y = baseY - band; y < baseY; y += ss) {
+          const d = (y - (baseY - band)) / band; // 0 top .. 1 foot
+          p.block(x, y, ss, ss, footShadow, a * d * 0.9);
         }
       }
     }
 
-    // --- ground-cast lava glow (reflection-friendly warm pool at the foot) ----
+    // --- lava-glow reflection on the dark water below the cone ----------------
+    // A warm crimson column shimmering on the tarn directly beneath the crater,
+    // brightest near the shore and rippling apart with distance.
     {
       const glow = mixColor(acc.accent, PALETTE.glow, 0.35);
-      const gw = coneHalf * (0.5 + heat * 0.4);
-      const bands = 6;
-      for (let b = 0; b < bands; b++) {
-        const a = (1 - b / bands) * heat * 0.16;
-        const w = gw * (0.4 + b / bands);
-        p.block(cx - w, waterY + b * 3, w * 2, 3, glow, a);
+      const reflDepth = LAYOUT.reflectionDepth;
+      const rows = Math.floor(reflDepth / 3);
+      for (let r = 0; r < rows; r++) {
+        const y = waterY + r * 3;
+        const d = r / rows; // 0 shore .. 1 far
+        // horizontal ripple breaks the column into shimmering segments
+        const ripple = Math.sin(y * 0.18 + t * 1.8) * (3 + d * 10);
+        const w = coneHalf * (0.32 + heat * 0.32) * (1 - d * 0.45);
+        const a = (1 - d) * heat * 0.18;
+        if (a < 0.01) continue;
+        p.block(cx - w + ripple, y, w * 2, 3, glow, a);
+        // brighter molten core streak right under the crater
+        const cw = w * 0.4;
+        p.block(cx - cw + ripple * 0.6, y, cw * 2, 3, lavaCore, a * 0.8);
       }
     }
 
@@ -352,27 +411,40 @@ export class TerrainRenderer implements WorldRenderer {
     const fill = mixColor(peakTone, skyTone, 0.55);
 
     const horizon = waterY - 2;
+    // depth-sorted: farthest/palest first, nearer cones darker and crisper
     const peaks = [
-      { x: W * 0.16, w: 70, h: 90 },
-      { x: W * 0.84, w: 84, h: 110 },
-      { x: W * 0.66, w: 56, h: 66 },
+      { x: W * 0.66, w: 56, h: 64, depth: 0.0 },
+      { x: W * 0.16, w: 72, h: 92, depth: 0.45 },
+      { x: W * 0.84, w: 86, h: 112, depth: 0.7 },
     ];
     for (let pi = 0; pi < peaks.length; pi++) {
       const pk = peaks[pi];
       const sy = horizon - pk.h;
-      const step = 4;
-      for (let x = pk.x - pk.w; x <= pk.x + pk.w; x += step) {
-        const u = Math.abs((x - pk.x) / pk.w);
-        if (u >= 1) continue;
-        const y = sy + u * pk.h;
-        g.rect(x, y, step + 1, horizon - y).fill({ color: fill, alpha: 0.5 });
+      // nearer cones are darker (less hazed into the sky) and lit top-left
+      const coneFill = mixColor(fill, peakTone, pk.depth * 0.5);
+      const coneLit = mixColor(coneFill, PALETTE.white, 0.18);
+      const coneDark = mixColor(coneFill, acc.ink, 0.22);
+      // clean triangular silhouette as solid columns with a soft light split
+      for (let x = pk.x - pk.w; x <= pk.x + pk.w; x += 3) {
+        const u = (x - pk.x) / pk.w;
+        if (Math.abs(u) >= 1) continue;
+        const y = sy + Math.abs(u) * pk.h;
+        const col = u < 0 ? coneLit : coneDark; // lit left, shaded right
+        g.rect(x, y, 4, horizon - y).fill({ color: col, alpha: 0.55 + pk.depth * 0.25 });
       }
-      // faint smoke thread from each distant cone
+      // a thin crisp summit rim line
+      g.moveTo(pk.x - 4, sy + 3).lineTo(pk.x, sy).lineTo(pk.x + 4, sy + 3)
+        .stroke({ width: 1, color: coneDark, alpha: 0.5 });
+      // a single faint smoke wisp curling up from each distant cone
       const smoke = mixColor(skyTone, PALETTE.white, 0.4);
-      for (let s = 0; s < 8; s++) {
+      for (let s = 0; s < 7; s++) {
+        const sf = s / 6;
         const ry = sy - s * 9;
-        const sx = pk.x + Math.sin(t * 0.4 + s * 0.6 + pi) * (4 + s);
-        g.circle(sx, ry, 3 + s * 0.7).fill({ color: smoke, alpha: 0.10 * (1 - s / 8) * (0.6 + rough * 0.4) });
+        const sx = pk.x + Math.sin(t * 0.4 + sf * 3 + pi) * (3 + s * 1.2);
+        g.circle(sx, ry, 2.5 + s * 0.6).fill({
+          color: smoke,
+          alpha: 0.09 * (1 - sf) * (0.6 + rough * 0.4),
+        });
       }
     }
     void top;
@@ -399,52 +471,76 @@ export class TerrainRenderer implements WorldRenderer {
     const rx = cx + craterHalf;
     const rimY = summitY;
     const bowlDepth = coneH * 0.10;
+    const acc = this.accent;
+    const rockLit = mixColor(mixColor(PALETTE.inkSoft, acc.ink, 0.42), PALETTE.white, 0.46);
 
-    // dark inner rim ring (the crater throat) for definition
-    for (let x = lx - 4; x <= rx + 4; x += 3) {
+    // The rim: a clean lit lip on the left edge, a dark throat shadow on the
+    // right, framing the molten core for a crisp readable crater mouth.
+    const step = 3;
+    for (let x = lx - 4; x <= rx + 4; x += step) {
       const cu = (x - cx) / craterHalf;
       const ry = rimY + (1 - clamp01(cu * cu)) * bowlDepth * 0.5;
-      p.block(x, ry, 3, 4, rockDark, 0.9);
+      // lit top-left lip vs shaded right lip
+      const lip = cu < -0.3 ? rockLit : cu > 0.3 ? mixColor(rockDark, PALETTE.ink, 0.3) : rockDark;
+      p.block(x, ry - 2, step, 3, lip, 0.95);
+      // dark inner throat ring just below the lip for depth
+      p.block(x, ry + 1, step, 3, mixColor(rockDark, PALETTE.ink, 0.4), 0.85);
     }
 
-    // molten pool: fill the bowl with hot lava, animated bright veins
-    const step = 3;
+    // molten pool: smooth concentric glow, hottest at the core, animated swirl.
     for (let x = lx; x <= rx; x += step) {
       const cu = (x - cx) / craterHalf; // -1..1
-      const yTop = rimY + clamp01(cu * cu) * bowlDepth * 0.5 + 3;
-      const yBot = rimY + bowlDepth;
+      const yTop = rimY + clamp01(cu * cu) * bowlDepth * 0.5 + 4;
+      const yBot = rimY + bowlDepth + 2;
       for (let y = yTop; y <= yBot; y += step) {
-        // turbulent brightness: moving cells of lava
-        const cell =
-          Math.sin(x * 0.5 + t * (2 + rough * 3)) * 0.5 +
-          Math.sin(y * 0.7 - t * (1.5 + rough * 2.5) + x * 0.2) * 0.5;
-        const b = clamp01(0.5 + cell * 0.5);
-        const litness = b * heat;
+        const dv = (y - (rimY + bowlDepth * 0.5)) / bowlDepth; // vertical pos
+        // radial heat: hottest near pool centre, cooling toward the rim
+        const rad = clamp01(1 - (cu * cu * 0.7 + dv * dv * 1.1));
+        // gentle convective swirl modulating brightness
+        const swirl = 0.5 + 0.5 * Math.sin(cu * 4 + t * (1.5 + rough * 2) + dv * 3);
+        const litness = clamp01(rad * (0.6 + swirl * 0.4)) * heat;
         const col =
-          litness > 0.66
+          litness > 0.6
             ? lavaCore
-            : litness > 0.33
+            : litness > 0.3
               ? lavaHot
               : mixColor(ember, lavaHot, 0.4);
-        const a = (0.6 + litness * 0.4) * (0.55 + heat * 0.45);
+        const a = clamp01(0.35 + litness * 0.6) * (0.5 + heat * 0.5);
         p.block(x, y, step, step, col, a);
       }
     }
 
-    // a few bright crackling veins across the pool when erupting
-    if (rough > 0.15) {
-      const veins = 4;
-      for (let v = 0; v < veins; v++) {
-        const vy = rimY + 2 + (v / veins) * bowlDepth;
-        const flick = Math.sin(t * (4 + v) + v * 2.1) * 0.5 + 0.5;
-        const vw = craterHalf * (0.4 + 0.5 * flick);
-        p.block(cx - vw, vy + Math.sin(t * 3 + v) * 1.5, vw * 2, 1.6, lavaCore, 0.5 * flick * heat);
+    // dormant crusted skin: dark cooled plates floating on the pool, with thin
+    // glowing cracks between them (visible mostly when calm).
+    if (rough < 0.6) {
+      const crustTone = mixColor(rockDark, acc.accent, 0.18);
+      const plates = 5;
+      for (let pl = 0; pl < plates; pl++) {
+        const px = cx + (hash(pl, 211) * 2 - 1) * craterHalf * 0.7;
+        const py = rimY + bowlDepth * (0.4 + hash(pl, 212) * 0.4);
+        const pw = craterHalf * (0.22 + hash(pl, 213) * 0.18);
+        const drift = Math.sin(t * 0.5 + pl) * 1.5;
+        p.block(px - pw + drift, py, pw * 2, step, crustTone, (1 - rough) * 0.55);
       }
     }
 
-    // bright core hot-spot pulsing in the centre
+    // bright crackling veins across the pool when erupting
+    if (rough > 0.15) {
+      const veins = 4;
+      for (let v = 0; v < veins; v++) {
+        const vy = rimY + 3 + (v / veins) * bowlDepth;
+        const flick = Math.sin(t * (4 + v) + v * 2.1) * 0.5 + 0.5;
+        const vw = craterHalf * (0.4 + 0.5 * flick);
+        p.block(cx - vw, vy + Math.sin(t * 3 + v) * 1.5, vw * 2, 1.4, lavaCore, 0.5 * flick * heat);
+      }
+    }
+
+    // bright core hot-spot pulsing in the centre + a soft glow halo over the rim
     const corePulse = 0.6 + 0.4 * Math.sin(t * (2 + rough * 3));
-    p.block(cx - craterHalf * 0.4, rimY + bowlDepth * 0.35, craterHalf * 0.8, 4, lavaCore, 0.5 * heat * corePulse);
+    p.block(cx - craterHalf * 0.4, rimY + bowlDepth * 0.45, craterHalf * 0.8, 4, lavaCore, 0.5 * heat * corePulse);
+    this.bloom
+      .circle(cx, rimY + bowlDepth * 0.4, craterHalf * (1.1 + heat * 0.5))
+      .fill({ color: ember, alpha: 0.10 * heat * (0.6 + corePulse * 0.4) });
   }
 
   // ---------------------------------------------------------------------------
@@ -466,7 +562,8 @@ export class TerrainRenderer implements WorldRenderer {
     const acc = this.accent;
 
     const ash = mixColor(PALETTE.inkSoft, acc.ink, 0.3);
-    const ashLit = mixColor(ash, PALETTE.white, 0.45);
+    const ashLit = mixColor(ash, PALETTE.white, 0.5);
+    const ashDark = mixColor(ash, acc.ink, 0.35); // shaded underside of billows
     const ashHot = mixColor(ash, acc.accent, 0.45); // glowing underside near crater
 
     // plume rises from just above the crater up toward the top of the world
@@ -478,43 +575,39 @@ export class TerrainRenderer implements WorldRenderer {
       const f = i / (puffs - 1); // 0 base .. 1 top
       const y = baseY - f * reach;
 
-      // horizontal drift: a curling wisp when calm, chaotic spread when erupting
-      const wispCurl = Math.sin(f * 4 + t * 0.8) * (10 + f * 24) * (0.4 + calm * 0.9);
+      // horizontal drift: a single curling wisp when calm, chaotic spread when
+      // erupting. The whole column leans to the lit side as it rises.
+      const wispCurl = Math.sin(f * 3.4 + t * 0.7) * (8 + f * 20) * (0.5 + calm * 0.8);
       const chaos =
-        (Math.sin(f * 19 + t * 3 + i) + Math.sin(f * 37 - t * 2.2)) * (8 + f * 30) * rough;
+        (Math.sin(f * 19 + t * 3 + i) + Math.sin(f * 37 - t * 2.2)) * (7 + f * 28) * rough;
       const x = cx + wispCurl + chaos;
 
-      // puff radius: a thin wisp when calm, fat billows when erupting
-      const baseR = calm > rough ? 4 + f * 8 : 8 + f * 22;
-      const r = baseR * (0.7 + hash(i, 91) * 0.6);
+      // puff radius: a thin wisp when calm, a fat billowing column when erupting,
+      // widening as it rises and cools.
+      const baseR = calm > rough ? 3 + f * 7 : 7 + f * 22;
+      const r = baseR * (0.75 + hash(i, 91) * 0.5);
 
-      // colour: hot near the crater, cooler higher; lit on the top-left
+      // colour: hot crimson glow near the crater fading to cool ash higher up
       const hotMix = clamp01((1 - f) * 1.4) * heat;
-      const col = mixColor(ash, ashHot, hotMix * 0.6);
-      const a = (0.12 + 0.10 * (1 - f)) * (0.7 + rough * 0.5);
+      const body = mixColor(mixColor(ashDark, ash, 0.6), ashHot, hotMix * 0.6);
+      const a = (0.11 + 0.11 * (1 - f)) * (0.65 + rough * 0.55);
 
-      // a soft billow built from a clump of circles
-      const clumps = rough > 0.4 ? 3 : 2;
-      for (let k = 0; k < clumps; k++) {
-        const ox = (hash(i + k, 101) - 0.5) * r * 1.4;
-        const oy = (hash(i + k, 111) - 0.5) * r * 0.8;
-        g.circle(x + ox, y + oy, r * (0.6 + hash(i + k, 121) * 0.5)).fill({
-          color: col,
-          alpha: a,
-        });
+      // A believable billow: stacked overlapping lobes — a shaded base, a rounder
+      // body, and a bright top-left cap catching the light (cauliflower look).
+      const lobes = rough > 0.4 ? 3 : 2;
+      for (let k = 0; k < lobes; k++) {
+        // lobes arranged around the puff centre, biased upward (rising)
+        const ang = (k / lobes) * 6.283 + f * 2 + i;
+        const lr = r * (0.55 + hash(i + k, 121) * 0.4);
+        const ox = Math.cos(ang) * r * 0.5;
+        const oy = Math.sin(ang) * r * 0.35 - r * 0.15;
+        // shade lower-right lobes, light upper-left lobes
+        const lobeLit = clamp01(0.5 - (Math.cos(ang) + Math.sin(ang)) * 0.4);
+        const lc = mixColor(mixColor(body, ashDark, 0.4), ashLit, lobeLit);
+        g.circle(x + ox, y + oy, lr).fill({ color: lc, alpha: a });
       }
-      // top-left highlight on the billow
-      g.circle(x - r * 0.4, y - r * 0.4, r * 0.45).fill({ color: ashLit, alpha: a * 0.6 });
-
-      // jagged ash offshoots / spikes shooting sideways when erupting
-      if (rough > 0.3 && hash(i, 131) > 0.5) {
-        const dir = hash(i, 141) > 0.5 ? 1 : -1;
-        const len = r * (1.2 + rough * 1.5);
-        const sy = y + (hash(i, 151) - 0.5) * r;
-        g.moveTo(x, sy)
-          .lineTo(x + dir * len, sy - len * 0.5 + Math.sin(t * 5 + i) * 4)
-          .stroke({ width: 2, color: ash, alpha: a * 1.2 });
-      }
+      // bright top-left cap highlight
+      g.circle(x - r * 0.45, y - r * 0.45, r * 0.4).fill({ color: ashLit, alpha: a * 0.7 });
     }
     void score;
   }
@@ -595,29 +688,31 @@ export class TerrainRenderer implements WorldRenderer {
       if (i >= active) break;
       const phase = hash(i, 401) * 6.283;
       const speed = 0.18 + hash(i, 402) * 0.4 + rough * 0.5;
-      // life cycle 0..1 (rises then fades)
+      // life cycle 0..1 (launches, arcs up, then falls back and fades)
       const life = ((t * speed + phase) % 1 + 1) % 1;
       // launch from around the crater mouth
       const ox = (hash(i, 403) * 2 - 1) * coneHalf * 0.18;
       const x0 = cx + ox;
-      // spread sideways as it rises; chaotic spread when erupting
-      const spread = (hash(i, 404) * 2 - 1) * (20 + rough * 90);
-      const sway = Math.sin(t * 2 + i) * (4 + rough * 10);
-      const x = x0 + spread * life + sway * life;
-      // rise height
-      const rise = coneH * (0.5 + hash(i, 405) * 0.9) * (0.4 + rough * 0.9);
-      const y = summitY - life * rise;
+      // sideways velocity — flung wide when erupting
+      const vx = (hash(i, 404) * 2 - 1) * (20 + rough * 90);
+      const sway = Math.sin(t * 2 + i) * (3 + rough * 8);
+      const x = x0 + vx * life + sway * life;
+      // ballistic arc: rises fast then falls back under "gravity" (parabola)
+      const rise = coneH * (0.55 + hash(i, 405) * 0.85) * (0.4 + rough * 0.9);
+      const arc = life * (1.35 - life); // peaks ~0.5, returns toward 0
+      const y = summitY - arc * rise * 2.4;
       if (y < LAYOUT.worldTop - 6) continue;
 
-      const r = (1 + hash(i, 406) * 1.6) * (0.7 + heat * 0.4);
-      const fade = (1 - life) * (0.6 + heat * 0.4);
-      const col = life < 0.4 ? lavaCore : ember;
-      p.dot(x, y, r, col, clamp01(fade) * (0.4 + rough * 0.4));
-
-      // a faint trailing streak for fast erupting embers
-      if (rough > 0.4 && hash(i, 407) > 0.5) {
-        p.block(x, y, 1.4, 3 + rough * 3, ember, fade * 0.25);
+      // small glowing spark; hot white-orange young, cooling to ember
+      const r = (0.8 + hash(i, 406) * 1.0) * (0.7 + heat * 0.3);
+      const fade = clamp01((1 - life) * 1.2) * (0.6 + heat * 0.4);
+      const col = life < 0.35 ? lavaCore : ember;
+      // short motion-blur trail pointing back along the arc
+      if (rough > 0.3) {
+        const ty = y + (life < 0.5 ? 4 : -4) * (1 + rough); // trail opposite motion
+        p.block(x - 0.5, Math.min(y, ty), 1.2, Math.abs(ty - y) + 1, ember, fade * 0.2);
       }
+      p.dot(x, y, r, col, clamp01(fade) * (0.45 + rough * 0.45));
     }
 
     // dormant soft glow motes lifting gently from the cooling crust

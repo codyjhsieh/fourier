@@ -229,31 +229,34 @@ export class PhasorRenderer implements WorldRenderer {
       const nextX = armX + Math.cos(ang) * len;
       const nextY = armY + Math.sin(ang) * len;
 
-      // pale rotor-ring rim, lit on its top-left arc
-      const rimCol = mixColor(this.ring, this.edgeInk, 0.25 + 0.25 * lock);
-      const steps = Math.max(28, Math.round(len * 0.7));
+      // pale rotor-ring rim, evenly drawn and lit on its top-left arc so it
+      // reads as a clean turning gear behind the hero wireframe (uncluttered).
+      const rimCol = mixColor(this.ring, this.edgeInk, 0.2 + 0.25 * lock);
+      const steps = Math.max(36, Math.round(len * 0.85));
       for (let s = 0; s < steps; s++) {
         const a = (s / steps) * TWO_PI;
         const nx = Math.cos(a);
         const ny = Math.sin(a);
         const gx = armX + nx * len;
         const gy = armY + ny * len;
-        const lit = nx * LIGHT_X + ny * LIGHT_Y;
-        if (lit > 0.4) {
-          p.block(gx - 1, gy - 1, 2, 2, this.edgeGlow, 0.16 + 0.18 * lock);
-        } else if (s % 2 === 0) {
-          p.block(gx - 1, gy - 1, 2, 2, rimCol, 0.1 + 0.14 * lock);
-        }
+        const lit = nx * LIGHT_X + ny * LIGHT_Y; // top-left illumination
+        // faint everywhere, brightening smoothly along the lit arc
+        const litUp = Math.max(0, lit);
+        const col = mixColor(rimCol, this.edgeGlow, litUp * 0.8);
+        const al = 0.08 + 0.1 * lock + litUp * (0.14 + 0.14 * lock);
+        p.block(gx - 0.9, gy - 0.9, 1.8, 1.8, col, al);
       }
 
-      // the radius SPOKE from this hub to the rotor's tip
-      const armSteps = Math.max(3, Math.round(len / 6));
-      const spokeCol = mixColor(this.ring, this.accent.accent, 0.2 * lock);
+      // the radius SPOKE from this hub to the rotor's tip — a clean thin line
+      const armSteps = Math.max(4, Math.round(len / 5));
+      const spokeCol = mixColor(this.ring, this.accent.accent, 0.18 * lock);
       for (let s = 1; s <= armSteps; s++) {
         const u = s / armSteps;
         const sx = armX + (nextX - armX) * u;
         const sy = armY + (nextY - armY) * u;
-        p.block(sx - 0.6, sy - 0.6, 1.2, 1.2, spokeCol, 0.16 + 0.2 * lock);
+        // fade the spoke toward the rim so the hub reads as the anchor
+        const fade = 0.7 + 0.3 * (1 - u);
+        p.block(sx - 0.55, sy - 0.55, 1.1, 1.1, spokeCol, (0.14 + 0.2 * lock) * fade);
       }
 
       // small lit hub bead at this joint
@@ -276,16 +279,24 @@ export class PhasorRenderer implements WorldRenderer {
     // signal-driven angles (deterministic, from the reconstruction)
     const phaseMean = ampW > 1e-6 ? phaseSum / ampW : 0;
     const tipAng = Math.atan2(penY - cy, penX - cx);
-    const rotXW = t * 0.18 + phaseMean * 0.4 + tipAng * 0.15;
-    const rotYZ = t * 0.13 - phaseMean * 0.3;
-    const rotXY = t * 0.07;
-    // 4D fold wobble: slow + a touch of phasor influence
-    const wobZW = Math.sin(t * 0.6) * 0.5 + phaseMean * 0.25;
+    // Smoother, more graceful 4D rotation: steady base spin with gentle
+    // sinusoidal easing so the fold breathes rather than ticking. The
+    // phasor signal nudges the planes, but only softly, so the turn stays
+    // legible and uncluttered.
+    const ease = Math.sin(t * 0.4);
+    const rotXW = t * 0.16 + Math.sin(t * 0.27) * 0.18 + phaseMean * 0.3 + tipAng * 0.1;
+    const rotYZ = t * 0.11 + Math.cos(t * 0.33) * 0.14 - phaseMean * 0.22;
+    const rotXY = t * 0.06 + ease * 0.05;
+    // 4D fold wobble: slow, smooth, lightly phasor-coloured
+    const wobZW = Math.sin(t * 0.5) * 0.42 + Math.sin(t * 0.19) * 0.16 + phaseMean * 0.18;
 
     const scale = span * 0.62;
 
     // GARBLE field: per-vertex displacement that vanishes as score -> 1.
-    const garble = (1 - lock) * (1 - lock);
+    // Cubic easing makes the final snap-to-clean feel sudden & satisfying:
+    // it stays visibly tangled across most of the range, then collapses.
+    const inv = 1 - lock;
+    const garble = inv * inv * inv;
 
     // project every vertex, applying score-driven garble (shear + scatter)
     const proj: P2[] = [];
@@ -295,17 +306,19 @@ export class PhasorRenderer implements WorldRenderer {
       const wi = (v.w + 1) * 0.5; // 0 inner, 1 outer
       const si = Math.floor(((i + 0.5) / 16) * wave.length);
       const mism = wave[si] - tWave[si]; // signed error
+      // a slow churning tangle so wrongness reads as restless, not frozen
+      const churn = Math.sin(t * 1.3 + i * 2.2) * garble;
       // shear the two cubes apart along W; scatter vertices by hash + error
-      const sh = mism * garble * 1.4;
-      const scx = (hash(i, 3) - 0.5) * garble * 2.0;
-      const scy = (hash(i, 7) - 0.5) * garble * 2.0;
-      const scz = (hash(i, 11) - 0.5) * garble * 2.0;
+      const sh = mism * garble * 1.6;
+      const scx = (hash(i, 3) - 0.5) * garble * 2.2 + churn * 0.4;
+      const scy = (hash(i, 7) - 0.5) * garble * 2.2;
+      const scz = (hash(i, 11) - 0.5) * garble * 2.2;
       const gv: V4 = {
-        x: v.x + sh * (v.x) * 0.5 + scx,
-        y: v.y + scy + Math.sin(t * 1.3 + i) * garble * 0.6,
-        z: v.z + scz,
-        // pull inner/outer cubes apart in W when wrong (shear)
-        w: v.w + (wi - 0.5) * garble * 2.2 + sh,
+        x: v.x + sh * v.x * 0.5 + scx,
+        y: v.y + scy + Math.sin(t * 1.3 + i) * garble * 0.7,
+        z: v.z + scz + Math.cos(t * 0.9 + i * 1.7) * garble * 0.5,
+        // pull inner/outer cubes apart in W when wrong (the cubes "unfold")
+        w: v.w + (wi - 0.5) * garble * 2.4 + sh,
       };
       proj.push(
         this.project(gv, cx, cy, scale, rotXW, rotYZ, rotXY, wobZW),
@@ -317,56 +330,78 @@ export class PhasorRenderer implements WorldRenderer {
     // Inner cube (w=+1) and outer cube (w=-1) get distinct emphasis so the
     // CUBE-WITHIN-A-CUBE reads instantly. Connecting edges glow brightest.
     // ===================================================================
-    const crisp = lock; // 0 garbled .. 1 crisp
-    for (let e = 0; e < EDGES.length; e++) {
-      const [ia, ib] = EDGES[e];
-      const a = proj[ia];
-      const b = proj[ib];
-      const va = CUBE4[ia];
-      const vb = CUBE4[ib];
-      // classify edge: inner cube, outer cube, or connecting (W differs)
-      const connecting = va.w !== vb.w;
-      const inner = !connecting && va.w > 0;
+    // Ease the cleanliness so the snap feels deliberate, not linear.
+    const crisp = lock * lock * (3 - 2 * lock); // 0 garbled .. 1 crisp (smoothstep)
+    // Draw outer cube first, then connecting edges, then the bright inner
+    // cube last so the cube-within-a-cube nesting reads back-to-front.
+    type EdgeKind = 0 | 1 | 2; // 0 outer, 1 connecting, 2 inner
+    const order: EdgeKind[] = [0, 1, 2];
+    for (const kind of order) {
+      for (let e = 0; e < EDGES.length; e++) {
+        const [ia, ib] = EDGES[e];
+        const va = CUBE4[ia];
+        const vb = CUBE4[ib];
+        const connecting = va.w !== vb.w;
+        const inner = !connecting && va.w > 0;
+        const myKind: EdgeKind = connecting ? 1 : inner ? 2 : 0;
+        if (myKind !== kind) continue;
 
-      let col: number;
-      let baseA: number;
-      let thick: number;
-      if (connecting) {
-        col = mixColor(this.accent.accent, PALETTE.white, 0.25 + 0.2 * crisp);
-        baseA = 0.4 + 0.4 * crisp;
-        thick = 1.4 + 0.7 * crisp;
-      } else if (inner) {
-        col = mixColor(this.edgeGlow, PALETTE.white, 0.35 + 0.3 * crisp);
-        baseA = 0.38 + 0.42 * crisp;
-        thick = 1.2 + 0.6 * crisp;
-      } else {
-        col = mixColor(this.edgeInk, this.edgeGlow, 0.4 + 0.3 * crisp);
-        baseA = 0.36 + 0.42 * crisp;
-        thick = 1.3 + 0.7 * crisp;
+        const a = proj[ia];
+        const b = proj[ib];
+
+        let col: number;
+        let baseA: number;
+        let thick: number;
+        if (connecting) {
+          // the 8 "fold" edges — the signature of the tesseract: brightest,
+          // accent-tinted, slightly heavier so the inner/outer link reads.
+          col = mixColor(this.accent.accent, PALETTE.white, 0.2 + 0.25 * crisp);
+          baseA = 0.32 + 0.5 * crisp;
+          thick = 1.5 + 0.8 * crisp;
+        } else if (inner) {
+          // inner cube — cool-bright, crisp, a touch thinner (it sits "far"
+          // in W and reads as the small nested cube).
+          col = mixColor(this.edgeGlow, PALETTE.white, 0.4 + 0.3 * crisp);
+          baseA = 0.34 + 0.46 * crisp;
+          thick = 1.2 + 0.6 * crisp;
+        } else {
+          // outer cube — the calm inked frame.
+          col = mixColor(this.edgeInk, this.edgeGlow, 0.35 + 0.35 * crisp);
+          baseA = 0.32 + 0.46 * crisp;
+          thick = 1.4 + 0.7 * crisp;
+        }
+
+        this.drawEdge(a, b, col, baseA, thick, crisp);
       }
-
-      this.drawEdge(a, b, col, baseA, thick, crisp);
     }
 
-    // glowing VERTICES (corner beads). Inner cube brighter / smaller, outer
-    // larger — emphasising the nesting.
+    // glowing VERTICES (corner beads). Inner cube smaller/cooler, outer
+    // larger — emphasising the nesting. Nearer beads (higher depth) glow
+    // bigger & brighter, rounder, with a clean top-left highlight.
     for (let i = 0; i < 16; i++) {
       const a = proj[i];
       const inner = CUBE4[i].w > 0;
-      const vr = (inner ? 1.6 : 2.2) * (0.6 + 0.5 * a.depth) * (0.7 + 0.3 * crisp);
-      // soft halo
-      this.wire.circle(a.x, a.y, vr * (1.8 + crisp)).fill({
+      const dep = 0.55 + 0.55 * a.depth; // depth cue
+      const vr = (inner ? 1.5 : 2.1) * dep * (0.72 + 0.28 * crisp);
+      // wide soft halo
+      this.wire.circle(a.x, a.y, vr * (2.1 + 0.8 * crisp)).fill({
         color: this.edgeGlow,
-        alpha: (0.08 + 0.16 * crisp) * (0.6 + 0.4 * a.depth),
+        alpha: (0.06 + 0.15 * crisp) * dep,
       });
-      // bright core, lit highlight top-left
+      // tighter bloom
+      this.wire.circle(a.x, a.y, vr * 1.4).fill({
+        color: mixColor(this.edgeGlow, this.accent.accentSoft, 0.4),
+        alpha: (0.12 + 0.2 * crisp) * dep,
+      });
+      // bright round core
       this.wire.circle(a.x, a.y, vr).fill({
-        color: mixColor(this.accent.accent, PALETTE.white, 0.5),
-        alpha: 0.5 + 0.4 * crisp,
+        color: mixColor(this.accent.accent, PALETTE.white, inner ? 0.6 : 0.48),
+        alpha: 0.5 + 0.42 * crisp,
       });
+      // crisp specular highlight, top-left lit
       this.wire
-        .circle(a.x - vr * 0.3, a.y - vr * 0.32, Math.max(0.5, vr * 0.45))
-        .fill({ color: PALETTE.white, alpha: 0.6 + 0.3 * crisp });
+        .circle(a.x - vr * 0.32, a.y - vr * 0.34, Math.max(0.5, vr * 0.42))
+        .fill({ color: PALETTE.white, alpha: (0.6 + 0.32 * crisp) * dep });
     }
 
     // central pivot of the mechanism
@@ -376,30 +411,42 @@ export class PhasorRenderer implements WorldRenderer {
     // RESOLVED: the clean hypercube radiates a soft bloom + the connecting
     // "fold" cube haloes gently.
     // ===================================================================
-    if (lock > 0.7) {
-      const open = (lock - 0.7) / 0.3;
-      // soft full bloom around the figure
-      this.fx.circle(cx, cy, scale * 1.15).fill({
-        color: mixColor(PALETTE.glow, this.accent.accentSoft, 0.45),
-        alpha: 0.05 * open,
+    if (lock > 0.62) {
+      const open = (lock - 0.62) / 0.38; // 0..1
+      const breathe = 0.85 + 0.15 * Math.sin(t * 1.4); // gentle living pulse
+      // soft layered bloom around the figure (wide -> tight, never harsh)
+      this.fx.circle(cx, cy, scale * 1.28).fill({
+        color: mixColor(PALETTE.glow, this.accent.accentSoft, 0.5),
+        alpha: 0.035 * open * breathe,
       });
-      this.fx.circle(cx, cy, scale * 0.8).fill({
+      this.fx.circle(cx, cy, scale * 1.0).fill({
+        color: mixColor(PALETTE.glow, this.accent.accentSoft, 0.35),
+        alpha: 0.045 * open * breathe,
+      });
+      this.fx.circle(cx, cy, scale * 0.62).fill({
         color: PALETTE.white,
-        alpha: 0.04 * open,
+        alpha: 0.04 * open * breathe,
       });
-      // a travelling light-pulse along the connecting edges
-      const pulse = (t * 0.2) % 1;
+      // a travelling light-pulse running along each of the 8 connecting
+      // "fold" edges, with a short comet trail so the fold direction reads.
+      const pulse = (t * 0.22) % 1;
+      const trail = 5;
       for (let i = 0; i < 8; i++) {
         // the 8 connecting edges go vertex i (w=-1) -> vertex i|8 (w=+1)
         const a = proj[i];
         const b = proj[i | 8];
-        const u = (pulse + i / 8) % 1;
-        const px = a.x + (b.x - a.x) * u;
-        const py = a.y + (b.y - a.y) * u;
-        this.fx.circle(px, py, 1.4 + 1.6 * open).fill({
-          color: mixColor(PALETTE.white, this.accent.accentSoft, 0.3),
-          alpha: 0.5 * open,
-        });
+        const head = (pulse + i / 8) % 1;
+        for (let s = 0; s < trail; s++) {
+          const u = head - s * 0.05;
+          if (u < 0 || u > 1) continue;
+          const px = a.x + (b.x - a.x) * u;
+          const py = a.y + (b.y - a.y) * u;
+          const fade = 1 - s / trail;
+          this.fx.circle(px, py, (0.9 + 1.7 * open) * fade).fill({
+            color: mixColor(PALETTE.white, this.accent.accentSoft, 0.3),
+            alpha: 0.55 * open * fade * fade,
+          });
+        }
       }
     }
   }
@@ -417,23 +464,33 @@ export class PhasorRenderer implements WorldRenderer {
     const dx = b.x - a.x;
     const dy = b.y - a.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    const steps = Math.max(2, Math.min(80, Math.round(dist / 3)));
+    // denser sampling => smooth, consistent crisp line (not a dotted chain)
+    const steps = Math.max(3, Math.min(96, Math.round(dist / 2.2)));
     const glowCol = this.edgeGlow;
+    // soft glow underlay first, then the crisp core on top — gives every
+    // edge a uniform luminous halo without thickening the core.
+    if (crisp > 0.1) {
+      for (let s = 0; s <= steps; s += 2) {
+        const u = s / steps;
+        const x = a.x + dx * u;
+        const y = a.y + dy * u;
+        const depth = a.depth + (b.depth - a.depth) * u;
+        const gr = thick * (1.3 + 0.5 * depth);
+        this.wire
+          .circle(x, y, gr)
+          .fill({ color: glowCol, alpha: alpha * 0.14 * crisp * (0.6 + 0.4 * depth) });
+      }
+    }
     for (let s = 0; s <= steps; s++) {
       const u = s / steps;
       const x = a.x + dx * u;
       const y = a.y + dy * u;
-      const depth = a.depth + (b.depth - a.depth) * u;
-      const tk = thick * (0.7 + 0.4 * depth);
-      // faint glow halo (only when somewhat crisp, to keep garble messy/dim)
-      if (crisp > 0.15 && s % 2 === 0) {
-        this.wire
-          .circle(x, y, tk * 1.6)
-          .fill({ color: glowCol, alpha: alpha * 0.18 * crisp });
-      }
-      this.wire
-        .rect(Math.round(x - tk / 2), Math.round(y - tk / 2), Math.max(1, Math.round(tk)), Math.max(1, Math.round(tk)))
-        .fill({ color, alpha });
+      const depth = a.depth + (b.depth - a.depth) * u; // nearer => bigger
+      // depth cue: nearer edges thicker AND brighter
+      const tk = thick * (0.62 + 0.48 * depth);
+      const da = alpha * (0.7 + 0.4 * Math.min(1.2, depth)) / 1.1;
+      // round caps via small circles -> smooth, "rounder" crisp edge
+      this.wire.circle(x, y, tk * 0.55).fill({ color, alpha: Math.min(1, da) });
     }
   }
 
@@ -473,24 +530,32 @@ export class PhasorRenderer implements WorldRenderer {
       alpha: 0.08 + 0.06 * lock,
     });
 
-    // a few faint STARS — twinkling pale points, deterministic positions
-    const stars = 16;
+    // a few crisp STARS — twinkling pale points, deterministic positions.
+    // Kept sparse so the sky stays quiet behind the hero wireframe.
+    const stars = 14;
     for (let i = 0; i < stars; i++) {
-      const sx = hash(i, 1) * W;
-      const sy = top + hash(i, 2) * (bot - top) * 0.85;
-      const tw = 0.5 + 0.5 * Math.sin(t * (1.1 + hash(i, 3)) + i * 2.1);
+      const sx = Math.round(hash(i, 1) * W);
+      const sy = Math.round(top + hash(i, 2) * (bot - top) * 0.8);
+      const tw = 0.5 + 0.5 * Math.sin(t * (0.8 + hash(i, 3) * 0.6) + i * 2.1);
       const sr = 0.6 + hash(i, 4) * 0.9;
-      this.sky.circle(sx, sy, sr).fill({
-        color: mixColor(PALETTE.white, this.accent.accentSoft, 0.25),
-        alpha: 0.2 + 0.4 * tw,
+      // soft halo + crisp white core => the star reads bright but clean
+      this.sky.circle(sx, sy, sr * 2.4).fill({
+        color: mixColor(PALETTE.white, this.accent.accentSoft, 0.4),
+        alpha: (0.06 + 0.12 * tw),
       });
-      if (hash(i, 6) > 0.72 && tw > 0.6) {
+      this.sky.circle(sx, sy, sr).fill({
+        color: mixColor(PALETTE.white, this.accent.accentSoft, 0.15),
+        alpha: 0.28 + 0.45 * tw,
+      });
+      // a crisp twinkle cross on the brighter stars only
+      if (hash(i, 6) > 0.7 && tw > 0.55) {
+        const len = sr * 2.6;
         this.sky
-          .rect(sx - sr * 2, sy, sr * 4, 0.6)
-          .fill({ color: PALETTE.white, alpha: 0.28 * tw });
+          .rect(sx - len, sy, len * 2, 0.7)
+          .fill({ color: PALETTE.white, alpha: 0.3 * tw });
         this.sky
-          .rect(sx, sy - sr * 2, 0.6, sr * 4)
-          .fill({ color: PALETTE.white, alpha: 0.28 * tw });
+          .rect(sx, sy - len, 0.7, len * 2)
+          .fill({ color: PALETTE.white, alpha: 0.3 * tw });
       }
     }
   }
