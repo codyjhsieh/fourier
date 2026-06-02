@@ -7,16 +7,24 @@ import { Painter, WorldRenderer, resample } from "./common";
 import { Species } from "./Scenery";
 
 // A vibrating CHLADNI PLATE: a square metal plate sprinkled with fine sand that
-// migrates away from the antinodes and collects along the nodal lines of the
-// plate's standing-wave vibration, drawing the classic geometric figures.
+// migrates away from the antinodes and collects along the *nodal lines* of the
+// plate's standing-wave vibration, drawing the classic geometric figure.
 //
 // The field is reconstructed directly from the harmonic spectrum as a 2D
 // standing wave:
 //   field(x,y) = Σ aₖ · cos(kₖ·π·x) · cos(kₖ·π·y + phaseₖ)
-// over a bounded grid (x,y normalized to [0,1] across the plate). Sand is dense
-// and bright where |field| ≈ 0 (the nodes) and bare elsewhere. A faint ghost of
-// the *target* spectrum shows the figure to aim for; as `score` rises the player
-// figure sharpens and glows in the accent, and at high score a few grains leap.
+// over a bounded grid (x,y normalized to [0,1] across the plate). The NODAL
+// LINES are the zero-crossings of that field — exactly where sand piles up.
+//
+// CLARITY MODEL (the thing the player must read):
+//   • OFF-resonance (score→0): sand is a chaotic, buzzing scatter sprayed all
+//     over the plate — no figure, just noise that trembles.
+//   • ON-resonance  (score→1): the grains collapse onto CRISP, THIN, SYMMETRIC
+//     nodal-line curves traced as real strokes (dark accent ink on light
+//     steel) — a definite, intricate FIGURE you can name.
+// A faint GHOST of the *target* nodal figure is drawn underneath so "find the
+// figure" has a figure to aim for. Moving the stones changes the harmonics,
+// which visibly re-routes the nodal curves.
 //
 // Deterministic throughout (sin-hash, no Math.random), redrawn every frame.
 
@@ -28,15 +36,30 @@ export class ChladniRenderer implements WorldRenderer {
   // back-to-front layers
   private refl = new Graphics(); // faint base reflection
   private plate = new Graphics(); // metal plate + bezel/stand
-  private ghost = new Graphics(); // target nodal figure (faint)
-  private sand = new Graphics(); // player's sand grains
+  private ghost = new Graphics(); // target nodal figure (faint outline)
+  private sand = new Graphics(); // player's sand grains (chaotic, off-res)
+  private lines = new Graphics(); // crisp nodal-line strokes (on-res figure)
   private fx = new Graphics(); // glow + leaping grains
 
-  private readonly grid = 48; // field resolution (bounded for perf)
+  private readonly grid = 64; // field resolution (bounded for perf)
+
+  // reused field buffers (avoid per-frame allocation)
+  private fbufP: Float32Array;
+  private fbufT: Float32Array;
 
   constructor(accent: Accent) {
     this.accent = accent;
-    this.container.addChild(this.refl, this.plate, this.ghost, this.sand, this.fx);
+    const n = (this.grid + 1) * (this.grid + 1);
+    this.fbufP = new Float32Array(n);
+    this.fbufT = new Float32Array(n);
+    this.container.addChild(
+      this.refl,
+      this.plate,
+      this.ghost,
+      this.sand,
+      this.lines,
+      this.fx,
+    );
   }
 
   // cheap deterministic hash in [0,1)
@@ -47,7 +70,7 @@ export class ChladniRenderer implements WorldRenderer {
 
   // Standing-wave field at normalized (x,y) in [0,1] from a spectrum. The DC /
   // k=0 term is skipped (it would just bias every cell uniformly and wash out
-  // the nodal contrast). Returns a value roughly in [-A, A].
+  // the nodal contrast).
   private field(
     harmonics: HarmonicComponent[],
     nx: number,
@@ -66,18 +89,144 @@ export class ChladniRenderer implements WorldRenderer {
     return v;
   }
 
-  // Peak |field| over a coarse probe, used to normalize the field into [0,1]
-  // so the nodal threshold is scale-independent across spectra.
-  private peak(harmonics: HarmonicComponent[]): number {
-    let max = 1e-4;
-    const probe = 16;
-    for (let i = 0; i <= probe; i++) {
-      for (let j = 0; j <= probe; j++) {
-        const a = Math.abs(this.field(harmonics, i / probe, j / probe));
-        if (a > max) max = a;
+  // Sample the whole field into a (grid+1)² buffer, normalized so its peak
+  // magnitude is 1. Returns the unnormalized peak (0 if the field is empty).
+  private sampleField(
+    harmonics: HarmonicComponent[],
+    buf: Float32Array,
+  ): number {
+    const g = this.grid;
+    let peak = 1e-4;
+    let idx = 0;
+    for (let j = 0; j <= g; j++) {
+      const ny = j / g;
+      for (let i = 0; i <= g; i++) {
+        const nx = i / g;
+        const v = this.field(harmonics, nx, ny);
+        buf[idx++] = v;
+        const a = v < 0 ? -v : v;
+        if (a > peak) peak = a;
       }
     }
-    return max;
+    const inv = 1 / peak;
+    for (let k = 0; k < idx; k++) buf[k] *= inv;
+    return peak;
+  }
+
+  // Linear interpolation parameter where a cell edge crosses zero, given the
+  // two corner values (opposite signs guaranteed by the caller).
+  private cross(a: number, b: number): number {
+    return a / (a - b);
+  }
+
+  // Marching-squares: walk every cell of the normalized field buffer and emit
+  // the line segment(s) where field == 0 (the nodal curve). Each segment is
+  // stroked into `g`. Returns nothing; draws crisp connected line pieces.
+  //
+  // `inset` shrinks the active region a touch so the figure never collides with
+  // the bezel. `alphaScale` and `width` tune appearance for ghost vs. figure.
+  private traceNodes(
+    g: Graphics,
+    buf: Float32Array,
+    L: number,
+    T: number,
+    size: number,
+    color: number,
+    alpha: number,
+    width: number,
+    breathePx: number,
+    breath: number[],
+  ) {
+    const n = this.grid;
+    const cell = size / n;
+    const stride = n + 1;
+
+    // local helper: turn grid coords -> screen, with a faint per-column breath
+    const sx = (i: number) => L + i * cell;
+    const sy = (i: number, j: number) =>
+      T + j * cell + (breath[Math.min(i, n - 1)] || 0) * breathePx;
+
+    g.setStrokeStyle({ width, color, alpha, cap: "round", join: "round" });
+
+    for (let j = 0; j < n; j++) {
+      for (let i = 0; i < n; i++) {
+        const i00 = j * stride + i;
+        const v00 = buf[i00]; // top-left
+        const v10 = buf[i00 + 1]; // top-right
+        const v01 = buf[i00 + stride]; // bottom-left
+        const v11 = buf[i00 + stride + 1]; // bottom-right
+
+        // marching-squares case index (bit set where value >= 0)
+        let cse = 0;
+        if (v00 >= 0) cse |= 1;
+        if (v10 >= 0) cse |= 2;
+        if (v11 >= 0) cse |= 4;
+        if (v01 >= 0) cse |= 8;
+        if (cse === 0 || cse === 15) continue; // no crossing
+
+        // edge crossing points (in grid-space), only computed when needed
+        // top edge: between (i,j)-(i+1,j)
+        const tX = i + this.cross(v00, v10);
+        const tY = j;
+        // right edge: between (i+1,j)-(i+1,j+1)
+        const rX = i + 1;
+        const rY = j + this.cross(v10, v11);
+        // bottom edge: between (i,j+1)-(i+1,j+1)
+        const bX = i + this.cross(v01, v11);
+        const bY = j + 1;
+        // left edge: between (i,j)-(i,j+1)
+        const lX = i;
+        const lY = j + this.cross(v00, v01);
+
+        // connect the crossed edges per case (ambiguous saddles 5/10 drawn as
+        // two short segments — visually fine for sand lines)
+        const seg = (
+          ax: number,
+          ay: number,
+          bx: number,
+          by: number,
+        ) => {
+          g.moveTo(sx(ax), sy(Math.round(ax), ay));
+          g.lineTo(sx(bx), sy(Math.round(bx), by));
+        };
+
+        switch (cse) {
+          case 1:
+          case 14:
+            seg(lX, lY, tX, tY);
+            break;
+          case 2:
+          case 13:
+            seg(tX, tY, rX, rY);
+            break;
+          case 3:
+          case 12:
+            seg(lX, lY, rX, rY);
+            break;
+          case 4:
+          case 11:
+            seg(rX, rY, bX, bY);
+            break;
+          case 6:
+          case 9:
+            seg(tX, tY, bX, bY);
+            break;
+          case 7:
+          case 8:
+            seg(lX, lY, bX, bY);
+            break;
+          case 5:
+            seg(lX, lY, tX, tY);
+            seg(rX, rY, bX, bY);
+            break;
+          case 10:
+            seg(tX, tY, rX, rY);
+            seg(lX, lY, bX, bY);
+            break;
+        }
+      }
+    }
+    g.stroke();
   }
 
   update(
@@ -92,6 +241,7 @@ export class ChladniRenderer implements WorldRenderer {
     this.plate.clear();
     this.ghost.clear();
     this.sand.clear();
+    this.lines.clear();
     this.fx.clear();
 
     const p = new Painter(
@@ -114,147 +264,201 @@ export class ChladniRenderer implements WorldRenderer {
     const plateTop = worldTop + (waterY - worldTop - size) * 0.42;
     const plateLeft = cx - size / 2;
 
-    // subtle vibration shimmer: the whole plate trembles a hair, more when the
-    // spectrum is energetic / unmatched
-    const tremble = (1 - score) * 0.9 + 0.25;
+    // smooth resonance envelope: grains migrate onto the nodal line as the
+    // figure locks. eased so the snap feels gentle, not abrupt.
+    const lock = score * score * (3 - 2 * score); // smoothstep(score)
+
+    // subtle vibration shimmer: the whole plate trembles hard when unmatched,
+    // calms to near-still at resonance.
+    const tremble = (1 - lock) * 1.1 + 0.18;
     const shx = Math.sin(t * 9.0) * tremble;
     const shy = Math.cos(t * 11.0) * tremble * 0.7;
 
     const L = plateLeft + shx;
     const Tp = plateTop + shy;
 
-    // --- stand / bezel below the plate (top-left lit metal) ---
+    // --- stand / driver below the plate ---
     this.drawStand(p, cx, L, Tp, size);
 
-    // --- the metal plate surface, top-left lit with a soft diagonal sheen ---
+    // --- the metal plate surface ---
     this.drawPlate(L, Tp, size);
 
-    // --- field setup ---
-    const peakP = this.peak(harmonics);
-    const peakT = this.peak(targetHarmonics);
+    // --- field setup: sample both spectra into normalized buffers ---
+    const peakP = this.sampleField(harmonics, this.fbufP);
+    const peakT = this.sampleField(targetHarmonics, this.fbufT);
+    const haveP = peakP > 1e-3;
+    const haveT = peakT > 1e-3;
     const cell = size / this.grid;
 
-    // resonance accent ramp — sand glows toward the accent as score rises
-    const sandPale = mixColor(PALETTE.white, PALETTE.paperDeep, 0.25);
-    const sandBright = PALETTE.white;
-    const glow = mixColor(this.accent.accent, PALETTE.white, 0.35);
-    const ghostCol = mixColor(this.accent.accentSoft, PALETTE.paperDeep, 0.4);
-
-    // crispness: low score -> sand smeared across a wide band around the node;
-    // high score -> a tight, clean line. waveform resample drives a faint
-    // per-row breathing so the figure feels alive.
+    // waveform-driven per-column breath so the figure feels alive
     const breath = resample(_shape, this.grid);
-    const nodeBand = 0.17 - score * 0.12; // half-width of the |field| nodal band
-    const ghostBand = 0.1;
-    // smooth settle envelope: grains migrate onto the nodal line as the figure
-    // locks. eased so the snap feels gentle, not abrupt.
-    const lock = score * score * (3 - 2 * score); // smoothstep(score)
-    // sharpen proximity onto the line with score: gamma > 1 pulls the
-    // distribution toward the node so the figure reads as a crisp curve.
-    const crispPow = 1 + lock * 1.6;
 
-    for (let gy = 0; gy < this.grid; gy++) {
-      for (let gx = 0; gx < this.grid; gx++) {
-        const nx = gx / (this.grid - 1);
-        const ny = gy / (this.grid - 1);
-        const px = L + nx * size;
-        const py = Tp + ny * size;
+    // colors
+    const sandLine = this.accent.ink; // dark crisp sand on light steel
+    const sandLineHot = mixColor(this.accent.accent, PALETTE.ink, 0.25);
+    const ghostCol = mixColor(this.accent.inkSoft, PALETTE.paperDeep, 0.45);
+    const grainPale = mixColor(PALETTE.inkSoft, PALETTE.paperDeep, 0.3);
+    const grainDark = this.accent.ink;
 
-        // --- faint ghost of the target figure underneath ---
-        const ft = Math.abs(this.field(targetHarmonics, nx, ny)) / peakT;
-        if (ft < ghostBand) {
-          const closeness = 1 - ft / ghostBand;
-          // ghost fades out as the player matches it (score), leaving the real
-          // figure to take over
-          const ga = 0.28 * closeness * (1 - score * 0.7);
-          if (ga > 0.01) {
-            this.ghost
-              .circle(px, py, cell * 0.42)
-              .fill({ color: ghostCol, alpha: ga });
-          }
-        }
-
-        // --- player's sand: dense near |field| ≈ 0 ---
-        const fv = Math.abs(this.field(harmonics, nx, ny)) / peakP;
-        if (fv >= nodeBand) continue;
-
-        // proximity to the node: 1 right on the line, 0 at the band edge.
-        // gamma-sharpened with score so grains crowd the nodal line crisply.
-        const prox = Math.pow(1 - fv / nodeBand, crispPow);
-
-        // deterministic per-cell scatter so grains read as discrete sand, not a
-        // solid fill. Lower scatter survival away from the node -> tapered edge.
-        // as the figure locks the edge survival tightens so off-line scatter
-        // thins out and the curve cleans up.
-        const h = this.hash(gx * 1.7 + 0.3, gy * 2.3 + 0.7);
-        if (h > (0.35 - lock * 0.18) + prox * (0.6 + lock * 0.3)) continue;
-
-        // a little deterministic jitter inside the cell, settling toward the
-        // grid centre as the figure locks (tighter line, less fuzz)
-        const js = cell * (0.9 - lock * 0.55);
-        const jx = (this.hash(gx + 11, gy + 3) - 0.5) * js;
-        const jy = (this.hash(gx + 5, gy + 19) - 0.5) * js;
-
-        // grain motion: an energetic vibration when off-resonance that eases
-        // into a faint locked shimmer. smooth, low-frequency settling so the
-        // sand appears to migrate rather than twitch.
-        const vib = (1 - lock) * 1.4 + 0.18;
-        const ph = gx * 0.9 + gy * 0.4;
-        const vx = Math.sin(t * (4.5 + (1 - lock) * 8) + ph) * vib;
-        const vy = Math.cos(t * (4.0 + (1 - lock) * 8) + ph * 0.8) * vib;
-
-        const bx = px + jx + vx;
-        const by = py + jy + vy + breath[gx] * 0.6 * (1 - lock * 0.5);
-
-        // grain size & color: brighter, fatter, accent-tinted on the node line
-        const r = (0.55 + prox * 0.95) * (cell * 0.5);
-        let col = mixColor(sandPale, sandBright, prox);
-        col = mixColor(col, glow, score * prox * 0.6);
-        const a = 0.45 + prox * 0.5;
-        p.dot(bx, by, Math.max(0.5, r), col, a);
+    // ============================================================
+    // 1) GHOST — faint outline of the TARGET nodal figure to aim for.
+    //    Fades as the player matches it (the real figure takes over).
+    // ============================================================
+    if (haveT) {
+      const ga = 0.5 * (1 - lock * 0.75);
+      if (ga > 0.02) {
+        this.traceNodes(
+          this.ghost,
+          this.fbufT,
+          L,
+          Tp,
+          size,
+          ghostCol,
+          ga,
+          Math.max(1, cell * 0.4),
+          0,
+          breath,
+        );
       }
     }
 
-    // --- resonance glow: a soft accent bloom over the node lines as it locks ---
-    if (score > 0.35) {
-      const gv = (score - 0.35) / 0.65;
-      const samples = 90;
+    // ============================================================
+    // 2) SAND — the player's field rendered two ways, cross-faded by `lock`:
+    //    (a) CHAOTIC SCATTER everywhere (dominant at low score) — buzzing grains
+    //    (b) CRISP NODAL-LINE STROKES (dominant at high score) — the figure
+    // ============================================================
+
+    // (a) chaotic scatter: present strongly off-resonance, thins to nothing as
+    //     the figure locks. Grains spray across the whole plate and jitter.
+    const scatterAmt = 1 - lock; // 1 off-res -> 0 locked
+    if (haveP && scatterAmt > 0.02) {
+      // grains are biased toward (but not confined to) the nodal band so the
+      // scatter already "wants" to find the lines — it's just too noisy to read.
+      const band = 0.42 - lock * 0.3; // wide, sloppy band off-res
+      const count = 520;
+      for (let i = 0; i < count; i++) {
+        // deterministic position over the plate
+        const nx = this.hash(i * 1.37 + 0.11, 3.7);
+        const ny = this.hash(i * 2.71 + 0.53, 8.1);
+        const gi = Math.round(nx * this.grid);
+        const gj = Math.round(ny * this.grid);
+        const fv = Math.abs(this.fbufP[gj * (this.grid + 1) + gi]);
+
+        // proximity to the nodal line, 1 on the line, 0 at band edge
+        const near = fv < band ? 1 - fv / band : 0;
+        // off-line grains survive only off-resonance (the buzzing noise);
+        // near-line grains survive a bit longer. As lock rises both thin out
+        // because the crisp lines (below) replace them.
+        const survive = (0.18 + near * 0.55) * scatterAmt;
+        if (this.hash(i * 4.1, 1.9) > survive) continue;
+
+        // buzzing motion — violent off-res, calm near lock
+        const buzz = (0.5 + (1 - near) * 0.5) * scatterAmt;
+        const ph = i * 0.7;
+        const vx = Math.sin(t * (6 + (1 - near) * 10) + ph) * cell * 1.3 * buzz;
+        const vy =
+          Math.cos(t * (5.5 + (1 - near) * 10) + ph * 0.8) * cell * 1.3 * buzz;
+
+        const px = L + nx * size + vx;
+        const py =
+          Tp + ny * size + vy + breath[Math.min(gi, this.grid - 1)] * 0.8;
+
+        const r = 0.7 + near * 0.6;
+        const col = mixColor(grainPale, grainDark, near * 0.6);
+        const a = (0.25 + near * 0.4) * Math.min(1, scatterAmt * 1.4);
+        p.dot(px, py, r, col, a);
+      }
+    }
+
+    // (b) crisp nodal-line figure: faint at low score, bold & dark at high.
+    //     This is THE figure — thin, clean, symmetric strokes along field==0.
+    if (haveP) {
+      // line emerges from ~0.12 alpha at score 0 to a strong dark stroke at 1.
+      const lineA = 0.12 + lock * 0.78;
+      const lineW = Math.max(1, cell * (0.32 + lock * 0.42));
+      const lineCol = mixColor(sandLine, sandLineHot, lock * 0.6);
+      // a hair of breath only while unlocked, so a settled figure is dead steady
+      this.traceNodes(
+        this.lines,
+        this.fbufP,
+        L,
+        Tp,
+        size,
+        lineCol,
+        lineA,
+        lineW,
+        cell * 0.5 * (1 - lock),
+        breath,
+      );
+
+      // sand "grain" texture sitting ON the line so it still reads as piled
+      // sand, not a vector stroke — sampled along the contour cells.
+      if (lock > 0.15) {
+        const tex = 360;
+        for (let i = 0; i < tex; i++) {
+          const nx = this.hash(i * 1.9 + 0.2, 5.3);
+          const ny = this.hash(i * 3.3 + 0.7, 2.1);
+          const gi = Math.round(nx * this.grid);
+          const gj = Math.round(ny * this.grid);
+          const fv = Math.abs(this.fbufP[gj * (this.grid + 1) + gi]);
+          // only grains hugging the line, tightening as it locks
+          const tol = 0.06 - lock * 0.035;
+          if (fv > tol) continue;
+          const jx = (this.hash(i, 7) - 0.5) * cell * 0.4;
+          const jy = (this.hash(i, 13) - 0.5) * cell * 0.4;
+          const px = L + nx * size + jx;
+          const py = Tp + ny * size + jy;
+          p.dot(px, py, 0.7 + lock * 0.5, lineCol, 0.4 * lock + 0.1);
+        }
+      }
+    }
+
+    // ============================================================
+    // 3) FX — resonance bloom along the figure + a few leaping grains.
+    // ============================================================
+    if (haveP && score > 0.4) {
+      const gv = (score - 0.4) / 0.6;
+      // soft accent bloom hugging the nodal line
+      const samples = 110;
       for (let i = 0; i < samples; i++) {
         const nx = this.hash(i * 1.3, 9.1);
         const ny = this.hash(i * 2.7, 4.3);
-        if (Math.abs(this.field(harmonics, nx, ny)) / peakP > nodeBand) continue;
+        const gi = Math.round(nx * this.grid);
+        const gj = Math.round(ny * this.grid);
+        if (Math.abs(this.fbufP[gj * (this.grid + 1) + gi]) > 0.05) continue;
         const px = L + nx * size;
         const py = Tp + ny * size;
-        // a faint locked shimmer breathing along the nodal line
-        const shimmer = 0.05 + 0.02 * Math.sin(t * 3 + i);
+        const shimmer = 0.05 + 0.025 * Math.sin(t * 3 + i);
         this.fx
-          .circle(px, py, cell * (0.7 + gv * 0.8))
+          .circle(px, py, cell * (0.6 + gv * 0.7))
           .fill({ color: this.accent.accentSoft, alpha: shimmer * gv });
       }
       // a wide central halo
       this.fx
         .circle(cx, Tp + size / 2, size * 0.5)
-        .fill({ color: this.accent.accentSoft, alpha: 0.045 * gv });
+        .fill({ color: this.accent.accentSoft, alpha: 0.05 * gv });
     }
 
-    // --- score > 0.7: a few grains leaping off the snapped figure ---
-    if (score > 0.7) {
-      const lp = (score - 0.7) / 0.3;
-      const leapers = 14;
+    // score > 0.72: a few grains leaping off the snapped figure
+    if (haveP && score > 0.72) {
+      const lp = (score - 0.72) / 0.28;
+      const glow = mixColor(this.accent.accent, PALETTE.white, 0.35);
+      const leapers = 16;
       for (let i = 0; i < leapers; i++) {
         const seedN = this.hash(i * 3.1, 1.7);
         const nx = this.hash(i * 5.3, 2.9);
         const ny = this.hash(i * 7.1, 6.1);
-        // only grains sitting near a node leap
-        if (Math.abs(this.field(harmonics, nx, ny)) / peakP > nodeBand) continue;
+        const gi = Math.round(nx * this.grid);
+        const gj = Math.round(ny * this.grid);
+        if (Math.abs(this.fbufP[gj * (this.grid + 1) + gi]) > 0.06) continue;
         const phase = (t * 1.4 + seedN * 7) % 2; // 0..2 cycle
         const hop = Math.sin(Math.min(1, phase) * Math.PI); // 0..1..0 arc
-        const px = L + nx * size + Math.sin(t * 3 + i) * 4;
-        const py = Tp + ny * size - hop * 18 * lp;
+        const px = L + nx * size + Math.sin(t * 3 + i) * 3;
+        const py = Tp + ny * size - hop * 16 * lp;
         const a = (1 - phase * 0.5) * 0.7 * lp;
         if (a > 0.02) {
           this.fx
-            .circle(px, py, 1.1 + hop * 0.6)
+            .circle(px, py, 1.0 + hop * 0.6)
             .fill({ color: mixColor(PALETTE.white, glow, hop), alpha: a });
         }
       }
@@ -265,55 +469,62 @@ export class ChladniRenderer implements WorldRenderer {
   // darker lower-right, and a thin bevelled frame.
   private drawPlate(L: number, T: number, size: number) {
     const g = this.plate;
-    const steel = mixColor(PALETTE.paper, PALETTE.inkFaint, 0.35);
-    const steelLit = mixColor(steel, PALETTE.white, 0.5);
-    const steelDark = mixColor(steel, this.accent.ink, 0.22);
-    const frame = mixColor(PALETTE.inkSoft, this.accent.ink, 0.3);
+    const steel = mixColor(PALETTE.paper, PALETTE.inkFaint, 0.3);
+    const steelLit = mixColor(steel, PALETTE.white, 0.55);
+    const steelDark = mixColor(steel, this.accent.ink, 0.2);
+    const frame = mixColor(PALETTE.inkSoft, this.accent.ink, 0.45);
 
     // outer bevel frame
-    const b = Math.max(3, size * 0.03);
+    const b = Math.max(3, size * 0.032);
     g.rect(L - b, T - b, size + b * 2, size + b * 2).fill({
       color: frame,
-      alpha: 0.95,
+      alpha: 0.96,
     });
     // crisp top-left lit edges, darker bottom-right, for a clean bevel read
     g.rect(L - b, T - b, size + b * 2, b).fill({
-      color: mixColor(frame, PALETTE.white, 0.45),
-      alpha: 0.75,
+      color: mixColor(frame, PALETTE.white, 0.5),
+      alpha: 0.8,
     }); // top light
     g.rect(L - b, T - b, b, size + b * 2).fill({
-      color: mixColor(frame, PALETTE.white, 0.35),
-      alpha: 0.6,
+      color: mixColor(frame, PALETTE.white, 0.4),
+      alpha: 0.65,
     }); // left light
     g.rect(L - b, T + size, size + b * 2, b).fill({
-      color: mixColor(frame, 0x000000, 0.32),
-      alpha: 0.55,
+      color: mixColor(frame, 0x000000, 0.34),
+      alpha: 0.6,
     }); // bottom shade
     g.rect(L + size, T - b, b, size + b * 2).fill({
-      color: mixColor(frame, 0x000000, 0.22),
-      alpha: 0.4,
+      color: mixColor(frame, 0x000000, 0.24),
+      alpha: 0.45,
     }); // right shade
 
-    // plate face base
+    // plate face base — clean light steel so the dark sand figure reads sharply
     g.rect(L, T, size, size).fill({ color: steel, alpha: 1 });
     // diagonal sheen: brighter toward top-left, darker toward bottom-right
     const bands = 6;
     for (let i = 0; i < bands; i++) {
       const ix = i / (bands - 1) - 0.5; // -0.5..0.5
-      const col = mixColor(steelLit, steelDark, (ix + 0.5));
+      const col = mixColor(steelLit, steelDark, ix + 0.5);
       g.rect(L, T + (i / bands) * size, size, size / bands + 1).fill({
         color: col,
-        alpha: 0.18,
+        alpha: 0.16,
       });
     }
     // a soft top-left corner glint
-    g.rect(L, T, size * 0.4, size * 0.4).fill({ color: steelLit, alpha: 0.12 });
-    // engraved center driver point (where the plate is driven): a small ring
-    // with a top-left highlight and a dark core
-    const dr = Math.max(2.2, size * 0.016);
+    g.rect(L, T, size * 0.4, size * 0.4).fill({ color: steelLit, alpha: 0.1 });
+    // a thin inner hairline frames the active surface for a clean read
+    g.setStrokeStyle({
+      width: 1,
+      color: mixColor(frame, 0x000000, 0.15),
+      alpha: 0.4,
+    });
+    g.rect(L + 1, T + 1, size - 2, size - 2).stroke();
+
+    // engraved center driver point (where the plate is driven)
+    const dr = Math.max(2.2, size * 0.015);
     g.circle(L + size / 2, T + size / 2, dr * 1.5).fill({
       color: mixColor(steel, 0x000000, 0.12),
-      alpha: 0.5,
+      alpha: 0.45,
     });
     g.circle(L + size / 2 - dr * 0.3, T + size / 2 - dr * 0.3, dr * 0.7).fill({
       color: steelLit,
@@ -321,7 +532,7 @@ export class ChladniRenderer implements WorldRenderer {
     });
     g.circle(L + size / 2, T + size / 2, dr).fill({
       color: mixColor(frame, 0x000000, 0.25),
-      alpha: 0.55,
+      alpha: 0.5,
     });
   }
 
@@ -343,7 +554,14 @@ export class ChladniRenderer implements WorldRenderer {
     const neckW = Math.max(8, size * 0.1);
     const neckH = Math.max(10, (LAYOUT.waterY - baseY) * 0.55);
     p.block(cx - neckW / 2, baseY, neckW, neckH, stone, 0.95);
-    p.block(cx - neckW / 2, baseY, Math.max(1, neckW * 0.3), neckH, stoneLight, 0.55);
+    p.block(
+      cx - neckW / 2,
+      baseY,
+      Math.max(1, neckW * 0.3),
+      neckH,
+      stoneLight,
+      0.55,
+    );
     p.block(
       cx + neckW / 2 - Math.max(1, neckW * 0.22),
       baseY,
@@ -361,8 +579,7 @@ export class ChladniRenderer implements WorldRenderer {
     p.block(cx + footW / 2 - 2, footY, 2, 6, stoneDark, 0.5); // right edge shade
     p.block(cx - footW * 0.6, footY + 5, footW * 1.2, 4, stoneDark, 0.6);
 
-    // the driver beneath the foot: a small coil/voice-coil that shakes the
-    // plate. A squat cylinder with a lit top rim and ribbed body.
+    // the driver beneath the foot: a small voice-coil that shakes the plate.
     const drvW = footW * 0.72;
     const drvY = footY + 9;
     const drvH = Math.max(6, (LAYOUT.waterY - drvY) * 0.7);

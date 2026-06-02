@@ -11,7 +11,9 @@ import { Species } from "./Scenery";
 //
 //   * The big CIRCULAR scope vignette ring fills the scene.
 //   * A CROSSHAIR reticle (vertical + horizontal hairlines) with mil-dot ticks
-//     sits over a distant TARGET (a bottle / bullseye figure) on a ridge.
+//     sits over a distant TARGET: a small DARK STANDING FIGURE on a far ridge,
+//     centred under the crosshair. Blurry = a soft DOUBLED smear; sharp = a
+//     crisp, clearly-readable silhouette with a tightening LOCK bracket.
 //   * The smooth LOW frequencies are the BLUR. When lows dominate and highs are
 //     missing, the view is BLURRY / DOUBLED / hazy — the crosshair soft and
 //     smeared, the target an indistinct blob, the image WOBBLING with a
@@ -75,7 +77,10 @@ export class PrismRenderer implements WorldRenderer {
     // smoothstep on the blend gives an obvious, non-linear "snap" to focus.
     const raw = Math.max(0, Math.min(1, 0.45 * highFrac + 0.55 * sc));
     const sharp = raw * raw * (3 - 2 * raw); // smoothstep — clearer transition
-    const blur = 1 - sharp; // 1 = max haze/double image
+    // push the blur HARD: keep it high across most of the range so the
+    // unfocused state is dramatically hazy & doubled, then it collapses to
+    // crisp over the last stretch of focus — a satisfying "snap" to lock.
+    const blur = Math.sqrt(1 - sharp); // 1 = max haze/double image (slow falloff)
     const unsteady = Math.max(0, Math.min(1, lowFrac * (1 - sc * 0.9) + blur * 0.3));
 
     // Held-breath aim: a slow breathing rise/fall plus a faint heartbeat. The
@@ -139,22 +144,32 @@ export class PrismRenderer implements WorldRenderer {
       b.rect(cx - R - 2, y, R * 2 + 4, H / bands + 2).fill({ color: c, alpha: 1 });
     }
 
-    // distant ridge silhouette, position driven by the waveform. The ridge sits
-    // a little below centre. Drawn as a soft band that is DOUBLED when blurry.
+    // distant ridge silhouette, position driven by the waveform. The waveform
+    // also SCROLLS the whole ridge horizontally so the landscape visibly tracks
+    // the control (resample). The ridge sits a little below centre and is a
+    // solid DARK band (so the bright sky pops above it) — DOUBLED when blurry.
     const m = wave.length;
-    const ridgeY = cy + R * 0.34 + sy;
-    const ridgeCol = mixColor(this.accent.ink, PALETTE.paper, 0.42);
-    const passes = blur > 0.25 ? 3 : 1; // ghost copies = the double image
+    // panX: the mean tilt of the waveform pans the distant landscape left/right.
+    let waveMean = 0;
+    for (let j = 0; j < m; j++) waveMean += wave[j];
+    waveMean /= m;
+    const panX = waveMean * R * 0.5; // landscape tracks the control
+    const ridgeY = cy + R * 0.36 + sy;
+    const ridgeCol = mixColor(this.accent.ink, PALETTE.paper, 0.18); // darker ground
+    const passes = blur > 0.18 ? 3 : 1; // ghost copies = the double image
     for (let pI = 0; pI < passes; pI++) {
-      // ghost offset grows with blur; centre pass is the "true" ridge.
-      const ghost = (pI - (passes - 1) / 2) * blur * 6;
-      const a = passes === 1 ? 1 : pI === (passes - 1) / 2 ? 0.6 : 0.3 * (1 - blur * 0.3);
-      const cols = 64;
+      // ghost offset grows with blur; centre pass is the "true" ridge. Offsets
+      // are large so the double image is unmistakable when unfocused.
+      const ghost = (pI - (passes - 1) / 2) * blur * 11;
+      const a = passes === 1 ? 1 : pI === (passes - 1) / 2 ? 0.85 : 0.42 * (1 - blur * 0.25);
+      const cols = 72;
       for (let j = 0; j <= cols; j++) {
         const u = j / cols;
         const x = cx - R + u * R * 2;
-        const idx = Math.min(m - 1, Math.floor(u * (m - 1)));
-        const hgt = wave[idx] * (10 + sharp * 8) + Math.sin(u * 9 + t * 0.2) * 2;
+        // sample the waveform with the pan offset folded in.
+        const su = u + panX / (R * 2);
+        const idx = ((Math.floor(su * (m - 1)) % m) + m) % m;
+        const hgt = wave[idx] * (12 + sharp * 10) + Math.sin(u * 9 + t * 0.2) * 2;
         const yTop = ridgeY - hgt + ghost;
         // clip to circle.
         const dx = x - cx;
@@ -162,21 +177,22 @@ export class PrismRenderer implements WorldRenderer {
         if (inner <= 0) continue;
         const yBotCircle = cy + Math.sqrt(inner);
         b.rect(x - R / cols, yTop, R * 2 / cols + 2, Math.max(0, yBotCircle - yTop)).fill({
-          color: mixColor(ridgeCol, PALETTE.paperDeep, 0.2 + blur * 0.3),
+          color: mixColor(ridgeCol, PALETTE.paperDeep, 0.15 + blur * 0.3),
           alpha: a,
         });
       }
     }
 
-    // hazy heat-shimmer / atmospheric blur veil over the distance when unfocused.
+    // hazy atmospheric blur veil over the distance when unfocused — pushed up so
+    // the unfocused image is genuinely MILKY, then clears completely on focus.
     if (blur > 0.04) {
-      const rows = 10;
-      const milk = mixColor(PALETTE.white, PALETTE.paperDeep, 0.35);
+      const rows = 12;
+      const milk = mixColor(PALETTE.white, PALETTE.paperDeep, 0.4);
       for (let rI = 0; rI < rows; rI++) {
         const v = rI / (rows - 1);
         const y = top + v * H;
         const shimmer = 0.6 + 0.4 * Math.sin(t * 1.4 + rI * 0.7);
-        const a = blur * 0.16 * (0.4 + v * 0.6) * shimmer;
+        const a = blur * 0.3 * (0.4 + v * 0.6) * shimmer;
         if (a < 0.01) continue;
         // band clipped to circle width at this y.
         const dy = y - cy;
@@ -189,8 +205,10 @@ export class PrismRenderer implements WorldRenderer {
   }
 
   // ------------------------------------------------------------------
-  // The distant TARGET: an indistinct blob when blurry, snapping into a crisp
-  // little figure / bullseye on the ridge as the view sharpens.
+  // The distant TARGET: a small DARK STANDING FIGURE on the ridge under the
+  // crosshair. A soft, DOUBLED, wobbling smear when blurry; it snaps into a
+  // crisp, clearly-readable silhouette with a tightening LOCK bracket as the
+  // view sharpens. Its position on the ridge tracks resample(shape).
   // ------------------------------------------------------------------
   private drawTarget(
     cx: number,
@@ -206,83 +224,95 @@ export class PrismRenderer implements WorldRenderer {
   ) {
     const g = this.body;
     const m = wave.length;
-    // target horizontal position wanders slightly with the waveform (range
-    // drift) but the AIM is at scope centre, so it sits near-centre.
-    const drift = wave[Math.floor((t * 0.04 % 1) * (m - 1)) % m] * (4 + blur * 10);
-    const tx = cx + drift * 0.4 + sx;
-    const ty = cy + R * 0.34 + sy - 4;
+    // The TARGET stands on the ridge directly under the crosshair. Its position
+    // on the ridge tracks the waveform (resample): the mean tilt pans it, and
+    // the local ridge height sets how high it stands — so the control visibly
+    // moves the thing you are aiming at. The aim itself is at scope centre.
+    let waveMean = 0;
+    for (let j = 0; j < m; j++) waveMean += wave[j];
+    waveMean /= m;
+    const panX = waveMean * R * 0.5;
+    // local ridge height at the aim column, matching drawScopeView.
+    const aimU = 0.5 + panX / (R * 2);
+    const aimIdx = ((Math.floor(aimU * (m - 1)) % m) + m) % m;
+    const ridgeH = wave[aimIdx] * (12 + sharp * 10);
+    const tx = cx + sx; // figure is centred under the crosshair
+    const groundY = cy + R * 0.36 + sy - ridgeH; // feet sit on the ridge line
 
-    const dark = mixColor(this.accent.ink, PALETTE.ink, 0.4);
-    const blobCol = mixColor(this.accent.accent, PALETTE.paperDeep, 0.3);
-    const plateY = ty - 6; // centre of the target plate
+    const dark = mixColor(this.accent.ink, PALETTE.ink, 0.55); // strong dark silhouette
+    const figH = 17; // figure height
+    const headR = 2.6;
+    const footY = groundY;
+    const headY = footY - figH;
 
-    // The blob and the crisp figure CROSS-FADE so there is no hard pop. The blob
-    // shows mostly while blurry; the figure resolves in as `sharp` rises.
-    const blobShow = Math.max(0, Math.min(1, (blur - 0.3) / 0.45)); // 0..1 haze
-    const detail = Math.max(0, Math.min(1, (sharp - 0.28) / 0.72)); // 0..1 crisp
+    // detail 0..1 = how resolved the figure is. blobShow 0..1 = the haze smear.
+    const blobShow = Math.max(0, Math.min(1, (blur - 0.32) / 0.5));
+    const detail = Math.max(0, Math.min(1, (sharp - 0.18) / 0.82));
 
-    if (blobShow > 0.01) {
-      // INDISTINCT BLOB: overlapping smeared circles, doubled & wobbling. Reads
-      // as "something is there" but you cannot tell what until it focuses.
-      for (let k = 0; k < 4; k++) {
-        const ox = Math.sin(t * 1.2 + k * 2.1) * blur * 5;
-        const oy = Math.cos(t * 1.0 + k * 1.7) * blur * 3;
-        g.circle(tx + ox, plateY + oy, 5 + k * 1.2).fill({
-          color: mixColor(blobCol, PALETTE.paper, 0.2),
-          alpha: (0.12 + 0.06 * (3 - k)) * blobShow,
-        });
-      }
+    // ---- A clear DARK STANDING FIGURE silhouette (head + torso + legs). ----
+    // Drawn as ghost copies offset horizontally when blurry (the double image),
+    // collapsing to one razor-sharp silhouette as focus locks in. Even fully
+    // blurred you can tell "a person is standing there", just doubled & soft.
+    const figGhosts = blur > 0.18 ? 3 : 1;
+    const drawFigure = (fx: number, fy: number, col: number, alpha: number, fuzz: number) => {
+      // head
+      g.circle(fx, fy + headR, headR + fuzz).fill({ color: col, alpha });
+      // torso (tapered block)
+      g.rect(fx - 2.4 - fuzz, fy + headR * 2, 4.8 + fuzz * 2, 8 + fuzz).fill({ color: col, alpha });
+      // shoulders / arms
+      g.rect(fx - 3.6 - fuzz, fy + headR * 2 + 1, 7.2 + fuzz * 2, 2.2).fill({ color: col, alpha });
+      // legs (two)
+      g.rect(fx - 2.2 - fuzz * 0.5, fy + headR * 2 + 8, 1.8 + fuzz, 6 + fuzz).fill({ color: col, alpha });
+      g.rect(fx + 0.4, fy + headR * 2 + 8, 1.8 + fuzz, 6 + fuzz).fill({ color: col, alpha });
+    };
+
+    for (let gi = 0; gi < figGhosts; gi++) {
+      const center = (figGhosts - 1) / 2;
+      const isCenter = gi === center;
+      // ghost copies smear sideways AND wobble (heartbeat/breath) when unfocused.
+      const wob = Math.sin(t * 1.6 + gi * 2.0) * blur * 2.2;
+      const ox = (gi - center) * blur * 9 + wob;
+      const oy = Math.cos(t * 1.1 + gi) * blur * 2.5;
+      const a = figGhosts === 1
+        ? 0.6 + detail * 0.4
+        : isCenter
+        ? (0.55 + detail * 0.45) * (0.5 + sharp * 0.5)
+        : 0.32 * blobShow;
+      if (a < 0.01) continue;
+      const fuzz = isCenter ? blur * 1.4 : blur * 2.2;
+      drawFigure(tx + ox, headY + oy, mixColor(dark, PALETTE.paperDeep, blur * 0.35), a, fuzz);
     }
 
     if (detail < 0.01) return;
 
-    // CRISP FIGURE: a small bullseye target plate on a post. Contrast and edge
-    // crispness ride `detail`; everything fades up together for a clean reveal.
-    const post = mixColor(this.accent.ink, PALETTE.paper, 0.35);
-    // post / stand, with a tiny base foot.
-    g.rect(tx - 0.8, ty, 1.6, 12).fill({ color: post, alpha: (0.5 + detail * 0.4) });
-    g.rect(tx - 2.2, ty + 11, 4.4, 1.4).fill({ color: post, alpha: 0.4 + detail * 0.35 });
-
-    // bullseye target plate — alternating cream / accent rings.
-    const RR = 6.5;
-    const rings = [
-      mixColor(PALETTE.white, dark, 0.1),
-      this.accent.accent,
-      mixColor(PALETTE.white, dark, 0.1),
-      this.accent.accent,
-    ];
-    for (let k = 0; k < rings.length; k++) {
-      const rr = RR * (1 - k / rings.length);
-      g.circle(tx, plateY, rr).fill({
-        color: mixColor(rings[k], PALETTE.paper, blur * 0.5),
-        alpha: (0.6 + detail * 0.4) * detail,
-      });
-    }
-    // crisp dark center dot — the aim point. Sharpest detail.
-    g.circle(tx, plateY, 1.3 + detail * 0.5).fill({
-      color: dark,
-      alpha: (0.7 + detail * 0.3) * detail,
-    });
-    // top-left highlight on the plate (pale-luminous, light from top-left).
-    g.circle(tx - RR * 0.35, plateY - RR * 0.35, RR * 0.3).fill({
+    // crisp dark outline pass on the true figure when sharpening — the clean lock.
+    // top-left rim light (pale-luminous, light from top-left) on the head/torso.
+    g.circle(tx - headR * 0.4, headY + headR * 0.6, headR * 0.45).fill({
       color: PALETTE.white,
-      alpha: (0.18 + detail * 0.3) * detail,
+      alpha: (0.12 + detail * 0.28) * detail,
+    });
+    // a tiny bright aim-point glint on the centre of mass — sharpest detail.
+    g.circle(tx, headY + headR * 2 + 3, 0.9 + detail * 0.4).fill({
+      color: mixColor(this.accent.accent, PALETTE.white, 0.2),
+      alpha: detail * 0.8,
     });
 
-    // LOCK BRACKET: four crisp corner ticks framing the subject — the unmistakable
-    // "target acquired" feel. Tightens snugly onto the plate as focus completes.
-    if (detail > 0.35) {
-      const la = (detail - 0.35) / 0.65;
-      const settle = 1 - Math.max(0, Math.min(1, sc)); // breathe-in only while unsolved
-      const br = RR + 3 + settle * 2.2; // bracket half-size eases inward as it locks
-      const len = 2.6 + la * 1.2; // arm length
+    // LOCK BRACKET: four crisp corner ticks framing the figure — the unmistakable
+    // "target acquired" feel. Tightens snugly onto the silhouette as focus locks.
+    if (detail > 0.3) {
+      const la = (detail - 0.3) / 0.7;
+      const settle = 1 - Math.max(0, Math.min(1, sc)); // breathe-in while unsolved
+      const halfW = 6 + settle * 4; // bracket eases inward as it locks
+      const halfH = figH * 0.6 + settle * 4;
+      const cyF = headY + figH * 0.5;
+      const len = 2.6 + la * 1.4;
       const lac = this.accent.accent;
-      const lw = 0.9;
+      const lw = 1.1;
       const corner = (sgnX: number, sgnY: number) => {
-        const x = tx + sgnX * br;
-        const y = plateY + sgnY * br;
-        g.moveTo(x, y).lineTo(x - sgnX * len, y).stroke({ width: lw, color: lac, alpha: 0.55 * la });
-        g.moveTo(x, y).lineTo(x, y - sgnY * len).stroke({ width: lw, color: lac, alpha: 0.55 * la });
+        const x = tx + sgnX * halfW;
+        const y = cyF + sgnY * halfH;
+        g.moveTo(x, y).lineTo(x - sgnX * len, y).stroke({ width: lw, color: lac, alpha: 0.7 * la });
+        g.moveTo(x, y).lineTo(x, y - sgnY * len).stroke({ width: lw, color: lac, alpha: 0.7 * la });
       };
       corner(-1, -1);
       corner(1, -1);
@@ -290,13 +320,13 @@ export class PrismRenderer implements WorldRenderer {
       corner(1, 1);
     }
 
-    // when fully focused & solved, a tiny "locked" ring pulses at the center.
+    // when fully focused & solved, a "locked" ring pulses around the figure.
     if (sc > 0.7) {
       const pulse = 0.5 + 0.5 * Math.sin(t * 4);
-      g.circle(tx, plateY, RR + 2 + pulse * 1.5).stroke({
-        width: 0.8,
+      g.ellipse(tx, headY + figH * 0.5, 9 + pulse * 1.5, figH * 0.7 + pulse * 1.5).stroke({
+        width: 0.9,
         color: this.accent.accent,
-        alpha: (sc - 0.7) / 0.3 * 0.4 * pulse,
+        alpha: (sc - 0.7) / 0.3 * 0.5 * pulse,
       });
     }
   }
@@ -319,7 +349,9 @@ export class PrismRenderer implements WorldRenderer {
     const g = this.fan;
     const ox = cx + sx; // reticle sways with the sight picture
     const oy = cy + sy;
-    const hairCol = mixColor(this.accent.ink, PALETTE.ink, 0.5);
+    // a genuinely DARK crosshair (accent ink → near-black) so it reads solid
+    // against the bright sky and the focused target pops between the hairs.
+    const hairCol = mixColor(this.accent.ink, PALETTE.ink, 0.75);
     const reach = R * 0.96;
 
     // Thick outer "duplex" stubs from the rim toward centre (classic look),
@@ -366,7 +398,7 @@ export class PrismRenderer implements WorldRenderer {
 
     // crisp central hairlines — width tightens & alpha rises with sharp.
     const hw = 0.9 + blur * 1.8; // thicker/softer when blurry
-    const ha = 0.35 + sharp * 0.55;
+    const ha = 0.45 + sharp * 0.5; // strong dark hairs even mid-focus
     // duplex thick stubs (outer thirds).
     const stub = reach * 0.62;
     const stubW = 2.2 + blur * 1.5;
@@ -423,16 +455,17 @@ export class PrismRenderer implements WorldRenderer {
   // ------------------------------------------------------------------
   private drawVignette(cx: number, cy: number, R: number) {
     const g = this.fan;
-    // 1. soft inner vignette darkening toward the rim (light falloff). More rings
-    //    + overlapping widths = a clean continuous gradient with no banding.
-    const vrings = 16;
-    const vcol = mixColor(this.accent.ink, PALETTE.ink, 0.3);
+    // 1. inner vignette darkening toward the rim (light falloff). Pushed deeper
+    //    so the rim is genuinely DARK — the barrel reads solid and the bright
+    //    centred sight-picture pops out of a shadowed surround.
+    const vrings = 18;
+    const vcol = mixColor(this.accent.ink, PALETTE.ink, 0.5);
     for (let i = 0; i < vrings; i++) {
       const u = i / (vrings - 1);
-      const rr = R * (0.6 + u * 0.4);
-      const a = u * u * 0.2; // quadratic falloff — dark only near the rim
+      const rr = R * (0.55 + u * 0.45);
+      const a = u * u * 0.4; // quadratic falloff — strong dark near the rim
       g.circle(cx, cy, rr).stroke({
-        width: R * 0.09 + 2,
+        width: R * 0.1 + 2,
         color: vcol,
         alpha: a,
       });
@@ -445,10 +478,11 @@ export class PrismRenderer implements WorldRenderer {
     // big cream ring covering everything just outside the circle.
     g.circle(cx, cy, R + R).stroke({ width: R * 1.6, color: outer, alpha: 1 });
 
-    // 3. the dark scope barrel ring — the bold black-ish circle. Light from the
-    //    top-left gives it a pale-luminous bevel.
-    const barrel = mixColor(this.accent.ink, PALETTE.ink, 0.6);
-    g.circle(cx, cy, R + 4).stroke({ width: 8, color: barrel, alpha: 0.95 });
+    // 3. the dark scope barrel ring — a bold near-black circle (accent ink).
+    //    Light from the top-left gives it a pale-luminous bevel. Thicker + darker
+    //    so the optic frames the scene with unmistakable weight.
+    const barrel = mixColor(this.accent.ink, PALETTE.ink, 0.85);
+    g.circle(cx, cy, R + 5).stroke({ width: 11, color: barrel, alpha: 1 });
     // inner thin bright line (lens edge) with a faint chromatic coating: a cool
     // ring just inside and a warm one just outside — the coated-glass shimmer.
     g.circle(cx, cy, R - 1).stroke({
@@ -467,16 +501,16 @@ export class PrismRenderer implements WorldRenderer {
       alpha: 0.28,
     });
     // top-left bevel highlight arc on the barrel.
-    g.arc(cx, cy, R + 4, Math.PI * 1.05, Math.PI * 1.55).stroke({
-      width: 8,
-      color: mixColor(barrel, PALETTE.white, 0.4),
-      alpha: 0.5,
+    g.arc(cx, cy, R + 5, Math.PI * 1.05, Math.PI * 1.55).stroke({
+      width: 11,
+      color: mixColor(barrel, PALETTE.white, 0.45),
+      alpha: 0.55,
     });
     // bottom-right shade arc.
-    g.arc(cx, cy, R + 4, Math.PI * 0.05, Math.PI * 0.55).stroke({
-      width: 8,
-      color: mixColor(barrel, PALETTE.ink, 0.5),
-      alpha: 0.5,
+    g.arc(cx, cy, R + 5, Math.PI * 0.05, Math.PI * 0.55).stroke({
+      width: 11,
+      color: mixColor(barrel, PALETTE.ink, 0.6),
+      alpha: 0.55,
     });
   }
 

@@ -6,23 +6,26 @@ import { LAYOUT } from "../Layout";
 import { Painter, WorldRenderer, resample } from "./common";
 import { Species } from "./Scenery";
 
-// "The Dead Calm" — a tall PIRATE GALLEON on the open sea at dusk. A curved
-// wooden hull, three masts heavy with billowing sails, rigging, and a little
-// skull-and-crossbones pennant snapping at the top. The sea fills the lower
-// scene, and the ship sits upon it casting a reflection. LOW-PASS "calm the
-// sea" level (level 19, slate accent, dusk mood).
+// "The Dead Calm" — a tall PIRATE GALLEON, the hero of the scene, riding the
+// open sea at dusk. A broad curved wooden hull, three masts heavy with
+// billowing sails, rigging, and a skull-and-crossbones pennant snapping at the
+// top. The sea fills the lower scene; the ship sits upon it and casts a
+// reflection in the water. LOW-PASS "calm the sea" level (level 19, slate
+// accent, dusk mood).
 //
-// When the waveform carries high-frequency agitation (`aggression(shape)` high)
-// a SQUALL hits: the sea is violent CHOP — jagged whitecaps, flying spray —
-// and the ship PITCHES and ROLLS, tilting side to side, bobbing up and down,
-// masts swaying hard, its reflection shattered into dancing shards. As the
-// player strips the highs and `score` rises, the sea SETTLES to a DEAD CALM:
-// a glassy MIRROR. The ship rights itself and rests perfectly still, sails
-// slack, and a crisp full reflection appears in the glass under a dusk sky.
+// SQUALL (aggression / high-freq energy high): the sky and sea go DARK and
+// stormy (accent ink), big jagged storm swells driven by the live waveform heave
+// across the scene, the galleon PITCHES and ROLLS hard — heaving up and down,
+// tilting steeply, masts swaying, sails straining — and its reflection is torn
+// into flying shards. Spray bursts off the bow and off the breaking crests.
 //
-// The chop->glass reflection is the hero (drawn via the Painter reflection
-// layer). White-first cream + slate accent, dusk. Deterministic (sin-based
-// hash, no Math.random / Date), bounded loops, 60fps.
+// DEAD CALM (highs stripped, `score` high): the sea SETTLES to a flawless glassy
+// MIRROR. The ship rights itself dead upright and rests perfectly still, sails
+// slack, under a clean bright dusk sky with a soft sun and a single still glint
+// path of light on the water and a crisp full reflection.
+//
+// White-first cream + slate accent, dusk (strong darks allowed). Deterministic
+// (sin-based hash, no Math.random / Date), bounded loops, 60fps.
 
 // cheap deterministic hash in [0,1)
 function hash(x: number, y: number): number {
@@ -38,15 +41,15 @@ function ease(x: number): number {
 
 export class TidepoolRenderer implements WorldRenderer {
   container = new Container();
-  private back = new Graphics(); // dusk sky, sun, sea body
+  private back = new Graphics(); // dusk sky, sun, clouds, sea body
   private refl = new Graphics(); // Painter reflection layer (ship double)
   private body = new Graphics(); // the ship (hull, masts, sails, flag)
   private fx = new Graphics(); // whitecaps, spray, sea sheen (front)
   private accent: Accent;
   species: Species = "blossom";
 
-  private readonly left = 18;
-  private readonly right = LAYOUT.W - 18;
+  private readonly left = 12;
+  private readonly right = LAYOUT.W - 12;
 
   constructor(accent: Accent) {
     this.accent = accent;
@@ -79,120 +82,180 @@ export class TidepoolRenderer implements WorldRenderer {
 
     const p = new Painter(g, r, waterY, LAYOUT.reflectionDepth, t);
 
+    // --- the single drive: aggression + highs say "squall", score says "calm" ---
     const agg = aggression(shape); // 0 calm .. 1 squall
     const high = Math.min(1, shape.highFrequencyEnergy / (shape.totalEnergy + 1e-6));
-    const chop = Math.max(agg, high * 0.85); // sea agitation from the highs
+    const chop = Math.max(agg, high * 0.9); // raw sea agitation from the highs
     const calm = 1 - chop;
-    // how glassy / dead-calm the sea is — score also stills the water.
-    // eased so the sea SETTLES smoothly rather than snapping flat.
-    const glassRaw = Math.min(1, Math.max(calm * 0.5, score));
+    // how glassy / dead-calm the sea is — score also stills the water. Eased so
+    // the sea SETTLES smoothly rather than snapping flat.
+    const glassRaw = Math.min(1, Math.max(calm * 0.45, score));
     const glass = ease(glassRaw);
     const stir = 1 - glass; // agitation envelope (eased), 1 squall .. 0 dead calm
+    const storm = ease(stir); // sharpened storm darkness curve
 
     const cols = 128;
-    const wave = resample(shape, cols);
+    const wave = resample(shape, cols); // the live waveform IS the sea surface
 
     const seaBottom = waterY + LAYOUT.reflectionDepth * 0.98;
 
     // ============================================================
-    // DUSK PALETTE — pale luminous pixel-art, slate accent, light top-left.
+    // PALETTE — cream/white base, slate accent, dusk. The sky and sea LERP
+    // between a dark stormy state (accent ink) and a bright calm state so there
+    // is a real value range that visibly lifts as you remove highs.
     // ============================================================
-    const skyHi = mixColor(PALETTE.glow, this.accent.accentSoft, 0.22); // upper dusk
-    const skyLo = mixColor(PALETTE.white, this.accent.accentSoft, 0.42); // horizon glow
-    const sea = mixColor(PALETTE.white, this.accent.accentSoft, 0.46);
-    const seaDeep = mixColor(sea, this.accent.ink, 0.34);
-    const woodDark = mixColor(this.accent.ink, 0x000000, 0.16);
-    const wood = mixColor(this.accent.ink, PALETTE.white, 0.16);
+    // calm sky/sea targets (bright, luminous)
+    const skyHiCalm = mixColor(PALETTE.glow, this.accent.accentSoft, 0.2);
+    const skyLoCalm = mixColor(PALETTE.white, this.accent.accentSoft, 0.4);
+    const seaCalm = mixColor(PALETTE.white, this.accent.accentSoft, 0.46);
+    // storm sky/sea targets (dark, slate ink — strong darks, no neon)
+    const skyHiStorm = mixColor(this.accent.ink, 0x000000, 0.42);
+    const skyLoStorm = mixColor(this.accent.ink, this.accent.accentSoft, 0.34);
+    const seaStorm = mixColor(this.accent.ink, 0x000000, 0.3);
+
+    const skyHi = mixColor(skyHiCalm, skyHiStorm, storm);
+    const skyLo = mixColor(skyLoCalm, skyLoStorm, storm * 0.85);
+    const sea = mixColor(seaCalm, seaStorm, storm * 0.9);
+    const seaDeep = mixColor(sea, this.accent.ink, 0.4 + storm * 0.18);
+
+    // dark crisp hull woods
+    const woodDark = mixColor(this.accent.ink, 0x000000, 0.4);
+    const wood = mixColor(this.accent.ink, 0x000000, 0.12);
     const woodLit = mixColor(this.accent.ink, PALETTE.white, 0.5);
-    const sailC = mixColor(PALETTE.white, this.accent.accentSoft, 0.1);
-    const sailSh = mixColor(sailC, this.accent.ink, 0.3);
+    const sailC = mixColor(PALETTE.white, this.accent.accentSoft, 0.12);
+    const sailSh = mixColor(sailC, this.accent.ink, 0.32 + storm * 0.18);
     const sailLit = mixColor(PALETTE.white, PALETTE.glow, 0.5);
-    const rope = mixColor(this.accent.ink, PALETTE.white, 0.28);
+    const rope = mixColor(this.accent.ink, PALETTE.white, 0.24);
 
     // ============================================================
-    // DUSK SKY — gradient from a luminous horizon up to soft slate, with a
-    // low dusk sun glowing top-left.
+    // DUSK SKY — gradient from luminous horizon up to slate, darkening to a
+    // bruised storm sky in the squall.
     // ============================================================
     const skyBottom = waterY;
     const skyH = skyBottom - top;
-    const skyBands = 20;
+    const skyBands = 22;
     for (let i = 0; i < skyBands; i++) {
       const ft = i / (skyBands - 1);
       const y = top + ft * skyH;
-      // ease the gradient so dusk deepens up top and glows warm at the horizon
       const c = mixColor(skyHi, skyLo, ease(ft));
-      b.rect(0, y, W, skyH / skyBands + 2).fill({ color: c, alpha: 0.94 });
+      b.rect(0, y, W, skyH / skyBands + 2).fill({ color: c, alpha: 0.96 });
     }
-    // a soft warm band hugging the horizon (dusk afterglow)
+    // warm dusk afterglow band hugging the horizon — fades out under storm
     for (let i = 0; i < 5; i++) {
       const ft = i / 4;
       const y = skyBottom - (5 - i) * (skyH * 0.05);
       b.rect(0, y, W, skyH * 0.05 + 2).fill({
         color: mixColor(skyLo, PALETTE.glow, 0.4),
-        alpha: 0.14 * (1 - ft * 0.4),
+        alpha: 0.16 * glass * (1 - ft * 0.4),
       });
     }
-    // low dusk sun, top-left — layered halo softening into the sky
-    const sunX = left + span * 0.28;
-    const sunY = top + skyH * 0.34;
-    b.circle(sunX, sunY, 64).fill({ color: PALETTE.glow, alpha: 0.1 });
-    b.circle(sunX, sunY, 46).fill({ color: PALETTE.glow, alpha: 0.14 });
-    b.circle(sunX, sunY, 30).fill({ color: PALETTE.glow, alpha: 0.22 });
-    b.circle(sunX, sunY, 17).fill({
-      color: mixColor(PALETTE.white, PALETTE.glow, 0.5),
-      alpha: 0.5,
-    });
-    b.circle(sunX, sunY, 11).fill({ color: PALETTE.white, alpha: 0.65 });
 
-    // a soft dusk cloud bank drifting slowly across the upper sky. Each cloud is
-    // a low cluster of lobes, lit warm on top-left and shaded underneath.
-    const cloudBase = mixColor(PALETTE.white, this.accent.accentSoft, 0.32);
-    for (let i = 0; i < 4; i++) {
-      const drift = (t * (1.4 + i * 0.5) + hash(i, 1) * 500) % (W + 160);
-      const cx = -80 + drift;
-      const cy = top + skyH * (0.12 + hash(i, 2) * 0.32);
-      const cw = 36 + hash(i, 3) * 30;
-      const ch = 8 + hash(i, 4) * 5;
-      for (let k = 0; k < 6; k++) {
-        const u = k / 5 - 0.5;
-        const px = cx + u * cw;
-        const lobe = ch * (0.55 + Math.sin((u + 0.5) * Math.PI) * 0.6);
-        const py = cy - Math.sin((u + 0.5) * Math.PI) * ch * 0.35;
-        // soft under-shadow
-        b.circle(px, py + lobe * 0.3, lobe).fill({
-          color: mixColor(cloudBase, this.accent.ink, 0.18),
-          alpha: 0.22,
-        });
-        // body
-        b.circle(px, py, lobe).fill({ color: cloudBase, alpha: 0.4 });
-        // top-left highlight
-        b.circle(px - lobe * 0.32, py - lobe * 0.34, lobe * 0.5).fill({
-          color: PALETTE.white,
-          alpha: 0.34,
-        });
+    // ---------- the dusk sun ----------
+    // low and soft on the calm: a warm graded disc with a clean glow halo. In the
+    // storm it sinks, dims and is swallowed by cloud (alpha falls with glass).
+    const sunX = left + span * 0.26;
+    const sunY = top + skyH * (0.32 + storm * 0.12);
+    const sunVis = glass; // sun is hidden behind storm cloud
+    const sunCore = mixColor(PALETTE.white, PALETTE.glow, 0.5);
+    // graded halo (large soft → tight bright)
+    const halo = [
+      { r: 58, a: 0.1 },
+      { r: 42, a: 0.16 },
+      { r: 28, a: 0.26 },
+      { r: 18, a: 0.46 },
+    ];
+    for (const h of halo) {
+      b.circle(sunX, sunY, h.r).fill({
+        color: mixColor(PALETTE.glow, skyLoCalm, 0.2),
+        alpha: h.a * sunVis,
+      });
+    }
+    // disc with a warm lower limb (dusk shading)
+    b.circle(sunX, sunY, 12).fill({ color: sunCore, alpha: 0.8 * sunVis });
+    b.circle(sunX, sunY + 3, 11).fill({
+      color: mixColor(sunCore, this.accent.accentSoft, 0.4),
+      alpha: 0.5 * sunVis,
+    });
+    b.circle(sunX, sunY, 8).fill({ color: PALETTE.white, alpha: 0.9 * sunVis });
+
+    // ---------- cloud banks ----------
+    // Thin horizontal banks (not bubble clusters): each is a stretched soft
+    // ellipse of stacked rows, lit warm on top. In the storm they swell, darken
+    // to bruised slate and lower over the sea; on the calm they thin to pale
+    // wisps high in the sky.
+    const cloudCount = 4;
+    for (let i = 0; i < cloudCount; i++) {
+      const drift = (t * (1.0 + i * 0.4) + hash(i, 1) * 600) % (W + 220);
+      const cx = -110 + drift;
+      const cy = top + skyH * (0.1 + hash(i, 2) * 0.34 + storm * 0.06);
+      const cw = (60 + hash(i, 3) * 44) * (1 + storm * 0.5); // wider banks in storm
+      const ch = (5 + hash(i, 4) * 3) * (0.7 + storm * 1.1); // taller/heavier in storm
+      // bank body lerps pale (calm) → bruised slate (storm)
+      const bankC = mixColor(
+        mixColor(PALETTE.white, this.accent.accentSoft, 0.3),
+        mixColor(this.accent.ink, 0x000000, 0.2),
+        storm,
+      );
+      const bankA = 0.26 + storm * 0.4;
+      // stacked rows give a flat, banded cloud rather than a grape cluster
+      const rows = 3;
+      for (let rj = 0; rj < rows; rj++) {
+        const rv = rj / (rows - 1) - 0.5; // -0.5 top .. 0.5 bottom
+        const ry0 = cy + rv * ch * 1.4;
+        // each row is an ellipse: width tapers top & bottom
+        const rowW = cw * (1 - Math.abs(rv) * 0.5);
+        const segs = 14;
+        for (let s = 0; s <= segs; s++) {
+          const u = s / segs - 0.5;
+          const px = cx + u * rowW;
+          // soft elliptical thickness profile
+          const prof = Math.sqrt(Math.max(0, 1 - (u * 2) * (u * 2)));
+          const lobe = ch * (0.5 + prof * 0.7);
+          // under-shadow on the lowest row
+          if (rj === rows - 1) {
+            b.circle(px, ry0 + lobe * 0.3, lobe).fill({
+              color: mixColor(bankC, 0x000000, 0.25),
+              alpha: bankA * 0.4,
+            });
+          }
+          b.circle(px, ry0, lobe).fill({ color: bankC, alpha: bankA });
+          // top-row warm highlight (dusk light on cloud tops, fades in storm)
+          if (rj === 0) {
+            b.circle(px, ry0 - lobe * 0.3, lobe * 0.55).fill({
+              color: mixColor(PALETTE.white, PALETTE.glow, 0.4),
+              alpha: (0.16 + glass * 0.2) * prof,
+            });
+          }
+        }
       }
     }
 
     // ============================================================
-    // SEA SURFACE SILHOUETTE — the waveform IS the sea edge. High-freq content
-    // makes it chop into jagged whitecaps; it settles to a glassy line.
+    // SEA SURFACE SILHOUETTE — the live waveform IS the sea edge. Each stone the
+    // player toggles reshapes `wave`, so the swells visibly change. High-freq
+    // content tears it into jagged storm chop; it settles to a glassy line.
     // ============================================================
     const surf: { x: number; y: number }[] = [];
     const ssteps = cols;
+    // storm swell amplitude is BIG — the live waveform drives a heaving sea
+    const swellAmp = 5 + storm * 26;
     for (let i = 0; i < ssteps; i++) {
       const u = i / (ssteps - 1);
       const x = left + u * span;
       const w = wave[i];
-      // a long gentle swell that survives onto the glass (so it breathes)
-      const swell = Math.sin(u * Math.PI * 2 + t * 0.4) * 2.2 * (0.4 + glass * 0.6);
-      const surface = w * (4 + 4 * stir); // the waveform drives the sea
-      // jagged chop layered from coarse to fine, eased away to a flat mirror
+      // long travelling ground-swell that survives onto the glass (breathes)
+      const ground = Math.sin(u * Math.PI * 2 + t * 0.45) * (2.2 + storm * 10);
+      // the WAVEFORM itself, big in the storm — each stone reshapes the sea
+      const surface = w * swellAmp;
+      // a travelling storm heave so swells visibly march across the scene
+      const march = storm * Math.sin(u * Math.PI * 3.2 - t * 1.6) * 7;
+      // jagged whitecap chop layered coarse→fine, eased away to a flat mirror
       const jag =
-        stir *
-        (Math.sin(u * Math.PI * 21 + t * 4.0) * 3.4 +
-          Math.sin(u * Math.PI * 37 - t * 5.6) * 2.2 +
-          (hash(i, 7) - 0.5) * 2.4);
-      const y = waterY + swell + surface + jag;
+        storm *
+        (Math.sin(u * Math.PI * 19 + t * 4.4) * 4.0 +
+          Math.sin(u * Math.PI * 37 - t * 6.0) * 2.6 +
+          (hash(i, 7) - 0.5) * 3.0);
+      const y = waterY + ground + surface + march + jag;
       surf.push({ x, y });
     }
     const surfAt = (x: number): number => {
@@ -206,133 +269,129 @@ export class TidepoolRenderer implements WorldRenderer {
       const poly: number[] = [];
       for (const s of surf) poly.push(s.x, s.y);
       poly.push(right, seaBottom, left, seaBottom);
-      b.poly(poly).fill({ color: mixColor(sea, seaDeep, 0.4), alpha: 0.94 });
+      b.poly(poly).fill({ color: mixColor(sea, seaDeep, 0.4), alpha: 0.96 });
+      // depth banding — darker toward the bottom (more so in storm)
       for (let k = 1; k <= 3; k++) {
         const ky = waterY + (seaBottom - waterY) * (k / 4);
         b.poly([left, ky, right, ky, right, seaBottom, left, seaBottom]).fill({
           color: mixColor(sea, seaDeep, 0.3 + k * 0.16),
-          alpha: 0.16,
+          alpha: 0.14 + storm * 0.1,
         });
       }
-      // reflected dusk-horizon wash, brightest at the surface line
+      // reflected horizon wash — bright near the surface on the calm, killed by
+      // dark churning water in the storm
       const rb = 8;
       for (let i = 0; i < rb; i++) {
         const ft = i / (rb - 1);
         const y = waterY + 2 + ft * (seaBottom - waterY) * 0.85;
-        b.rect(left, y, span, (seaBottom - waterY) * 0.85 / rb + 2).fill({
+        b.rect(left, y, span, ((seaBottom - waterY) * 0.85) / rb + 2).fill({
           color: mixColor(skyLo, sea, 0.3 + ft * 0.5),
-          alpha: (0.18 + glass * 0.24) * (1 - ft * 0.5),
+          alpha: (0.16 + glass * 0.3) * (1 - ft * 0.5),
         });
       }
-      // reflected sun glimmer column shimmering down (settles to a clean
-      // mirror streak as glass->1)
-      const bands = 16;
+      // reflected sun glint column. Scattered, jittery and broken in the chop;
+      // narrows to one crisp still mirror streak under the sun on the glass.
+      const bands = 18;
       for (let band = 0; band < bands; band++) {
         const fb = band / bands;
-        const y = waterY + 4 + fb * (seaBottom - waterY) * 0.9;
+        const y = waterY + 4 + fb * (seaBottom - waterY) * 0.92;
         if (y > seaBottom) break;
-        // glimmer scatters wide & jittery in chop; narrows to a crisp, still
-        // mirror streak under the sun as the sea turns to glass.
-        const wob = stir * Math.sin(band * 0.8 + t * 3) * 7;
+        const wob = storm * Math.sin(band * 0.8 + t * 3) * 9; // scatter in chop
         const breathe = Math.sin(band * 0.5 - t * 0.8) * glass * 0.8;
-        const wgl = (16 * (1 - fb * 0.4)) * (1 - glass * 0.55); // tightens on glass
+        const wgl = 16 * (1 - fb * 0.4) * (1 - glass * 0.6); // tightens on glass
         b.rect(sunX - wgl + wob + breathe, y, wgl * 2, 2).fill({
           color: mixColor(PALETTE.glow, PALETTE.white, 0.5),
-          alpha: (0.06 + glass * 0.18) * (1 - fb),
+          alpha: (0.05 + glass * 0.2) * (1 - fb),
         });
       }
     }
 
     // ============================================================
-    // *** THE PIRATE GALLEON ***  — pitches and rolls in the squall, rights
-    // itself and rests still on the dead-calm mirror. The whole ship (hull,
-    // masts, sails, rigging, flag) is built around a rolling/bobbing frame and
-    // drawn via the Painter so it casts a reflection (shattered when choppy,
-    // crisp when glass).
+    // *** THE PIRATE GALLEON — the hero ***  Bigger and tighter in frame. It
+    // PITCHES, ROLLS and HEAVES hard in the squall and glides to perfectly still
+    // & dead upright on the mirror. Drawn via the Painter so hull + rig cast a
+    // reflection (shattered when choppy, crisp when glass).
     // ============================================================
-    const shipCX = LAYOUT.glowX + 6;
-    // bob: vertical heave; roll: side-to-side tilt; both eased by `stir` so the
-    // ship pitches hard in the squall and glides to perfectly still & upright.
-    // A whisper of swell remains on the glass so it never looks frozen.
-    const heave = Math.sin(t * 1.7) * 7 + Math.sin(t * 2.6 + 1.1) * 3;
-    const bob = stir * heave + Math.sin(t * 0.5) * 1.4 * glass;
+    const shipCX = LAYOUT.glowX + 4;
+    // heave: vertical bob; roll: side-to-side tilt; both scaled by `storm` so the
+    // ship pitches violently in the squall and settles dead still & upright.
+    // A whisper of motion remains on the glass so it never looks frozen.
+    const heave = Math.sin(t * 1.7) * 11 + Math.sin(t * 2.6 + 1.1) * 5;
+    const bob = storm * heave + Math.sin(t * 0.5) * 1.0 * glass;
     const roll =
-      stir * (Math.sin(t * 1.15) * 0.17 + Math.sin(t * 2.05 + 0.7) * 0.055) +
-      Math.sin(t * 0.45) * 0.006 * glass;
-    // the deck sits a touch above the waterline so the hull dips into the sea
-    const deckY = waterY - 22 + bob;
+      storm * (Math.sin(t * 1.15) * 0.26 + Math.sin(t * 2.05 + 0.7) * 0.08) +
+      Math.sin(t * 0.45) * 0.004 * glass;
+    // pitch (bow/stern see-saw) couples to the same storm envelope
+    const pitch = storm * Math.sin(t * 1.4 + 0.5) * 0.06;
+    // the deck sits a touch above the local sea so the hull dips into the swell
+    const deckY = surfAt(shipCX) - 30 + bob;
 
-    this.galleon(
-      p,
-      g,
-      shipCX,
-      deckY,
-      roll,
-      t,
-      glass,
-      chop,
-      waterY,
-      { woodDark, wood, woodLit, sailC, sailSh, sailLit, rope },
-    );
+    this.galleon(p, g, shipCX, deckY, roll + pitch, t, glass, chop, storm, waterY, {
+      woodDark,
+      wood,
+      woodLit,
+      sailC,
+      sailSh,
+      sailLit,
+      rope,
+    });
 
     // ============================================================
-    // SHATTERED REFLECTION OVERLAY — when choppy, the ship's mirror image is
-    // broken into displaced slivers that snap home as the sea turns to glass.
-    // (The Painter draws the base double; these slivers add the chop break-up
-    // and the crisp glass sheen.)
+    // SHATTERED REFLECTION OVERLAY — the ship's mirror image is torn into
+    // displaced slivers in the chop that snap home into a clean crisp column as
+    // the sea turns to glass. (Painter draws the base double; this adds the
+    // break-up and the glass sheen.)
     // ============================================================
     {
       const reflTop = waterY + 4;
-      const hullW = 96;
+      const hullW = 132; // matches the bigger hull
       // ---- chop break-up: horizontal slivers torn sideways, scrambling the
-      // mirror image. They snap home into a clean vertical column on glass. ----
-      const slivers = 28;
+      // mirror image; deeper slivers fly further. They reassemble on glass. ----
+      const slivers = 34;
       for (let k = 0; k < slivers; k++) {
         const u = k / (slivers - 1);
         const x = shipCX - hullW / 2 + u * hullW;
-        const sy = reflTop + 2 + hash(k, 13) * 34;
+        const sy = reflTop + 2 + hash(k, 13) * 42;
         if (sy > seaBottom) continue;
-        // depth-scaled scatter: deeper slivers fly further in the chop
-        const depth = (sy - reflTop) / 34;
+        const depth = (sy - reflTop) / 42;
         const scatter =
-          stir *
-          (Math.sin(k * 1.9 + t * 3.6) * (9 + depth * 6) + (hash(k, 9) - 0.5) * 8);
+          storm *
+          (Math.sin(k * 1.9 + t * 4.2) * (14 + depth * 12) + (hash(k, 9) - 0.5) * 14);
         const px = x + scatter;
-        // brighter, sharper, and lengthening into a crisp streak as it reassembles
-        const a = (0.08 + glass * 0.34) * (0.55 + 0.45 * Math.sin(u * Math.PI));
-        f.rect(px, sy, 2.6 + glass * 3.2, 1.4 + glass * 1.0).fill({
-          color: mixColor(this.accent.ink, PALETTE.white, 0.38 + glass * 0.34),
+        const a = (0.08 + glass * 0.36) * (0.55 + 0.45 * Math.sin(u * Math.PI));
+        f.rect(px, sy, 2.6 + glass * 3.4, 1.4 + glass * 1.0).fill({
+          color: mixColor(this.accent.ink, PALETTE.white, 0.36 + glass * 0.36),
           alpha: a,
         });
       }
       // ---- crisp glass reflection: a clean vertical streak of the hull's bright
       // gunwale shimmering just beneath the ship once the sea is a mirror. ----
-      if (glass > 0.4) {
-        const settle = ease((glass - 0.4) / 0.6);
-        const streakC = mixColor(PALETTE.white, this.accent.accentSoft, 0.15);
-        for (let k = 0; k < 16; k++) {
-          const fk = k / 15;
-          const sy = reflTop + fk * 26;
+      if (glass > 0.38) {
+        const settle = ease((glass - 0.38) / 0.62);
+        const streakC = mixColor(PALETTE.white, this.accent.accentSoft, 0.14);
+        for (let k = 0; k < 18; k++) {
+          const fk = k / 17;
+          const sy = reflTop + fk * 34;
           if (sy > seaBottom) continue;
-          // a gentle long ripple — the only motion left on the glass
-          const ripple = Math.sin(sy * 0.12 + t * 0.9) * 1.2 * (0.4 + fk);
-          const wHull = (hullW * 0.5) * (1 - fk * 0.25);
+          // one gentle long ripple — the only motion left on the glass
+          const ripple = Math.sin(sy * 0.12 + t * 0.9) * 1.1 * (0.4 + fk);
+          const wHull = hullW * 0.5 * (1 - fk * 0.25);
           f.rect(shipCX - wHull + ripple, sy, wHull * 2, 1.4).fill({
             color: streakC,
             alpha: 0.14 * settle * (1 - fk * 0.7),
           });
         }
-        // a soft bright waterline kiss directly under the hull
+        // a bright waterline kiss directly under the hull
         f.rect(shipCX - hullW * 0.46, reflTop, hullW * 0.92, 2).fill({
           color: PALETTE.white,
-          alpha: 0.22 * settle,
+          alpha: 0.24 * settle,
         });
       }
     }
 
     // ============================================================
-    // BRIGHT SEA EDGE + whitecaps. Jagged crests + flying spray when choppy;
-    // a crisp glassy line with a soft sheen when calm.
+    // BRIGHT SEA EDGE + wave bands. Jagged crests when stormy; a crisp glassy
+    // line with a soft sheen when calm.
     // ============================================================
     const crestC = mixColor(sea, PALETTE.white, 0.78);
     for (let i = 1; i < ssteps; i++) {
@@ -342,93 +401,98 @@ export class TidepoolRenderer implements WorldRenderer {
         const kk = k / 2;
         const x = a.x + (c.x - a.x) * kk;
         const y = a.y + (c.y - a.y) * kk;
-        f.rect(x, y - 0.8, 2.2, 1.6).fill({ color: crestC, alpha: 0.5 + glass * 0.4 });
+        f.rect(x, y - 0.8, 2.2, 1.6).fill({ color: crestC, alpha: 0.45 + glass * 0.42 });
       }
     }
-    // trailing wave bands
+    // trailing wave bands across the sea (a sense of marching swell)
     for (let lane = 1; lane <= 3; lane++) {
       for (let i = 0; i < ssteps; i += 2) {
         const s = surf[i];
         const u = i / (ssteps - 1);
-        const ly = s.y + lane * 5;
+        const ly = s.y + lane * 6;
         if (ly > seaBottom) continue;
-        const jag = stir * Math.sin(u * Math.PI * 25 + t * 3.4 + lane) * 2.4;
+        const jag = storm * Math.sin(u * Math.PI * 23 + t * 3.4 + lane) * 3.0;
         f.rect(s.x, ly + jag, 2.4, 1.1).fill({
           color: mixColor(sea, PALETTE.white, 0.5),
-          alpha: (0.09 + 0.11 * glass) * (1 - lane * 0.22),
+          alpha: (0.08 + 0.12 * glass) * (1 - lane * 0.22),
         });
       }
     }
 
     // ============================================================
-    // SQUALL FX — jagged whitecaps + flying spray when the sea is chopping.
+    // SQUALL FX — whitecaps + flying spray when the sea is breaking.
     // ============================================================
     if (chop > 0.04) {
-      // whitecap crests — bright peaks riding the highest jags
+      // whitecap crests — bright breaking peaks riding the highest jags
       for (let i = 0; i < ssteps; i += 2) {
         const s = surf[i];
         const u = i / (ssteps - 1);
-        const peak = Math.sin(u * Math.PI * 33 - t * 5.2);
-        if (peak > 0.55) {
-          f.rect(s.x - 1, s.y - 2, 3, 2).fill({
+        const peak = Math.sin(u * Math.PI * 31 - t * 5.4);
+        if (peak > 0.5) {
+          f.rect(s.x - 1, s.y - 2.5, 3.4, 2.5).fill({
             color: PALETTE.white,
-            alpha: chop * 0.5 * peak,
+            alpha: storm * 0.6 * peak,
           });
         }
       }
-      // flying spray flung off the chop
-      const sprayN = 30;
+      // flying spray flung off the breaking chop
+      const sprayN = 40;
       for (let i = 0; i < sprayN; i++) {
         const u = hash(i, 21);
         const x = left + u * span;
-        const bobS = (t * (30 + chop * 50) + hash(i, 22) * 220) % 26;
-        const y = surfAt(x) - bobS * chop;
-        const a = chop * 0.4 * (1 - bobS / 26);
+        const bobS = (t * (34 + storm * 60) + hash(i, 22) * 240) % 30;
+        const y = surfAt(x) - bobS * storm;
+        const a = storm * 0.45 * (1 - bobS / 30);
         if (a < 0.02) continue;
-        f.circle(x + Math.sin(t * 3 + i) * 2.4, y, 0.7 + hash(i, 23) * 0.8).fill({
-          color: mixColor(sea, PALETTE.white, 0.8),
+        f.circle(x + Math.sin(t * 3 + i) * 2.6, y, 0.7 + hash(i, 23) * 0.9).fill({
+          color: mixColor(sea, PALETTE.white, 0.85),
           alpha: a,
         });
       }
-      // spray bursting at the bow/stern where the hull meets the chop
+      // spray bursting at the bow & stern where the big hull slams the swell
       for (const side of [-1, 1]) {
-        const bx = shipCX + side * 46;
-        for (let i = 0; i < 8; i++) {
-          const ph = (t * 40 + i * 30 + side * 100) % 30;
-          const y = surfAt(bx) - ph * chop * 0.7;
-          const a = chop * 0.45 * (1 - ph / 30);
+        const bx = shipCX + side * 62;
+        for (let i = 0; i < 10; i++) {
+          const ph = (t * 46 + i * 30 + side * 100) % 32;
+          const y = surfAt(bx) - ph * storm * 0.8;
+          const a = storm * 0.5 * (1 - ph / 32);
           if (a < 0.02) continue;
-          f.circle(bx + side * (2 + ph * 0.4) + Math.sin(t * 4 + i) * 2, y, 1 + hash(i, 31) * 0.8)
-            .fill({ color: PALETTE.white, alpha: a });
+          f.circle(
+            bx + side * (2 + ph * 0.45) + Math.sin(t * 4 + i) * 2.2,
+            y,
+            1 + hash(i, 31) * 0.9,
+          ).fill({ color: PALETTE.white, alpha: a });
         }
       }
     }
 
     // ============================================================
     // DEAD-CALM SHEEN — a soft mirror gleam of the dusk sun on the glassy sea,
-    // and a still streak of light, when the sea settles.
+    // a still glint streak, and a few gulls gliding far over the calm.
     // ============================================================
     if (glass > 0.45) {
       const settle = ease((glass - 0.45) / 0.55);
       const gx = sunX;
       const gy = waterY + 16;
-      f.circle(gx, gy, 22).fill({ color: PALETTE.glow, alpha: 0.07 * settle });
-      f.circle(gx, gy, 10).fill({ color: PALETTE.white, alpha: 0.13 * settle });
-      for (let i = 0; i < 18; i++) {
-        const x = gx - 28 + i * 3.2;
-        f.rect(x, gy + Math.sin(i * 0.6 + t) * 1.0, 2.4, 1.0).fill({
-          color: PALETTE.white,
-          alpha: 0.1 * settle,
+      f.circle(gx, gy, 24).fill({ color: PALETTE.glow, alpha: 0.08 * settle });
+      f.circle(gx, gy, 11).fill({ color: PALETTE.white, alpha: 0.14 * settle });
+      // a still glint path of light stretching down the mirror under the sun
+      for (let i = 0; i < 20; i++) {
+        const fy = i / 19;
+        const y = gy + fy * (seaBottom - gy) * 0.7;
+        const wgl = 9 * (1 - fy * 0.35);
+        f.rect(gx - wgl, y + Math.sin(i * 0.6 + t) * 0.8, wgl * 2, 1.2).fill({
+          color: mixColor(PALETTE.glow, PALETTE.white, 0.5),
+          alpha: 0.12 * settle * (1 - fy * 0.6),
         });
       }
       // a few gulls gliding far over the calm — soft slow-flapping V shapes
       for (let i = 0; i < 3; i++) {
         const gxb = left + ((t * (10 + i * 2) + i * 170) % (span + 90)) - 45;
-        const gyb = top + (skyBottom - top) * (0.18 + i * 0.08);
+        const gyb = top + (skyBottom - top) * (0.16 + i * 0.07);
         if (gxb > left + 6 && gxb < right - 6) {
-          const flap = (Math.sin(t * 3 + i * 1.7) * 0.5 + 0.5) * 2.6; // 0..2.6 dihedral
-          const a = 0.32 * settle;
-          // each wing is a short two-segment stroke angled up
+          const flap = (Math.sin(t * 3 + i * 1.7) * 0.5 + 0.5) * 2.6;
+          const a = 0.34 * settle;
           for (let s = 1; s <= 3; s++) {
             f.rect(gxb - s, gyb - flap * (s / 3), 1.4, 1).fill({ color: this.accent.ink, alpha: a });
             f.rect(gxb + s - 1.4, gyb - flap * (s / 3), 1.4, 1).fill({ color: this.accent.ink, alpha: a });
@@ -439,9 +503,10 @@ export class TidepoolRenderer implements WorldRenderer {
   }
 
   // ============================================================
-  // The galleon. Built around a rolling/bobbing frame: every point is rotated
-  // by `roll` about the ship's centre so the whole vessel pitches as one.
-  // Drawn via the Painter so the hull + rig cast a reflection.
+  // The galleon — bigger, dark crisp hull, the clear hero. Built around a
+  // rolling/pitching/heaving frame: every point is rotated by `roll` about the
+  // ship's centre so the whole vessel pitches as one. Drawn via the Painter so
+  // the hull + rig cast a reflection.
   // ============================================================
   private galleon(
     p: Painter,
@@ -452,6 +517,7 @@ export class TidepoolRenderer implements WorldRenderer {
     t: number,
     glass: number,
     chop: number,
+    storm: number,
     waterY: number,
     col: {
       woodDark: number;
@@ -463,90 +529,81 @@ export class TidepoolRenderer implements WorldRenderer {
       rope: number;
     },
   ) {
-    const stir = 1 - glass; // agitation envelope (eased upstream), 1 squall .. 0 calm
+    const stir = storm; // agitation envelope, 1 squall .. 0 calm
     const cosR = Math.cos(roll);
     const sinR = Math.sin(roll);
     // rotate a ship-local (lx, ly) offset about (cx, deckY) into world space
     const rx = (lx: number, ly: number): number => cx + lx * cosR - ly * sinR;
     const ry = (lx: number, ly: number): number => deckY + lx * sinR + ly * cosR;
 
-    // ---------- HULL: a broad curved wooden galleon hull ----------
-    // The hull spans local x in [-halfW, halfW]; its bottom curves like a
-    // banana (deep belly, raised bow & stern). Built as horizontal planks so
-    // it reads as bevelled wood and casts a clean reflection via the Painter.
-    const halfW = 60;
+    // ---------- HULL: a broad curved wooden galleon hull (BIG) ----------
+    const halfW = 82; // larger hull — the hero of the frame
     const hullTop = 0; // deck level in local space
-    const hullDepth = 30;
+    const hullDepth = 40;
     const bellyAt = (lx: number) => 1 - (lx / halfW) * (lx / halfW); // 1 mid..0 ends
     const hullBottom = (lx: number) => hullDepth * (0.45 + 0.55 * bellyAt(lx));
-    const nrows = 11;
+    const nrows = 14;
     for (let row = 0; row < nrows; row++) {
       const rt = row / (nrows - 1);
       const y = hullTop + rt * hullDepth;
-      // hull narrows toward the keel (bottom) and the curved underside lifts
-      // toward bow & stern
       const taper = 1 - rt * 0.28;
-      // plank seam: every other row darkens slightly so planking reads cleanly
       const seam = row % 2 === 1;
       for (let cxn = -1; cxn <= 1; cxn += 2) {
         const edge = halfW * taper;
         for (let s = 0; s <= edge; s += 4) {
           const lx = cxn * s;
           if (y > hullBottom(lx)) continue;
-          // top-left lighting: rows high up are lit, and the lit side curves with bow
-          const lit = rt < 0.32;
-          const dark = rt > 0.72;
-          let c = lit ? col.woodLit : dark ? col.woodDark : col.wood;
-          if (seam) c = mixColor(c, col.woodDark, 0.28); // plank groove
-          p.block(rx(lx, y) - 2, ry(lx, y) - 1.5, 4.5, 3.2, c, 0.96);
+          const lit = rt < 0.3;
+          const dark = rt > 0.7;
+          let c = lit ? col.wood : dark ? col.woodDark : col.wood;
+          if (lit) c = mixColor(col.wood, col.woodLit, 0.45);
+          if (seam) c = mixColor(c, col.woodDark, 0.34); // plank groove
+          p.block(rx(lx, y) - 2, ry(lx, y) - 1.5, 4.8, 3.4, c, 0.97);
         }
       }
     }
-    // gunwale rail (top edge of the hull) — a bright lit strip
+    // gunwale rail (top edge) — a bright lit strip framing the dark hull
     for (let lx = -halfW; lx <= halfW; lx += 3) {
       if (bellyAt(lx) < -0.02) continue;
-      p.block(rx(lx, hullTop) - 1.5, ry(lx, hullTop) - 3.5, 3.5, 3, col.woodLit, 0.96);
+      p.block(rx(lx, hullTop) - 1.5, ry(lx, hullTop) - 3.8, 3.6, 3.2, col.woodLit, 0.97);
     }
-    // a crisp painted accent stripe (the wale) running the length of the hull
+    // a crisp painted accent stripe (the wale) running the hull length
     for (let lx = -halfW + 4; lx <= halfW - 4; lx += 3) {
       if (bellyAt(lx) < 0.04) continue;
-      p.block(rx(lx, 6) - 1.5, ry(lx, 6) - 1.5, 3.2, 2.6, this.accent.accent, 0.55);
+      p.block(rx(lx, 8) - 1.5, ry(lx, 8) - 1.5, 3.4, 2.8, this.accent.accent, 0.6);
     }
     // a tidy row of square gun-ports with lit sills + dark openings
-    for (let lx = -halfW + 14; lx <= halfW - 14; lx += 15) {
+    for (let lx = -halfW + 18; lx <= halfW - 18; lx += 18) {
       if (bellyAt(lx) < 0.18) continue;
-      // sill highlight (top-left light)
-      p.block(rx(lx, 11) - 3, ry(lx, 11) - 3, 6, 1.4, col.woodLit, 0.7);
-      // open port
-      p.block(rx(lx, 11) - 2.5, ry(lx, 11) - 2, 5, 5, col.woodDark, 0.92);
-      p.block(rx(lx, 11) - 1.4, ry(lx, 11) - 1, 2.8, 2.8, mixColor(col.woodDark, 0x000000, 0.3), 0.7);
+      p.block(rx(lx, 15) - 3.2, ry(lx, 15) - 3, 6.4, 1.5, col.woodLit, 0.7);
+      p.block(rx(lx, 15) - 2.7, ry(lx, 15) - 2, 5.4, 5.4, col.woodDark, 0.94);
+      p.block(rx(lx, 15) - 1.5, ry(lx, 15) - 1, 3, 3, mixColor(col.woodDark, 0x000000, 0.3), 0.75);
     }
     // raised stern castle (right) and a smaller bow (left) rising above deck
-    for (let row = 0; row < 7; row++) {
-      const ry0 = -row * 3 - 2;
-      const wST = 16 - row * 0.6;
+    for (let row = 0; row < 8; row++) {
+      const ry0 = -row * 3.2 - 2;
+      const wST = 20 - row * 0.7;
       const lit = row < 3;
       for (let s = 0; s <= wST; s += 4) {
-        const lx = halfW - 14 + s * 0.4;
-        p.block(rx(lx, ry0) - 2, ry(lx, ry0) - 2, 4.2, 4, lit ? col.woodLit : col.wood, 0.95);
+        const lx = halfW - 18 + s * 0.4;
+        p.block(rx(lx, ry0) - 2, ry(lx, ry0) - 2, 4.4, 4.2, lit ? col.woodLit : col.wood, 0.96);
       }
     }
     // bow bowsprit (a spar jutting forward-left from the bow)
-    for (let s = 0; s <= 8; s++) {
-      const lx = -halfW + 2 - s * 3.4;
-      const ly = -3 - s * 1.4;
-      p.block(rx(lx, ly) - 1.5, ry(lx, ly) - 1, 3, 2.4, col.wood, 0.92);
+    for (let s = 0; s <= 10; s++) {
+      const lx = -halfW + 2 - s * 3.6;
+      const ly = -3 - s * 1.5;
+      p.block(rx(lx, ly) - 1.5, ry(lx, ly) - 1, 3.2, 2.6, col.wood, 0.93);
     }
 
-    // ---------- THREE MASTS with billowing SAILS ----------
-    // mast local-x positions: fore, main (tallest), mizzen
+    // ---------- THREE MASTS with billowing SAILS (taller) ----------
     const masts = [
-      { mx: -30, h: 78, sailW: 30 },
-      { mx: 2, h: 96, sailW: 38 },
-      { mx: 34, h: 66, sailW: 26 },
+      { mx: -40, h: 104, sailW: 40 },
+      { mx: 2, h: 128, sailW: 50 },
+      { mx: 46, h: 88, sailW: 34 },
     ];
-    // sway/billow grows with chop; sails go slack & flat when glass (eased)
-    const billow = 0.16 + stir * 0.56;
+    // sails strain hard in the storm, go slack & flat on the calm (eased)
+    const billow = 0.14 + stir * 0.62;
 
     for (let mi = 0; mi < masts.length; mi++) {
       const m = masts[mi];
@@ -557,8 +614,7 @@ export class TidepoolRenderer implements WorldRenderer {
       for (let k = 0; k <= poleSteps; k++) {
         const kt = k / poleSteps;
         const ly = baseY + (topY - baseY) * kt;
-        const lit = kt > 0.0; // whole pole lit-ish; top-left light handled by color
-        p.block(rx(m.mx, ly) - 1.5, ry(m.mx, ly) - 1.5, 3, 3.4, lit ? col.wood : col.woodDark, 0.95);
+        p.block(rx(m.mx, ly) - 1.5, ry(m.mx, ly) - 1.5, 3, 3.4, col.wood, 0.96);
       }
 
       // two stacked square sails per mast (main course + topsail)
@@ -568,38 +624,29 @@ export class TidepoolRenderer implements WorldRenderer {
       ];
       for (let si = 0; si < sailRows.length; si++) {
         const sr = sailRows[si];
-        // yard (the horizontal spar the sail hangs from)
+        // yard (the spar the sail hangs from)
         for (let lx = -sr.w / 2; lx <= sr.w / 2; lx += 3) {
           p.block(rx(m.mx + lx, sr.yTop) - 1.5, ry(m.mx + lx, sr.yTop) - 1.5, 3.2, 2.6, col.woodLit, 0.95);
         }
-        // the sail cloth: a grid of cells. Each column bulges (billows) by a
-        // sine of its position + time; the belly is deepest at the centre and
-        // flattens to slack as glass->1.
         const cols2 = Math.max(6, Math.round(sr.w / 3));
         const rows2 = 7;
         for (let ci = 0; ci <= cols2; ci++) {
-          const cu = ci / cols2 - 0.5; // -0.5 .. 0.5 across the sail
+          const cu = ci / cols2 - 0.5;
           const lx = m.mx + cu * sr.w;
-          // horizontal billow: cloth bows leeward, animated
           const bow =
             Math.sin((cu + 0.5) * Math.PI) *
             (billow * sr.w * 0.5) *
-            (0.8 + 0.2 * Math.sin(t * 2.2 + mi + si));
+            (0.8 + 0.2 * Math.sin(t * 2.4 + mi + si));
           for (let rj = 0; rj <= rows2; rj++) {
             const rv = rj / rows2;
             const ly = sr.yTop + rv * (sr.yBot - sr.yTop);
-            // bulge fades top & bottom (tied to yards)
             const taper = Math.sin(rv * Math.PI);
             const off = bow * taper;
-            // smooth across-cloth shading: lit on the windward (left) face,
-            // bright on the rounded belly, falling into shadow on the leeward
-            // (right) side. shade follows the local slope of the billow.
-            const slope = Math.cos((cu + 0.5) * Math.PI); // +1 left .. -1 right
-            const shade = (slope + 1) * 0.5; // 1 lit .. 0 shadow
+            const slope = Math.cos((cu + 0.5) * Math.PI);
+            const shade = (slope + 1) * 0.5;
             let c: number;
             if (shade > 0.62) c = mixColor(col.sailC, col.sailLit, (shade - 0.62) / 0.38);
             else c = mixColor(col.sailSh, col.sailC, shade / 0.62);
-            // belly catches a touch more light where the cloth bulges most
             c = mixColor(c, col.sailLit, taper * (0.2 + stir * 0.15));
             const wx = rx(lx + off, ly);
             const wy = ry(lx + off, ly);
@@ -625,7 +672,7 @@ export class TidepoolRenderer implements WorldRenderer {
     const drawRig = (mx: number, h: number) => {
       const topY = -2 - h * 0.96;
       for (const side of [-1, 1]) {
-        const footX = mx + side * 26;
+        const footX = mx + side * 32;
         const steps = 10;
         for (let k = 0; k <= steps; k++) {
           const kt = k / steps;
@@ -633,14 +680,12 @@ export class TidepoolRenderer implements WorldRenderer {
           const ly = topY + (-2 - topY) * kt;
           g.rect(rx(lx, ly), ry(lx, ly), 1, 1).fill({ color: col.rope, alpha: 0.5 });
         }
-        // a few horizontal ratline rungs between the two shrouds (the ladder)
         for (let rung = 1; rung <= 4; rung++) {
           const kt = rung / 5;
           const lyR = topY + (-2 - topY) * kt;
-          const spread = 26 * kt; // shrouds splay toward the deck
+          const spread = 32 * kt;
           for (let xx = -spread; xx <= spread; xx += 4) {
-            g.rect(rx(mx + xx, lyR), ry(mx + xx, lyR), 1, 1)
-              .fill({ color: col.rope, alpha: 0.3 });
+            g.rect(rx(mx + xx, lyR), ry(mx + xx, lyR), 1, 1).fill({ color: col.rope, alpha: 0.3 });
           }
         }
       }
@@ -648,8 +693,10 @@ export class TidepoolRenderer implements WorldRenderer {
     for (const m of masts) drawRig(m.mx, m.h);
     // a forestay from the main masthead out to the bowsprit tip
     {
-      const fromX = 2, fromY = -2 - 96 * 0.96;
-      const toX = -halfW + 2 - 8 * 3.4, toY = -3 - 8 * 1.4;
+      const fromX = 2,
+        fromY = -2 - 128 * 0.96;
+      const toX = -halfW + 2 - 10 * 3.6,
+        toY = -3 - 10 * 1.5;
       for (let k = 0; k <= 12; k++) {
         const kt = k / 12;
         const lx = fromX + (toX - fromX) * kt;
@@ -660,31 +707,25 @@ export class TidepoolRenderer implements WorldRenderer {
 
     // ---------- THE JOLLY ROGER — a black pennant + skull at the main top ----
     {
-      const mTop = -2 - 96; // main mast top
+      const mTop = -2 - 128; // main mast top
       const flagX = 2;
-      // flagpole tip nub
       p.block(rx(flagX, mTop) - 1.5, ry(flagX, mTop) - 4, 3, 4, col.woodLit, 0.95);
-      // pennant: a crisp black flag streaming leeward, fluttering with the wind.
-      // It keeps a lively snap even on the calm (a steady breeze), easing only
-      // a little as the squall passes.
-      const flagL = 26;
+      const flagL = 30;
       const wavePhase = t * 3 + stir * 2;
-      const flagAmp = 2.4 + chop * 4;
-      const flagC = mixColor(this.accent.ink, 0x000000, 0.35);
-      const flagEdge = mixColor(this.accent.ink, 0x000000, 0.55);
+      const flagAmp = 2.4 + chop * 5;
+      const flagC = mixColor(this.accent.ink, 0x000000, 0.45);
+      const flagEdge = mixColor(this.accent.ink, 0x000000, 0.62);
       for (let k = 0; k <= flagL; k++) {
         const kt = k / flagL;
         const lx = flagX + 2 + k;
-        // travelling wave down the flag (a real fluttering ripple)
         const wav = Math.sin(kt * 5 - wavePhase) * flagAmp * kt;
-        const hh = (1 - kt) * 9 + 2.4; // tapers to a point at the fly
+        const hh = (1 - kt) * 10 + 2.6;
         const ly = mTop + 1 + wav - hh / 2;
         for (let yy = 0; yy < hh; yy += 2) {
-          // shade the lower trailing edge for a little fold depth
           const edge = yy > hh - 3;
-          g.rect(rx(lx, ly + yy), ry(lx, ly + yy), 2.2, 2.4).fill({
+          g.rect(rx(lx, ly + yy), ry(lx, ly + yy), 2.4, 2.6).fill({
             color: edge ? flagEdge : flagC,
-            alpha: 0.93,
+            alpha: 0.94,
           });
         }
       }
@@ -693,18 +734,16 @@ export class TidepoolRenderer implements WorldRenderer {
       const sWav = Math.sin((7 / flagL) * 4 + wavePhase) * flagAmp * (7 / flagL);
       const sY = mTop + 1 + sWav;
       const sc = mixColor(PALETTE.white, this.accent.accentSoft, 0.1);
-      // skull
-      g.circle(rx(sX, sY), ry(sX, sY), 2.6).fill({ color: sc, alpha: 0.95 });
-      // eye sockets
-      g.rect(rx(sX - 1.4, sY - 0.6), ry(sX - 1.4, sY - 0.6), 1.2, 1.2).fill({ color: flagC, alpha: 0.95 });
-      g.rect(rx(sX + 0.4, sY - 0.6), ry(sX + 0.4, sY - 0.6), 1.2, 1.2).fill({ color: flagC, alpha: 0.95 });
-      // jaw
-      g.rect(rx(sX - 1.2, sY + 1.4), ry(sX - 1.2, sY + 1.4), 2.4, 1).fill({ color: sc, alpha: 0.9 });
-      // crossbones
+      g.circle(rx(sX, sY), ry(sX, sY), 2.8).fill({ color: sc, alpha: 0.96 });
+      g.rect(rx(sX - 1.5, sY - 0.6), ry(sX - 1.5, sY - 0.6), 1.3, 1.3).fill({ color: flagC, alpha: 0.95 });
+      g.rect(rx(sX + 0.4, sY - 0.6), ry(sX + 0.4, sY - 0.6), 1.3, 1.3).fill({ color: flagC, alpha: 0.95 });
+      g.rect(rx(sX - 1.3, sY + 1.5), ry(sX - 1.3, sY + 1.5), 2.6, 1.1).fill({ color: sc, alpha: 0.9 });
       for (const d of [-1, 1]) {
         for (let k = -3; k <= 3; k++) {
-          g.rect(rx(sX + k, sY + 3.6 + d * k * 0.4), ry(sX + k, sY + 3.6 + d * k * 0.4), 1.2, 1.2)
-            .fill({ color: sc, alpha: 0.85 });
+          g.rect(rx(sX + k, sY + 3.8 + d * k * 0.4), ry(sX + k, sY + 3.8 + d * k * 0.4), 1.3, 1.3).fill({
+            color: sc,
+            alpha: 0.85,
+          });
         }
       }
     }
@@ -714,7 +753,7 @@ export class TidepoolRenderer implements WorldRenderer {
       if (bellyAt(lx) < 0) continue;
       const wx = rx(lx, hullBottom(lx));
       const wy = Math.max(waterY, ry(lx, hullBottom(lx)));
-      g.rect(wx - 2, wy - 1, 4, 2).fill({ color: col.woodDark, alpha: 0.22 });
+      g.rect(wx - 2, wy - 1, 4, 2).fill({ color: col.woodDark, alpha: 0.24 + storm * 0.12 });
     }
   }
 

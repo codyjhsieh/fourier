@@ -180,40 +180,100 @@ export class CardiographRenderer implements WorldRenderer {
 
     // --- the live reconstructed waveform ---
     const w = resample(shape, this.cols);
-    const tw = resample(target, this.cols);
+    void target; // target shape is shown as a calm reference BAND, not a trace
 
-    // How "clean" the reconstruction is steadies the trace and sharpens the
-    // spike as the score rises; residual noise wobbles a wrong reconstruction.
-    const noise = 1 - score; // 0 clean .. 1 noisy
+    // `clean` is how steady/legible the heartbeat is; `noise` its complement.
+    // We use an eased score so the trace VISIBLY steadies as harmonics stack.
+    const clean = Math.max(0, Math.min(1, score));
+    const noise = 1 - clean; // 1 = chaotic/arrhythmic .. 0 = clean EKG
 
-    // map a column index -> screen coordinates. Heartbeat convention: a flat
-    // baseline with the spike rising UP (toward smaller y).
-    const xAt = (i: number) => sx + (i / (this.cols - 1)) * sw;
-    const yAt = (v: number, i: number) => {
-      // residual high-frequency wobble when the reconstruction is wrong
-      const wob =
-        noise *
-        ampPx *
-        0.5 *
-        (Math.sin(i * 0.9 + t * 6) * 0.5 +
-          (hash(i, 3) - 0.5) * 0.7) *
-        Math.sin(t * 2 + i * 0.13);
-      return baselineY - v * ampPx - wob;
+    // -------------------------------------------------------------------
+    // SYNTHETIC EKG: a clean, regular PQRST heartbeat the trace morphs TOWARD
+    // as the score rises. Two full beats fit on the screen, evenly spaced, so
+    // the rhythm reads as unmistakably periodic. `u` is the column position in
+    // [0,1] across the screen; `phase` is its position within ONE beat [0,1).
+    // The shape is built from narrow Gaussian bumps (deterministic, bounded):
+    //   P  - small rounded bump before the spike
+    //   Q  - tiny dip
+    //   R  - tall sharp upward QRS spike  (the signature)
+    //   S  - dip below baseline after R
+    //   T  - broad rounded bump after the spike
+    // Returns a value in roughly [-0.45 .. 1.0] (baseline 0, spike +1).
+    const beats = 2;
+    const bump = (x: number, c: number, wdt: number) => {
+      const d = (x - c) / wdt;
+      return Math.exp(-d * d);
+    };
+    const ekgAt = (u: number) => {
+      const phase = (u * beats) % 1; // position within the current beat
+      let v = 0;
+      v += 0.16 * bump(phase, 0.18, 0.045); // P wave
+      v -= 0.12 * bump(phase, 0.30, 0.018); // Q dip
+      v += 1.0 * bump(phase, 0.34, 0.013); // R spike (tall + sharp)
+      v -= 0.28 * bump(phase, 0.385, 0.02); // S dip
+      v += 0.30 * bump(phase, 0.56, 0.05); // T wave
+      return v;
     };
 
-    // --- faint dotted GHOST of the target pulse to aim for ---
-    const ghostCol = mixColor(this.accent.accent, PALETTE.white, 0.3);
-    for (let i = 0; i < this.cols; i += 2) {
-      const gy = baselineY - tw[i] * ampPx;
-      if (gy < sy + 1 || gy > sy + sh - 1) continue;
-      screen.circle(xAt(i), gy, 0.9).fill({ color: ghostCol, alpha: 0.3 });
+    // -------------------------------------------------------------------
+    // CHAOS: an erratic, arrhythmic trace for the WRONG state — a jittery
+    // near-flatline with irregular noise spikes that never repeat cleanly.
+    // Built from the raw reconstruction (so it still reflects the puzzle) plus
+    // deterministic hash jitter and a couple of random-looking rogue blips.
+    const chaosAt = (i: number) => {
+      const u = i / (this.cols - 1);
+      // erratic baseline drift + buzzing high-frequency jitter
+      let v = 0.5 * w[i];
+      v += 0.32 * Math.sin(u * 41 + t * 9 + hash(i, 5) * 6.28);
+      v += 0.22 * (hash(i, Math.floor(t * 7) + 2) - 0.5) * 2; // crackling fuzz
+      // occasional irregular arrhythmic blips at hash-chosen columns
+      const blip = hash(Math.floor(i / 7), Math.floor(t * 1.3)) ;
+      if (blip > 0.86) v += (blip - 0.86) * 6 * (hash(i, 9) > 0.5 ? 1 : -1);
+      return v * 0.7;
+    };
+
+    // map a column index -> screen coordinates. Heartbeat convention: a flat
+    // baseline with the spike rising UP (toward smaller y). The drawn value is
+    // a continuous blend from CHAOS (wrong) to a CLEAN EKG (solved).
+    const xAt = (i: number) => sx + (i / (this.cols - 1)) * sw;
+    const valAt = (i: number) => {
+      const u = i / (this.cols - 1);
+      const ekg = ekgAt(u);
+      const chaos = chaosAt(i);
+      // residual tremor that fades out entirely as the trace steadies
+      const tremor =
+        noise *
+        0.16 *
+        (Math.sin(i * 1.7 + t * 11) + (hash(i, 13) - 0.5) * 1.4);
+      return chaos * noise + ekg * clean + tremor;
+    };
+    const yAt = (i: number) => baselineY - valAt(i) * ampPx;
+
+    // --- faint TARGET BAND to aim for (replaces the confusing dotted ghost) ---
+    // A single soft horizontal band hugging the clean-EKG path, very low
+    // contrast, so it reads as a "here is the goal" guide rather than a second
+    // competing heartbeat line. Fades away as you approach the goal.
+    const bandA = 0.1 * noise + 0.04;
+    const bandCol = mixColor(this.accent.accentSoft, PALETTE.white, 0.55);
+    for (let i = 1; i < this.cols; i++) {
+      const u0 = (i - 1) / (this.cols - 1);
+      const u1 = i / (this.cols - 1);
+      const gy0 = baselineY - ekgAt(u0) * ampPx;
+      const gy1 = baselineY - ekgAt(u1) * ampPx;
+      const cy0 = Math.max(sy + 1, Math.min(sy + sh - 1, gy0));
+      const cy1 = Math.max(sy + 1, Math.min(sy + sh - 1, gy1));
+      screen
+        .moveTo(xAt(i - 1), cy0)
+        .lineTo(xAt(i), cy1)
+        .stroke({ width: 5, color: bandCol, alpha: bandA, cap: "round", join: "round" });
     }
 
     // --- moving sweep position (leading edge of the beam) ---
     const sweepU = (t * 0.35) % 1; // 0..1 across the screen
     const sweepI = Math.round(sweepU * (this.cols - 1));
 
-    // heartbeat pulse: stronger and tighter as the score rises
+    // heartbeat pulse: throbs in time with the R-spike crossing the sweep. When
+    // solved the throb is strong and regular; when wrong it barely pulses.
     const beatPhase = t * 1.6;
     const beat = Math.pow(0.5 + 0.5 * Math.sin(beatPhase), 6); // sharp throb
     const pulse = 0.85 + 0.15 * beat * score;
@@ -240,84 +300,82 @@ export class CardiographRenderer implements WorldRenderer {
     }
 
     // --- phosphor TRACE with decay tail ---
-    // Draw as short segments between consecutive samples; brightness depends on
-    // each sample's recency relative to the sweep dot (older = dimmer).
-    const traceCol = mixColor(this.accent.accent, PALETTE.white, 0.12);
-    const traceHot = mixColor(this.accent.accent, PALETTE.white, 0.55);
+    // Bold crisp line with a DARK accent-ink core wrapped in a phosphor glow so
+    // it pops against the pale screen. Three stacked strokes per segment:
+    //   1. broad accent BLOOM (the glow)
+    //   2. bold DARK INK core (real contrast / value)
+    //   3. thin bright highlight on the freshest part of the sweep
+    // Brightness depends on each sample's recency relative to the sweep dot.
+    const inkCore = mixColor(this.accent.accent, 0x000000, 0.38); // dark crimson ink
+    const bloomCol = mixColor(this.accent.accent, PALETTE.white, 0.1);
+    const top = sy + 1.5;
+    const bot = sy + sh - 1.5;
+    const clampY = (y: number) => Math.max(top, Math.min(bot, y));
 
-    // First pass: a broad, soft phosphor HALO under the whole visible trace so
-    // the line sits in a continuous bloom rather than discrete glints. Drawn
-    // before the crisp line so the bright core reads on top.
+    // Pass 1: broad, soft phosphor HALO so the line sits in a continuous bloom.
     for (let i = 1; i < this.cols; i++) {
       const x0 = xAt(i - 1);
       const x1 = xAt(i);
-      const top = sy + 1.5;
-      const bot = sy + sh - 1.5;
-      const y0 = Math.max(top, Math.min(bot, yAt(w[i - 1], i - 1)));
-      const y1 = Math.max(top, Math.min(bot, yAt(w[i], i)));
+      const y0 = clampY(yAt(i - 1));
+      const y1 = clampY(yAt(i));
       let age = sweepU - i / (this.cols - 1);
       if (age < 0) age += 1;
-      // smoother (eased) decay for a longer, gentler afterimage tail
       const decay = Math.max(0.08, Math.pow(Math.max(0, 1 - age * 1.05), 1.4));
       trace
         .moveTo(x0, y0)
         .lineTo(x1, y1)
         .stroke({
-          width: 6 + decay * 5 + beat * score * 1.6,
+          width: 7 + decay * 6 + beat * score * 2,
           color: this.accent.accent,
-          alpha: decay * 0.07 * pulse,
+          alpha: decay * (0.06 + 0.05 * clean) * pulse,
           cap: "round",
           join: "round",
         });
     }
 
+    // Pass 2 + 3: the crisp bold line itself.
     for (let i = 1; i < this.cols; i++) {
       const x0 = xAt(i - 1);
       const x1 = xAt(i);
-      let y0 = yAt(w[i - 1], i - 1);
-      let y1 = yAt(w[i], i);
-      // clamp inside the screen so a tall spike never spills over the bezel
-      const top = sy + 1.5;
-      const bot = sy + sh - 1.5;
-      y0 = Math.max(top, Math.min(bot, y0));
-      y1 = Math.max(top, Math.min(bot, y1));
+      const y0 = clampY(yAt(i - 1));
+      const y1 = clampY(yAt(i));
 
       // recency: how far behind the sweep dot this sample sits (0..1)
       let age = sweepU - i / (this.cols - 1);
       if (age < 0) age += 1; // wrap so just-ahead samples are the "oldest"
-      // eased decay -> a smoother, longer-fading afterimage tail
       const decay = Math.max(0.12, Math.pow(Math.max(0, 1 - age * 1.05), 1.4));
-      const alpha = decay * (0.85 * pulse);
+      const alpha = decay * (0.9 * pulse);
 
-      const col = mixColor(traceCol, traceHot, decay * 0.8);
-      const lw = 1.4 + decay * 1.1 + beat * score * 0.8;
+      // bolder, crisper line; thickens a touch with the beat when solved
+      const lw = 2.0 + decay * 1.6 + beat * score * 1.0;
 
       // soft mid under-glow hugging the line for an antialiased phosphor edge
       trace
         .moveTo(x0, y0)
         .lineTo(x1, y1)
         .stroke({
-          width: lw + 2,
-          color: this.accent.accent,
-          alpha: alpha * 0.22,
+          width: lw + 2.5,
+          color: bloomCol,
+          alpha: alpha * 0.28,
           cap: "round",
           join: "round",
         });
 
+      // DARK INK CORE — the real contrast that makes the trace read as a line.
       trace
         .moveTo(x0, y0)
         .lineTo(x1, y1)
-        .stroke({ width: lw, color: col, alpha, cap: "round", join: "round" });
+        .stroke({ width: lw, color: inkCore, alpha, cap: "round", join: "round" });
 
-      // bright crisp core on the freshest part of the sweep
-      if (decay > 0.55) {
+      // bright crisp highlight on the freshest part of the sweep
+      if (decay > 0.5) {
         trace
           .moveTo(x0, y0)
           .lineTo(x1, y1)
           .stroke({
-            width: Math.max(0.6, lw - 0.9),
-            color: mixColor(traceHot, PALETTE.white, 0.5),
-            alpha: alpha * 0.7,
+            width: Math.max(0.6, lw - 1.2),
+            color: mixColor(this.accent.accent, PALETTE.white, 0.7),
+            alpha: alpha * 0.55,
             cap: "round",
             join: "round",
           });
@@ -325,10 +383,7 @@ export class CardiographRenderer implements WorldRenderer {
     }
 
     // --- bright SWEEP DOT at the leading edge ---
-    const sdY = Math.max(
-      sy + 1.5,
-      Math.min(sy + sh - 1.5, yAt(w[sweepI], sweepI)),
-    );
+    const sdY = clampY(yAt(sweepI));
     const sdX = xAt(sweepI);
 
     // short fading afterimage tail trailing the dot along the trace
@@ -336,7 +391,7 @@ export class CardiographRenderer implements WorldRenderer {
       const ti = sweepI - k;
       if (ti < 0) continue;
       const tx = xAt(ti);
-      const ty = Math.max(sy + 1.5, Math.min(sy + sh - 1.5, yAt(w[ti], ti)));
+      const ty = clampY(yAt(ti));
       const f = 1 - k / 7;
       trace.circle(tx, ty, 1.4 * f + 0.4).fill({
         color: mixColor(this.accent.accent, PALETTE.white, 0.5),

@@ -84,21 +84,35 @@ export class LoomRenderer implements WorldRenderer {
       mismatch += Math.abs(field[i] + field[N - 1 - i]);
     }
     mismatch /= N;
-    const clash = Math.max(0, Math.min(1, mismatch * 0.9)) * (1 - s * 0.9);
-    const locked = 1 - clash; // 0 = dragons clash/shear, 1 = perfect yin-yang
-    // a softened, eased lock for motion so the settle feels like it eases-in.
-    const ease = locked * locked * (3 - 2 * locked);
+    // The clash is driven mostly by how far the wave is from odd — and `score`
+    // delivers the final SNAP. We bias it sharply so the difference between
+    // "nearly there" and "locked" is dramatic, not a slow fade: the dragons
+    // stay visibly broken until the field is genuinely odd AND score is high.
+    const oddness = Math.max(0, Math.min(1, 1 - mismatch * 1.6)); // 1 = odd
+    const raw = Math.min(oddness, s); // need BOTH the right wave and the score
+    // a hard ease so the lock SNAPS in the last stretch (cubic smootherstep
+    // pushed toward 1) — wrong reads broken right up until it locks.
+    const locked = raw * raw * raw * (raw * (raw * 6 - 15) + 10);
+    const clash = 1 - locked; // 0 = perfect yin-yang, 1 = dragons clash/shear
+    const ease = locked; // motion follows the locked value directly now
+
+    // A brief LOCK FLASH: fires bright the instant we cross into locked, then
+    // settles to a steady glow. Deterministic — a function of `locked` only.
+    const lockFlash = locked > 0.82 ? (locked - 0.82) / 0.18 : 0;
 
     // breathing + slow circling of the whole coil once it settles
-    const breath = Math.sin(t * 1.05) * (0.45 + 0.55 * s);
+    const breath = Math.sin(t * 1.05) * (0.45 + 0.55 * locked);
     const spin = ease * t * 0.2; // the yin-yang only turns when locked
     // twitch: the two dragons shudder apart when not yet odd
     const twitch = clash;
 
-    // ----- night-mood pale-luminous crimson ramp on cream -------------------
-    const night = mixColor(PALETTE.paper, this.accent.ink, 0.13); // dusky cream
-    const scale = mixColor(night, PALETTE.white, 0.52); // pale scale plane
-    const scaleB = mixColor(night, PALETTE.white, 0.36); // partner, a touch darker
+    // ----- night-mood crimson ramp on cream, with REAL VALUE RANGE ----------
+    // Bodies are deep accent-INK so they read as solid, crisp silhouettes
+    // against the cream — not washed pale-pink floaters. Top edges get lit and
+    // a drop shadow seats them in the scene (handled in drawDragon).
+    const bodyDark = mixColor(this.accent.ink, PALETTE.ink, 0.4); // deep dusky body
+    const scale = mixColor(bodyDark, this.accent.accent, 0.3); // dragon A body tone
+    const scaleB = mixColor(bodyDark, this.accent.accent, 0.16); // B, a touch cooler
     const ridgeCol = mixColor(this.accent.accent, PALETTE.white, 0.3);
     const ember = mixColor(this.accent.accent, PALETTE.glow, 0.4);
 
@@ -107,8 +121,9 @@ export class LoomRenderer implements WorldRenderer {
     const cyL = cy - lift * 12 - (s > 0.7 ? Math.sin(t * 1.4) * 2 : 0);
 
     // ===================== BREATHING CORE-GLOW (behind all) ==================
-    const glowR = radius * (0.7 + 0.1 * s) * (1 + breath * 0.05 * s);
-    const glowPulse = 0.05 + 0.07 * s + 0.03 * s * (0.5 + 0.5 * Math.sin(t * 1.05));
+    // Quiet while clashing; blooms with the lock; a bright LOCK FLASH on snap.
+    const glowR = radius * (0.7 + 0.1 * locked) * (1 + breath * 0.05 * locked);
+    const glowPulse = 0.04 + 0.1 * locked + 0.04 * locked * (0.5 + 0.5 * Math.sin(t * 1.05));
     au.circle(cx, cyL, glowR * 1.3).fill({ color: PALETTE.glow, alpha: glowPulse * 0.32 });
     au.circle(cx, cyL, glowR).fill({
       color: mixColor(PALETTE.glow, ember, 0.18),
@@ -118,6 +133,19 @@ export class LoomRenderer implements WorldRenderer {
       color: mixColor(PALETTE.white, this.accent.accentSoft, 0.18),
       alpha: glowPulse,
     });
+    // LOCK FLASH: a wide bright ring snaps out the instant the yin-yang closes.
+    if (lockFlash > 0) {
+      const fb = 0.5 + 0.5 * Math.sin(t * 1.05);
+      au.circle(cx, cyL, glowR * (1.0 + 0.55 * lockFlash)).fill({
+        color: PALETTE.glow,
+        alpha: lockFlash * (0.22 + 0.12 * fb),
+      });
+      au.circle(cx, cyL, glowR * 1.7).stroke({
+        width: 2 + 3 * lockFlash,
+        color: mixColor(PALETTE.glow, ember, 0.3),
+        alpha: lockFlash * 0.35,
+      });
+    }
 
     // ===================== faint reflection of the lower wyrm ================
     this.drawReflection(r, field, cx, cyL, radius, spin, ease, t);
@@ -179,13 +207,29 @@ export class LoomRenderer implements WorldRenderer {
       return vsign * field[idx];
     };
 
-    // when clashing, B drifts off its true rotation (the coil breaks): a slow
-    // shear angle + radial wobble that vanishes as it locks.
+    // ------------------------------------------------------------------
+    // CLASH = the dragons are NOT each other's half-turn. We make this read as
+    // obviously broken: Dragon B swings well off its true 180° angle, the whole
+    // coil gets a center-offset push (so the two bodies overlap/collide wrongly
+    // instead of interlocking), and an agitated jitter shudders through both.
+    // All of it vanishes as `locked` -> 1, snapping into a clean yin-yang.
+    // ------------------------------------------------------------------
+    // angular drift: B rotates the WRONG amount, so its head no longer faces
+    // A's tail — the chase breaks. Up to ~0.6 rad off true at full clash.
     const shear = which === 0
-      ? 0
-      : twitch * (0.55 + 0.45 * Math.sin(t * 5 + 1.3)) * 0.55;
-    const radWob = twitch * (which === 0 ? 1 : -1)
-      * Math.sin(t * 4.3 + which * 2.0) * radius * 0.06;
+      ? twitch * 0.18 * Math.sin(t * 4.7) // even A trembles a touch
+      : twitch * (0.6 + 0.5 * Math.sin(t * 3.1 + 1.3));
+    // bodily JITTER: a fast nervous shudder, stronger on B, that tears the coil.
+    const jitter = twitch * (which === 0 ? 0.5 : 1)
+      * Math.sin(t * 11 + which * 2.3) * radius * 0.05;
+    // center PUSH: the two dragons get shoved apart along opposite directions so
+    // they no longer share the pivot — a torn coil, not an interlock.
+    const pushDir = which === 0 ? -1 : 1;
+    const pushX = twitch * pushDir * radius * 0.16 * (0.7 + 0.3 * Math.sin(t * 2.7));
+    const pushY = twitch * pushDir * radius * 0.1 * Math.sin(t * 2.3 + 1.1);
+    const cxD = cx + pushX;
+    const cyD = cy + pushY;
+    const radWob = jitter;
 
     // ------------------------------------------------------------------
     // Build the SPINE PATH: the dragon coils from its head, sweeping a little
@@ -219,14 +263,17 @@ export class LoomRenderer implements WorldRenderer {
       const amp = 0.5 * Math.abs(v(k)) + 0.5 * fieldSmooth(v, k, segs);
       const swim = Math.sin(u * 3.4 - t * (0.8 + glide) + which * 3.14)
         * (0.06 + 0.05 * amp) * (0.5 + 0.5 * locked);
+      // BUCKLE: when clashing, a strong high-frequency kink runs down the body
+      // so the serpent looks crumpled / shearing — not the smooth locked coil.
       const buckle = (1 - locked)
-        * Math.sin(u * 8 + t * 2.4 + which * 1.7) * 0.1;
+        * (Math.sin(u * 9 + t * 3.2 + which * 1.7) * 0.18
+          + Math.sin(u * 17 - t * 4.1) * 0.08);
       const baseR = radius * (1 - 0.85 * Math.pow(u, 1.2));
       const rr = baseR * (1 + swim + buckle)
         + fieldSmooth(v, k, segs) * radius * 0.07 * (0.35 + 0.65 * u)
         + radWob * (1 - u);
-      spineX.push(cx + Math.cos(a) * rr);
-      spineY.push(cy + Math.sin(a) * rr);
+      spineX.push(cxD + Math.cos(a) * rr);
+      spineY.push(cyD + Math.sin(a) * rr);
     }
 
     // Second pass: tangents/normals from the actual path (so girth is laid out
@@ -263,33 +310,41 @@ export class LoomRenderer implements WorldRenderer {
       poly.push(spineX[k] - nrmX[k] * girth[k], spineY[k] - nrmY[k] * girth[k]);
     }
     // soft drop-shadow plane (offset down-right) to seat the body in the scene
-    b.poly(offsetPoly(poly, 2.5, 3)).fill({ color: this.accent.ink, alpha: 0.1 + 0.06 * locked });
-    b.poly(poly).fill({
-      color: mixColor(scaleCol, ember, 0.06 + 0.1 * locked),
-      alpha: 0.74 + 0.16 * locked,
+    b.poly(offsetPoly(poly, 3, 4)).fill({
+      color: PALETTE.ink,
+      alpha: 0.16 + 0.12 * locked,
     });
-    // top-left lit flank (light from upper-left): brighten the outer/upper side
+    // SOLID DARK BODY — a deep, crisp silhouette (real value, no pale float).
+    b.poly(poly).fill({
+      color: mixColor(scaleCol, ember, 0.04 + 0.1 * locked),
+      alpha: 0.9 + 0.08 * locked,
+    });
+    // LIT TOP EDGE (light from upper-left): a bright band along the outer/upper
+    // flank gives the body roundness and a clear value range top-to-belly.
     const lit: number[] = [];
     for (let k = 0; k < segs; k++) {
       const upleft = -(nrmX[k] * 0.7 + nrmY[k] * 0.7);
       const side = upleft >= 0 ? 1 : -1;
       lit.push(
-        spineX[k] + nrmX[k] * girth[k] * 0.92 * side,
-        spineY[k] + nrmY[k] * girth[k] * 0.92 * side,
+        spineX[k] + nrmX[k] * girth[k] * 0.96 * side,
+        spineY[k] + nrmY[k] * girth[k] * 0.96 * side,
       );
     }
     for (let k = segs - 1; k >= 0; k--) {
-      lit.push(spineX[k] + nrmX[k] * girth[k] * 0.18, spineY[k] + nrmY[k] * girth[k] * 0.18);
+      lit.push(spineX[k] + nrmX[k] * girth[k] * 0.5, spineY[k] + nrmY[k] * girth[k] * 0.5);
     }
-    b.poly(lit).fill({ color: PALETTE.glow, alpha: 0.11 + 0.12 * locked });
+    b.poly(lit).fill({
+      color: mixColor(PALETTE.glow, this.accent.accentSoft, 0.2),
+      alpha: 0.22 + 0.2 * locked,
+    });
 
-    // crisp belly OUTLINE (whole silhouette, smooth)
+    // crisp DARK OUTLINE (whole silhouette) — the body reads sharp-edged.
     b.moveTo(poly[0], poly[1]);
     for (let k = 1; k < poly.length / 2; k++) b.lineTo(poly[k * 2], poly[k * 2 + 1]);
     b.lineTo(poly[0], poly[1]).stroke({
-      width: 1.2 + 0.8 * locked,
-      color: mixColor(this.accent.accent, PALETTE.white, 0.38),
-      alpha: 0.3 + 0.36 * locked,
+      width: 1.4 + 0.8 * locked,
+      color: mixColor(this.accent.ink, PALETTE.ink, 0.5),
+      alpha: 0.5 + 0.3 * locked,
     });
 
     // ------------------------------------------------------------------
@@ -319,33 +374,42 @@ export class LoomRenderer implements WorldRenderer {
     }
 
     // ------------------------------------------------------------------
-    // SPINE RIDGES — a tidy row of little triangular dorsal fins marching down
-    // the OUTER flank, evenly spaced, the unmistakable dragon backbone. No
-    // jagged noise — they only jitter slightly when the coil is clashing.
+    // SPINE RIDGES — small, sleek, BACKWARD-SWEPT dorsal ridges hugging the
+    // back (not a tall stegosaurus comb). Low and close to the body, each
+    // leaning toward the tail like a serpent's crest. They lie flat and quiet
+    // when locked; they bristle and skew when the coil is clashing.
     // ------------------------------------------------------------------
     const ridgeStep = 2;
     for (let k = 2; k < segs - 3; k += ridgeStep) {
       const u = k / (segs - 1);
-      const sx = spineX[k] + nrmX[k] * girth[k] * 0.92;
-      const sy = spineY[k] + nrmY[k] * girth[k] * 0.92;
-      // ridge points outward, tilted forward along the body; small clash jitter
-      const jit = (1 - locked) * Math.sin(k * 1.9 + t * 3 + which) * 0.35;
-      const hgt = girth[k] * (1.0 - 0.6 * u);
-      const tipx = sx + nrmX[k] * hgt + tanX[k] * hgt * (0.45 + jit);
-      const tipy = sy + nrmY[k] * hgt + tanY[k] * hgt * (0.45 + jit);
-      const ax = sx - tanX[k] * girth[k] * 0.3;
-      const ay = sy - tanY[k] * girth[k] * 0.3;
-      const bx = sx + tanX[k] * girth[k] * 0.3;
-      const by = sy + tanY[k] * girth[k] * 0.3;
+      // sit right on the back edge, ride along it
+      const sx = spineX[k] + nrmX[k] * girth[k] * 0.96;
+      const sy = spineY[k] + nrmY[k] * girth[k] * 0.96;
+      // SHORT ridge: a fraction of girth, tapering to nothing at the tail.
+      const hgt = girth[k] * (0.32 - 0.2 * u);
+      // strong backward sweep so it reads as a sleek crest, not an upright fin;
+      // clash bristles them upright and adds a skew jitter.
+      const bristle = (1 - locked) * (0.5 + 0.5 * Math.sin(k * 2.1 + t * 6 + which));
+      const lean = 0.9 - 0.7 * bristle; // locked = swept back; clash = upright
+      const skew = (1 - locked) * Math.sin(k * 1.7 + t * 7 + which) * 0.4;
+      const tipx = sx + nrmX[k] * hgt * (1 + bristle * 0.8)
+        - tanX[k] * hgt * (lean - skew);
+      const tipy = sy + nrmY[k] * hgt * (1 + bristle * 0.8)
+        - tanY[k] * hgt * (lean - skew);
+      const base = girth[k] * 0.2;
+      const ax = sx - tanX[k] * base;
+      const ay = sy - tanY[k] * base;
+      const bx = sx + tanX[k] * base;
+      const by = sy + tanY[k] * base;
       b.poly([ax, ay, tipx, tipy, bx, by]).fill({
-        color: mixColor(ridgeCol, PALETTE.white, 0.22 - 0.1 * u),
-        alpha: 0.3 + 0.42 * locked,
+        color: mixColor(ridgeCol, this.accent.ink, 0.25 + 0.2 * u),
+        alpha: 0.4 + 0.4 * locked,
       });
-      // a fine lit edge on the up-left side of each fin
+      // a fine lit edge on the up-swept side of each ridge
       b.moveTo(ax, ay).lineTo(tipx, tipy).stroke({
-        width: 0.7,
+        width: 0.6,
         color: PALETTE.glow,
-        alpha: (0.12 + 0.2 * locked) * (1 - 0.5 * u),
+        alpha: (0.14 + 0.22 * locked) * (1 - 0.5 * u),
       });
     }
 

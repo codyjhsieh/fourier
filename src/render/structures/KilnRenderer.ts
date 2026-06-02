@@ -6,18 +6,25 @@ import { LAYOUT } from "../Layout";
 import { Painter, WorldRenderer, resample } from "./common";
 import { Species, flora } from "./Scenery";
 
-// Level — "The Bell Pool" (a TIMBRE / harmonic-series environment).
+// Level 15 — "THE TUNED BELL".
 //
-// A great hanging cast-bronze temple BELL rings above a still pool. Each ENABLED
-// harmonic is one resonant OVERTONE, drawn as a concentric RING of sound
-// radiating from the bell:
-//   - ring RADIUS  ∝ frequency index  (so 1,2,4,8… spaces out evenly)
-//   - ring BRIGHTNESS / THICKNESS ∝ amplitude
-// A clean harmonic series shows evenly spaced glowing rings; an inharmonic mess
-// shows clashing, ragged ones. The summed waveform (resample) shimmers along the
-// bell's rim and as ripples on the pool. The bell sways and the rings pulse
-// outward with `t`. As `score` rises the overtones lock into a pure golden ring
-// pattern and the bell glows warm; at score>0.7 a radiant bloom + ring burst.
+// A great hanging cast-bronze temple BELL. Each ENABLED harmonic is one resonant
+// OVERTONE, drawn as a RING of sound EMANATING outward from the bell mouth and
+// fading, like a real struck tone. The goal is a PURE OCTAVE series (1,2,4,8):
+// those overtones belong in the bell's natural ring; everything else clashes.
+//
+// We read `targetHarmonics` so each ring knows whether it is IN the octave
+// series or OFF it, and `score` for overall mastery:
+//
+//   DETUNED  → off-series rings emanate at IRREGULAR radii, wobbling, jangling
+//              and shuddering out of phase; the bronze goes dull, grey and
+//              lifeless; the whole bell flinches with a discordant shudder.
+//   TUNED    → only octave rings remain, evenly spaced, pulsing outward in one
+//              clean rhythm into a single bright STANDING octave-ring; the bell
+//              glows warm and sings.
+//
+// Each stone you tune snaps ITS ring from a clashing wobble into its clean slot,
+// so the control→scene link is direct: stone k ↔ ring k.
 
 // cheap deterministic hash in [0,1)
 function hash(x: number, y: number): number {
@@ -25,11 +32,14 @@ function hash(x: number, y: number): number {
   return n - Math.floor(n);
 }
 
+// the pure octave series this bell wants to ring in
+const OCTAVES = [1, 2, 4, 8];
+
 export class KilnRenderer implements WorldRenderer {
   container = new Container();
   species: Species = "blossom";
 
-  private rings = new Graphics(); // sound rings behind the bell (not reflected)
+  private rings = new Graphics(); // emanating sound rings behind the bell
   private body = new Graphics(); // bronze bell + beam (auto-reflected)
   private refl = new Graphics();
   private fx = new Graphics(); // glow, shimmer, bloom (not reflected)
@@ -39,6 +49,8 @@ export class KilnRenderer implements WorldRenderer {
   private bronzeBase = 0;
   private bronzeLight = 0;
   private bronzeShade = 0;
+  private bronzeDeep = 0;
+  private dullBase = 0; // lifeless grey-bronze for the detuned bell
   private patina = 0;
 
   constructor(accent: Accent) {
@@ -51,7 +63,11 @@ export class KilnRenderer implements WorldRenderer {
     // warm cast bronze, lit top-left; white-first, accent gold reserved.
     this.bronzeBase = mixColor(this.accent.accent, this.accent.ink, 0.34);
     this.bronzeLight = mixColor(this.bronzeBase, PALETTE.white, 0.5);
-    this.bronzeShade = mixColor(this.bronzeBase, this.accent.ink, 0.55);
+    this.bronzeShade = mixColor(this.bronzeBase, this.accent.ink, 0.58);
+    // a deep near-black bronze for the shadow side — strong dark for contrast.
+    this.bronzeDeep = mixColor(this.accent.ink, 0x000000, 0.45);
+    // a desaturated, cold grey-bronze: the bell when it rings out of tune.
+    this.dullBase = mixColor(this.bronzeBase, PALETTE.inkSoft, 0.62);
     // verdigris patina: a cooled, greened bronze in the recesses
     this.patina = mixColor(this.bronzeBase, 0x6f8a78, 0.42);
   }
@@ -65,10 +81,15 @@ export class KilnRenderer implements WorldRenderer {
     const h = this.get(harmonics, k);
     return h ? Math.min(1, Math.abs(h.amplitude)) : 0;
   }
+  private targetAmp(targetHarmonics: HarmonicComponent[], k: number): number {
+    const h = targetHarmonics.find((h) => Math.abs(h.frequencyIndex) === k);
+    return h ? Math.min(1, Math.abs(h.amplitude)) : 0;
+  }
 
   // ---- the cast-bronze bell ------------------------------------------------
   // A curved bell body filled column-by-column: a classic bell profile (waist
-  // pinching in, flaring to the lip). Lit top-left, patina in the recesses.
+  // pinching in, flaring to the lip). `glow` warms & brightens it; `life` (0
+  // detuned .. 1 tuned) lifts it from a dull lifeless grey to living bronze.
   private bell(
     p: Painter,
     cx: number,
@@ -76,12 +97,25 @@ export class KilnRenderer implements WorldRenderer {
     height: number,
     halfW: number,
     glow: number,
+    life: number,
+    shudder: number,
     t: number,
   ) {
     const cols = Math.max(14, Math.round(halfW * 2));
+    // pick the bronze ramp by life: detuned → grey & flat, tuned → rich bronze.
+    const base = mixColor(this.dullBase, this.bronzeBase, life);
+    const light = mixColor(
+      mixColor(this.dullBase, PALETTE.white, 0.28),
+      this.bronzeLight,
+      life,
+    );
+    const shade = mixColor(
+      mixColor(this.dullBase, this.accent.ink, 0.4),
+      this.bronzeShade,
+      life,
+    );
     // bell silhouette half-width as a function of u (0 top .. 1 lip)
     const profile = (u: number) => {
-      // shoulder dome near the top, slim waist, flaring sound-bow at the lip
       const dome = Math.sin(u * 0.9 + 0.2) * 0.55; // rounded shoulder
       const waist = 0.42 + 0.18 * Math.cos(u * Math.PI); // pinch mid
       const flare = Math.pow(u, 2.4) * 0.5; // lip flare
@@ -90,11 +124,8 @@ export class KilnRenderer implements WorldRenderer {
 
     for (let i = 0; i <= cols; i++) {
       const fx = (i / cols) * 2 - 1; // -1..1 across width
-      // find the bell height at this horizontal position by inverting profile:
-      // sample a few u and keep the lowest lip reach for |fx|.
       const ax = Math.abs(fx);
-      let colTop = topY + height; // default: no bell here
-      // walk u downward; the body exists where profile(u) >= ax
+      let colTop = topY + height;
       const steps = 26;
       let started = false;
       for (let s = 0; s <= steps; s++) {
@@ -112,51 +143,56 @@ export class KilnRenderer implements WorldRenderer {
       const colBot = topY + height;
       const x = cx + fx * halfW;
 
-      // vertical fill of this 1px-ish column
       const cw = Math.max(1.4, (halfW * 2) / cols + 0.6);
       // smooth top-left lighting: a soft cosine sheen peaking left-of-centre,
-      // falling to a darker right edge (1 lit .. 0 shaded).
+      // falling to a dark right edge (1 lit .. 0 shaded).
       const lightAcross = Math.pow(
         Math.max(0, Math.cos((fx + 0.32) * 1.15)),
         1.25,
       );
       for (let y = colTop; y < colBot; y += 3) {
         const vy = (y - colTop) / Math.max(1, colBot - colTop); // 0 top .. 1 lip
-        // mottled patina in shaded lower-right recesses
         const mottle = hash(Math.round(x), Math.round(y)) - 0.5;
-        // continuous bronze ramp: shade → base → light along the sheen.
+        // continuous bronze ramp: deep shadow → shade → base → light.
         let col: number;
         if (lightAcross > 0.55) {
-          col = mixColor(this.bronzeBase, this.bronzeLight, (lightAcross - 0.55) / 0.45);
+          col = mixColor(base, light, (lightAcross - 0.55) / 0.45);
         } else if (lightAcross > 0.3) {
-          col = mixColor(this.bronzeShade, this.bronzeBase, (lightAcross - 0.3) / 0.25);
+          col = mixColor(shade, base, (lightAcross - 0.3) / 0.25);
+        } else if (lightAcross > 0.12) {
+          col = mixColor(this.bronzeDeep, shade, (lightAcross - 0.12) / 0.18);
         } else {
-          col = mixColor(this.bronzeShade, this.patina, 0.32 + mottle * 0.18);
+          // deepest shadow side: near-black bronze, patina mottled, lifts w/ life
+          col = mixColor(
+            this.bronzeDeep,
+            mixColor(shade, this.patina, life * 0.4),
+            0.3 + mottle * 0.18,
+          );
         }
         // top shoulder catches a touch more light (rounded dome)
-        if (vy < 0.18) col = mixColor(col, this.bronzeLight, (0.18 - vy) * 1.2);
+        if (vy < 0.18) col = mixColor(col, light, (0.18 - vy) * 1.2);
         // warm the whole bell as it glows
-        col = mixColor(col, this.accent.accentSoft, glow * 0.35);
+        col = mixColor(col, this.accent.accentSoft, glow * 0.4);
         // a darker band at the sound-bow (the thick striking ring near the lip)
-        if (vy > 0.86) col = mixColor(col, this.accent.ink, 0.18);
+        if (vy > 0.86) col = mixColor(col, this.bronzeDeep, 0.22);
         p.block(x - cw / 2, y, cw, 3.4, col, 0.97);
       }
 
       // bright top-left rim highlight (a soft specular sheen, not a hard edge)
-      if (lightAcross > 0.72) {
-        const sheen = (lightAcross - 0.72) / 0.28;
+      if (lightAcross > 0.7) {
+        const sheen = (lightAcross - 0.7) / 0.3;
         p.block(
           x - cw / 2,
           colTop,
           cw,
           Math.min(10, colBot - colTop),
-          this.bronzeLight,
-          0.28 + sheen * 0.32,
+          light,
+          (0.24 + sheen * 0.4) * (0.5 + life * 0.5),
         );
       }
-      // a soft dark relief down the far right edge to round the form
-      if (lightAcross < 0.16) {
-        p.block(x - cw / 2, colTop, cw, colBot - colTop, this.bronzeShade, 0.22);
+      // a deep dark relief down the far right edge to round & ground the form
+      if (lightAcross < 0.14) {
+        p.block(x - cw / 2, colTop, cw, colBot - colTop, this.bronzeDeep, 0.34);
       }
     }
 
@@ -165,28 +201,28 @@ export class KilnRenderer implements WorldRenderer {
     for (const by of [topY + height * 0.46, topY + height * 0.62]) {
       const w = halfW * (by < topY + height * 0.5 ? 0.5 : 0.66);
       this.fx.rect(cx - w, by, w * 2, 1.4).fill({
-        color: mixColor(this.bronzeShade, this.accent.ink, 0.3),
+        color: this.bronzeDeep,
         alpha: 0.5,
       });
       this.fx.rect(cx - w, by, w * 2, 0.8).fill({
-        color: this.bronzeLight,
-        alpha: 0.3 + glow * 0.3,
+        color: light,
+        alpha: (0.25 + glow * 0.3) * (0.4 + life * 0.6),
       });
     }
 
     // the flared lip line catching light, with a soft shadow underneath it
     this.fx.rect(cx - halfW, lip - 0.5, halfW * 2, 1.6).fill({
-      color: mixColor(this.bronzeShade, this.accent.ink, 0.4),
-      alpha: 0.4,
+      color: this.bronzeDeep,
+      alpha: 0.45,
     });
     this.fx.rect(cx - halfW, lip - 2, halfW * 2, 2.2).fill({
-      color: mixColor(this.bronzeLight, this.accent.accent, glow * 0.5),
-      alpha: 0.45 + glow * 0.3,
+      color: mixColor(light, this.accent.accent, glow * 0.5),
+      alpha: (0.35 + glow * 0.35) * (0.45 + life * 0.55),
     });
     // a brighter glint at the left of the lip where the light wraps
     this.fx.rect(cx - halfW, lip - 2, halfW * 0.7, 2.2).fill({
-      color: this.bronzeLight,
-      alpha: 0.3,
+      color: light,
+      alpha: 0.3 * (0.4 + life * 0.6),
     });
 
     // ---- crown / canopy on top: stacked rings + a suspension loop ----------
@@ -195,39 +231,43 @@ export class KilnRenderer implements WorldRenderer {
       const t2 = i / 3;
       const w = halfW * (0.5 - t2 * 0.28);
       const y = topY - i * (crownH / 3);
-      const tier = mixColor(this.bronzeBase, this.bronzeShade, t2 * 0.25);
+      const tier = mixColor(base, shade, t2 * 0.25);
       p.block(cx - w, y - crownH / 3, w * 2, crownH / 3 + 1, tier, 0.96);
-      // lit left flank + darker right flank to round each tier
-      p.block(cx - w, y - crownH / 3, Math.max(1, w * 0.42), crownH / 3 + 1, this.bronzeLight, 0.5);
-      p.block(cx + w - Math.max(1, w * 0.3), y - crownH / 3, Math.max(1, w * 0.3), crownH / 3 + 1, this.bronzeShade, 0.4);
+      p.block(cx - w, y - crownH / 3, Math.max(1, w * 0.42), crownH / 3 + 1, light, 0.5);
+      p.block(cx + w - Math.max(1, w * 0.3), y - crownH / 3, Math.max(1, w * 0.3), crownH / 3 + 1, this.bronzeDeep, 0.45);
     }
     // the canopy loop (the ring it hangs by)
     const loopY = topY - crownH;
     this.body.circle(cx, loopY, Math.max(3, halfW * 0.22)).stroke({
       width: Math.max(2, halfW * 0.1),
-      color: this.bronzeShade,
+      color: this.bronzeDeep,
       alpha: 0.95,
     });
     this.body.circle(cx, loopY, Math.max(3, halfW * 0.22)).stroke({
       width: Math.max(1, halfW * 0.04),
-      color: this.bronzeLight,
+      color: light,
       alpha: 0.5,
     });
 
-    // ---- clapper hanging inside, swinging gently with t --------------------
-    const swing = Math.sin(t * 1.3) * halfW * 0.28;
+    // ---- clapper hanging inside ---------------------------------------------
+    // When detuned it JANGLES erratically (fast, irregular swing + shudder);
+    // when tuned it settles to a slow, calm, in-time sway.
+    const jangle =
+      Math.sin(t * 1.3) * (1 - shudder * 0.5) +
+      Math.sin(t * 7.3 + 1.1) * shudder * 0.9 +
+      Math.sin(t * 11.7) * shudder * 0.5;
+    const swing = jangle * halfW * 0.28;
     const clapperY = lip - height * 0.16;
-    // suspension line for the clapper
     this.body
       .moveTo(cx, topY + height * 0.18)
       .lineTo(cx + swing, clapperY)
-      .stroke({ width: 1.4, color: this.bronzeShade, alpha: 0.7 });
-    p.dot(cx + swing, clapperY, Math.max(2, halfW * 0.13), this.bronzeShade, 0.95);
+      .stroke({ width: 1.4, color: shade, alpha: 0.7 });
+    p.dot(cx + swing, clapperY, Math.max(2, halfW * 0.13), shade, 0.95);
     p.dot(
       cx + swing - halfW * 0.04,
       clapperY - halfW * 0.04,
       Math.max(1, halfW * 0.06),
-      this.bronzeLight,
+      light,
       0.6,
     );
   }
@@ -238,6 +278,7 @@ export class KilnRenderer implements WorldRenderer {
     score: number,
     t: number,
     harmonics: HarmonicComponent[],
+    targetHarmonics: HarmonicComponent[] = [],
   ) {
     const g = this.body;
     const r = this.refl;
@@ -250,15 +291,46 @@ export class KilnRenderer implements WorldRenderer {
 
     const cx = LAYOUT.W / 2;
 
-    // a single struck-bell beat phase, shared by sway + glow swell so the
-    // whole scene breathes in time with the ring emanation.
-    const strike = Math.sin(t * 1.6); // matches the ring pulse cadence
+    // ---- TUNING ANALYSIS -----------------------------------------------------
+    // How much of the ringing energy is IN the pure octave series vs OFF it.
+    // `inSeriesE` rises as the player tunes octaves to target; `offE` is the
+    // clashing energy from non-octave overtones (3,5,6,7,9,10) — pure noise.
+    const maxK = 10;
+    let inSeriesE = 0; // octave energy weighted by closeness to target amp
+    let octaveWant = 0; // total wanted octave energy (for normalisation)
+    let offE = 0; // energy on non-octave (clashing) overtones
+    // per-overtone tuning fraction (0 clashing/absent .. 1 snapped to slot)
+    const tuneK: number[] = new Array(maxK + 1).fill(0);
+    for (let k = 1; k <= maxK; k++) {
+      const a = this.amp(harmonics, k);
+      const want = this.targetAmp(targetHarmonics, k);
+      if (want > 0.001) {
+        // an octave member: tuned when its amplitude matches the target.
+        octaveWant += want;
+        const err = Math.min(1, Math.abs(a - want) / Math.max(0.15, want));
+        const close = a <= 0 ? 0 : 1 - err;
+        tuneK[k] = Math.max(0, close);
+        inSeriesE += want * tuneK[k];
+      } else if (a > 0.02) {
+        // a clashing overtone: only "tuned" by being silenced → tuneK stays 0.
+        offE += a;
+      }
+    }
+    // global tuning [0,1]: lots of in-series energy, little clashing energy.
+    const seriesFrac = octaveWant > 0 ? inSeriesE / octaveWant : 0;
+    const clean = Math.max(0, seriesFrac - offE * 0.8);
+    // blend with score so the scene tracks the engine's own grade too.
+    const life = Math.max(0, Math.min(1, clean * 0.55 + score * 0.45));
+    const shudder = Math.max(0, Math.min(1, 1 - life)); // 1 detuned .. 0 tuned
+
+    // a single struck-bell beat phase, shared by sway + glow swell.
+    const strike = Math.sin(t * 1.6);
     const swell = 0.5 + 0.5 * strike;
 
-    // ---- ambient still-pool glow under the bell, swelling on the strike ----
+    // ---- ambient pool glow under the bell — bright & warm when tuned, dull when not
     this.fx.circle(LAYOUT.glowX, LAYOUT.glowY, 70 + swell * 6).fill({
-      color: mixColor(PALETTE.glow, this.accent.accentSoft, 0.3 + score * 0.3),
-      alpha: 0.06 + score * 0.06 + (0.02 + score * 0.03) * swell,
+      color: mixColor(PALETTE.glow, this.accent.accentSoft, 0.25 + life * 0.4),
+      alpha: 0.05 + life * 0.08 + (0.02 + life * 0.03) * swell,
     });
 
     // ---- the supporting beam the bell hangs from ---------------------------
@@ -270,7 +342,6 @@ export class KilnRenderer implements WorldRenderer {
     p.block(cx - beamHalf, beamY, beamHalf * 2, 12, beamWood, 0.96);
     p.block(cx - beamHalf, beamY, beamHalf * 2, 3, beamLight, 0.55);
     p.block(cx - beamHalf, beamY + 9, beamHalf * 2, 3, beamDark, 0.45);
-    // two posts holding the beam, framing the scene
     for (const side of [-1, 1]) {
       const px = cx + side * (beamHalf - 14);
       for (let y = beamY + 12; y < LAYOUT.waterY - 6; y += 10) {
@@ -278,19 +349,20 @@ export class KilnRenderer implements WorldRenderer {
         p.block(px - 6, y, 3, 10, beamLight, 0.5);
         p.block(px + 3, y, 3, 10, beamDark, 0.4);
       }
-      // little bronze bracket where post meets beam
       p.block(px - 7, beamY + 10, 14, 5, this.bronzeShade, 0.8);
     }
 
-    // ---- the bell, swaying gently from the beam ----------------------------
+    // ---- the bell, hanging from the beam -----------------------------------
     const bellTopY = beamY + 24;
     const bellH = 110;
     const bellHalf = 56;
-    // gentle pendular sway + a tiny recoil on the strike beat (settles as mastered)
+    // SWAY: calm pendular drift when tuned; a JANGLING off-balance shudder when
+    // detuned (fast, irregular, recoiling) — the bell visibly rings wrong.
     const sway =
-      Math.sin(t * 0.8) * 6 +
-      Math.sin(t * 1.7) * 1.5 +
-      strike * 1.2 * (1 - score * 0.5);
+      Math.sin(t * 0.8) * 6 * (0.5 + life * 0.5) +
+      // discordant shudder: high-frequency jitter that vanishes as it tunes
+      (Math.sin(t * 9.1) + Math.sin(t * 13.7 + 0.7)) * 4.5 * shudder +
+      strike * 1.4 * shudder;
     // hanger straps from beam to crown
     for (const side of [-1, 1]) {
       this.body
@@ -298,94 +370,124 @@ export class KilnRenderer implements WorldRenderer {
         .lineTo(cx + sway * 0.4, bellTopY - bellH * 0.12)
         .stroke({ width: 2, color: this.bronzeShade, alpha: 0.85 });
     }
-    const glow = score; // bell warms with mastery
-    // shift the whole bell drawing by sway via a translate on cx
-    this.bell(p, cx + sway, bellTopY, bellH, bellHalf, glow, t);
+    const glow = life; // bell warms with TUNING, not just score
+    this.bell(p, cx + sway, bellTopY, bellH, bellHalf, glow, life, shudder, t);
 
-    // bell centre (rings radiate from here)
+    // bell mouth (rings emanate from here)
     const ringCx = cx + sway;
     const ringCy = bellTopY + bellH * 0.62;
 
-    // ---- OVERTONE RINGS: one concentric ring per enabled harmonic ----------
-    // radius ∝ frequency index, brightness/thickness ∝ amplitude, pulsing with t.
-    // Score "locks" them toward an even golden series and tightens their snap.
-    const maxK = 9;
-    let totalEnergy = 0;
-    for (let k = 1; k <= maxK; k++) totalEnergy += this.amp(harmonics, k);
-    const ringSpacing = 17 + score * 3; // a touch more even/airy as mastered
+    // ---- OVERTONE RINGS: one EMANATING ring per enabled harmonic -----------
+    // Each ring is born at the bell mouth and travels OUTWARD over t, fading as
+    // it goes — like a real struck tone spreading through the air. Octave rings
+    // (1,2,4,8) ride a clean, evenly-spaced emanation cadence and turn gold as
+    // they snap to their target; clashing overtones emanate at IRREGULAR,
+    // jangling radii in cold ink, wobbling out of phase. Stone k ↔ ring k.
+    const ringSpan = 150; // how far a ring travels before it dies
+    const slotGap = 30; // even spacing between consecutive octave slots
 
     for (let k = 1; k <= maxK; k++) {
       const a = this.amp(harmonics, k);
       if (a <= 0.02) continue;
+      const want = this.targetAmp(targetHarmonics, k);
+      const inSeries = want > 0.001;
+      const tune = tuneK[k];
 
-      // base radius from frequency index; pure series → evenly spaced.
-      const baseR = k * ringSpacing;
-      // a struck-bell outward pulse that breathes with t (each k offset in phase)
-      // — a rhythmic emanation that swells then settles into the standing ring.
-      const beat = Math.sin(t * 1.6 - k * 0.7);
-      const pulse = beat * (3 + a * 4) * (1 - score * 0.55);
-      const radius = baseR + pulse + a * 6;
+      // Each octave member owns an emanation SLOT (its place in the rhythm).
+      // Slots are evenly spaced so tuned rings pulse out in pure even time.
+      const slot = inSeries ? OCTAVES.indexOf(k) : k * 0.7;
+      // phase of THIS ring's emanation [0,1): 0 at the mouth, 1 fully spread.
+      // octave rings share one clean cadence; off rings drift at odd speeds.
+      const speed = inSeries ? 1 : 0.7 + hash(k, 3) * 0.9;
+      const phase = ((t * 0.32 * speed + slot * (inSeries ? 0.25 : hash(k, 9))) % 1 + 1) % 1;
 
-      // ragged wobble for inharmonic / low-score states; vanishes as score→1
-      const ragged = (1 - score) * (hash(k, 7) - 0.5) * 10;
+      // base travel radius from the emanation phase.
+      let radius = 14 + phase * ringSpan;
+      // octave rings, when tuned, settle onto an evenly-spaced standing slot;
+      // until then (and for off rings) the radius is irregular & jangling.
+      const cleanSlotR = 24 + slot * slotGap;
+      // wobble: large & noisy for clashing/untuned rings, gone when tuned.
+      const wobAmt = inSeries ? (1 - tune) * 14 : 16;
+      const wob =
+        Math.sin(t * (inSeries ? 2 : 5.3 + k) + k * 1.7) * wobAmt +
+        (hash(k, 17) - 0.5) * wobAmt * 1.2;
+      // tuned octave rings lean toward their clean standing slot; off rings &
+      // untuned rings keep their irregular, wobbling travel radius.
+      radius = radius * (1 - tune * 0.5) + cleanSlotR * (tune * 0.5) + wob;
 
-      const thickness = 1 + a * 4.5 * (0.6 + score * 0.6);
-      // color: cool ink-soft when messy, warming to gold as it locks in
-      const col = mixColor(
-        mixColor(this.accent.inkSoft, this.accent.accentSoft, score),
-        this.accent.accent,
-        a * 0.4 + score * 0.3,
-      );
-      // a gentle per-ring glow swell so strong overtones breathe brighter
-      const swell = 0.5 + 0.5 * beat;
-      const baseAlpha =
-        (0.12 + a * 0.45) * (0.7 + score * 0.5) * (0.82 + swell * 0.22);
+      // birth/death fade: rings bloom out of the mouth and dissolve at the edge.
+      const fade = Math.sin(phase * Math.PI); // 0 at birth & death, 1 mid-flight
+
+      // colour: clashing rings stay cold ink; octave rings warm to gold as tuned
+      const col = inSeries
+        ? mixColor(this.accent.inkSoft, this.accent.accent, 0.25 + tune * 0.7)
+        : mixColor(this.accent.inkSoft, PALETTE.ink, 0.35);
+
+      const thickness = (1 + a * 4) * (inSeries ? 0.7 + tune * 0.7 : 0.7);
+      // off-series rings flicker (jangle) in brightness; octave rings are steady.
+      const jitter = inSeries
+        ? 1
+        : 0.55 + 0.45 * Math.abs(Math.sin(t * 9 + k * 2.1));
+      const baseAlpha = (0.1 + a * 0.5) * fade * jitter * (inSeries ? 0.85 : 0.6);
 
       // draw the ring as a stippled circle so it reads as "sound", not a hoop.
-      // tighter, more even dot spacing as the series locks → crisper standing ring.
-      const segs = Math.max(
-        28,
-        Math.round(radius * (0.5 + score * 0.35)),
-      );
+      // octave rings get denser, smoother dots as they tune → crisper standing ring.
+      const segs = Math.max(24, Math.round(radius * (inSeries ? 0.55 + tune * 0.4 : 0.5)));
       for (let s = 0; s < segs; s++) {
         const ang = (s / segs) * Math.PI * 2;
-        // ripple the radius along the circumference for shimmer; calms as score→1
-        const rr =
-          radius +
-          ragged +
-          Math.sin(ang * k + t * 1.2) * (1.2 + (1 - score) * 2.5);
+        // circumference ripple: jangling for off/untuned, calm for tuned.
+        const ripAmt = inSeries ? (1 - tune) * 2.5 + 0.6 : 3.5;
+        const rr = radius + Math.sin(ang * (inSeries ? k : k * 1.7 + 1) + t * (inSeries ? 1 : 4)) * ripAmt;
         const dotX = ringCx + Math.cos(ang) * rr;
         const dotY = ringCy + Math.sin(ang) * rr * 0.92; // slight squash
-        // fade the lower arc where it would dive into the pool
         const below = dotY > LAYOUT.waterY - 4;
-        const aMul = below ? 0.25 : 1;
+        const aMul = below ? 0.22 : 1;
         this.rings
           .circle(dotX, dotY, thickness)
           .fill({ color: col, alpha: baseAlpha * aMul });
       }
 
-      // a soft glowing halo on the strongest rings, swelling on the beat
-      if (a > 0.4) {
+      // a soft halo on strong, well-tuned octave rings — the sound "blooming".
+      if (inSeries && tune > 0.45 && a > 0.2) {
         this.rings.circle(ringCx, ringCy, radius).stroke({
-          width: thickness * 2.2,
-          color: mixColor(col, PALETTE.white, 0.3),
-          alpha: baseAlpha * (0.3 + swell * 0.2),
+          width: thickness * 2,
+          color: mixColor(col, PALETTE.white, 0.35),
+          alpha: baseAlpha * 0.6 * tune,
         });
       }
     }
 
-    // ---- a soft glow swell at the bell mouth on a strong, in-tune ring -----
-    // the central halo brightens on the strike beat, the more energy is tuned in.
-    if (totalEnergy > 0.05) {
-      const tune = Math.min(1, totalEnergy * 0.5);
-      this.fx.circle(ringCx, ringCy, 22 + swell * 8 + tune * 10).fill({
-        color: mixColor(PALETTE.glow, this.accent.accentSoft, 0.4 + score * 0.3),
-        alpha: (0.05 + tune * 0.08) * (0.5 + swell * 0.5),
+    // ---- THE STANDING OCTAVE-RING: the prize when fully tuned --------------
+    // As `life`→1 a single bright, perfectly even concentric ring set locks in
+    // place around the bell — the pure octave the player is building toward.
+    if (life > 0.4) {
+      const lock = (life - 0.4) / 0.6; // 0 .. 1
+      for (let i = 0; i < OCTAVES.length; i++) {
+        const rad = 24 + i * slotGap;
+        const breathe = 1 + Math.sin(t * 1.6 - i * 0.5) * 0.04 * (1 - lock * 0.5);
+        this.rings.circle(ringCx, ringCy, rad * breathe).stroke({
+          width: 1.6 + lock * 1.4,
+          color: mixColor(this.accent.accentSoft, this.accent.accent, 0.4 + lock * 0.4),
+          alpha: 0.12 + lock * 0.3,
+        });
+        // a brighter inner highlight so it reads as a singing standing wave
+        this.rings.circle(ringCx, ringCy, rad * breathe).stroke({
+          width: 0.8,
+          color: mixColor(this.accent.accent, PALETTE.white, 0.4),
+          alpha: (0.1 + lock * 0.25) * (0.6 + swell * 0.4),
+        });
+      }
+    }
+
+    // ---- glow swell at the bell mouth, brightening as the bell sings -------
+    if (life > 0.05) {
+      this.fx.circle(ringCx, ringCy, 18 + swell * 8 + life * 14).fill({
+        color: mixColor(PALETTE.glow, this.accent.accentSoft, 0.35 + life * 0.4),
+        alpha: (0.04 + life * 0.1) * (0.5 + swell * 0.5),
       });
     }
 
     // ---- summed waveform shimmer on the bell rim ---------------------------
-    // The reconstructed wave ripples around the bell lip as a bright filigree.
     const rim = resample(shape, 40);
     const lipY = bellTopY + bellH - 2;
     for (let i = 0; i < rim.length; i++) {
@@ -395,31 +497,31 @@ export class KilnRenderer implements WorldRenderer {
       const y = lipY + v * (2.5 + glow * 2);
       this.fx.circle(x, y, 0.9 + Math.abs(v) * 1.2).fill({
         color: mixColor(this.bronzeLight, this.accent.accent, glow * 0.6),
-        alpha: 0.3 + Math.abs(v) * 0.4,
+        alpha: (0.25 + Math.abs(v) * 0.4) * (0.4 + life * 0.6),
       });
     }
 
     // ---- a soft waterline shimmer where the reflection meets the pool ------
     this.fx.rect(cx - 150, LAYOUT.waterY - 1, 300, 1.4).fill({
-      color: mixColor(PALETTE.water, this.accent.accentSoft, 0.3 + score * 0.2),
-      alpha: 0.12 + 0.05 * swell,
+      color: mixColor(PALETTE.water, this.accent.accentSoft, 0.25 + life * 0.25),
+      alpha: 0.1 + 0.05 * swell,
     });
 
-    // ---- ripples on the still pool, driven by the summed wave + energy -----
+    // ---- ripples on the pool: even & calm when tuned, choppy when detuned --
     const ripR = resample(shape, 16);
-    const ringsOnWater = 3 + Math.round(totalEnergy);
+    const ringsOnWater = 3 + Math.round(seriesFrac * 2);
     for (let i = 0; i < ringsOnWater; i++) {
-      const phase = (t * 18 + i * 26) % 130;
-      const rad = 10 + phase;
-      // smooth in-then-out fade so rings bloom and dissolve cleanly
-      const fade = Math.sin((phase / 130) * Math.PI);
-      const wob = (ripR[i % ripR.length] ?? 0) * 4;
+      const phaseW = (t * 18 + i * 26) % 130;
+      const rad = 10 + phaseW;
+      const fadeW = Math.sin((phaseW / 130) * Math.PI);
+      // choppy offset for detuned water; smooth when tuned.
+      const wob = (ripR[i % ripR.length] ?? 0) * (4 + shudder * 6);
       this.fx
         .ellipse(LAYOUT.glowX, LAYOUT.waterY + 6 + i, rad + wob, (rad + wob) * 0.3)
         .stroke({
           width: 1,
-          color: mixColor(PALETTE.water, this.accent.accentSoft, 0.4 + score * 0.3),
-          alpha: 0.2 * fade * (0.6 + totalEnergy * 0.2),
+          color: mixColor(PALETTE.water, this.accent.accentSoft, 0.3 + life * 0.3),
+          alpha: 0.18 * fadeW * (0.5 + life * 0.4),
         });
     }
 
@@ -429,7 +531,6 @@ export class KilnRenderer implements WorldRenderer {
     const bankLight = mixColor(bankTone, PALETTE.white, 0.28);
     for (const side of [-1, 1]) {
       const bx = cx + side * 164;
-      // a low mound, lit along its top-left edge
       for (let dx = -28; dx <= 28; dx += 4) {
         const h = Math.max(0, 7 - Math.abs(dx) * 0.18);
         if (h < 1) continue;
@@ -438,16 +539,15 @@ export class KilnRenderer implements WorldRenderer {
       }
     }
 
-    // ---- flanking flora (a couple of trees, like temple-garden lanterns) ---
+    // ---- flanking flora ----------------------------------------------------
     flora(p, cx - 150, groundY, 4.4, this.accent, 4.1, this.species);
     flora(p, cx - 178, groundY + 2, 3.2, this.accent, 6.7, this.species);
     flora(p, cx + 150, groundY, 4.4, this.accent, 8.8, this.species);
     flora(p, cx + 178, groundY + 2, 3.2, this.accent, 10.2, this.species);
 
-    // ---- mastery: radiant warm bloom + a burst of pure golden rings --------
+    // ---- mastery: radiant warm bloom + a burst of pure emanating gold rings -
     if (score > 0.7) {
       const open = (score - 0.7) / 0.3;
-      // warm bloom enveloping the bell
       this.fx.circle(ringCx, ringCy, 60 + open * 50).fill({
         color: mixColor(PALETTE.glow, this.accent.accentSoft, 0.5),
         alpha: 0.1 * open,
@@ -456,21 +556,18 @@ export class KilnRenderer implements WorldRenderer {
         color: PALETTE.white,
         alpha: 0.16 * open,
       });
-
-      // a clean burst of evenly spaced golden rings expanding outward
+      // a clean burst of evenly spaced golden rings EMANATING outward
       const burstCount = 5;
       for (let i = 0; i < burstCount; i++) {
-        const phase = (t * 26 + i * (130 / burstCount)) % 130;
-        const rad = 20 + phase;
-        const fade = 1 - phase / 130;
+        const phaseB = (t * 26 + i * (130 / burstCount)) % 130;
+        const rad = 20 + phaseB;
+        const fadeB = 1 - phaseB / 130;
         this.fx.circle(ringCx, ringCy, rad).stroke({
           width: 2 + open * 1.5,
           color: mixColor(this.accent.accent, PALETTE.white, 0.3),
-          alpha: 0.4 * open * fade,
+          alpha: 0.4 * open * fadeB,
         });
       }
-
-      // radiant crown of motes around the canopy when fully mastered
       if (open > 0.6) {
         const kk = (open - 0.6) / 0.4;
         for (let i = 0; i < 16; i++) {

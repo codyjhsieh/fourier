@@ -13,18 +13,21 @@ import { Species } from "./Scenery";
 // radius spokes) keep the "gears" reading: this is the clockwork that FOLDS
 // the figure. The figure those rotors construct is the iconic tesseract
 // WIREFRAME — a cube-within-a-cube, connected corner-to-corner, drawn as
-// glowing vertices + clean edge lines, slowly turning with the characteristic
-// 4D-projection wobble.
+// bold glowing edges + bright round vertices, slowly turning.
 //
-// When amplitude/phase are WRONG the wireframe is GARBLED: edges tangled, the
-// two cubes sheared apart, vertices scattered (a broken hypercube). As amp +
-// phase resolve toward target (score -> 1) the wireframe FOLDS crisp: inner
-// cube + outer cube + 8 connecting edges, glowing vertices, gently rotating,
-// radiating a soft bloom. Cleanliness is driven by `score`; the rotation /
-// 4D projection wobble is driven by the phasor sum (resample / harmonics).
+// KEY DESIGN: the BROKEN state is NOT random lines — it is ALWAYS a coherent,
+// recognizable hypercube that has been STRUCTURALLY DISTORTED: sheared,
+// skewed, and TORN OPEN along its W-fold (the inner cube pulled bodily out of
+// the outer cube and rotated away). A faint GHOST of the clean target
+// tesseract sits behind the live one so the goal is always visible. The
+// rotors (radius=amplitude, angle=phase) drive the fold directly: their summed
+// reach controls how far the cube tears open, their summed phase controls the
+// shear/twist. As `score`→1 the shear unwinds, the fold closes, and the figure
+// settles into a clean rotating cube-within-cube + 8 connecting edges.
 //
-// White-first CREAM base, indigo accent, night mood but pale-luminous (no
-// neon), light from the top-left, a few faint stars, faint Painter reflection.
+// White-first CREAM base, indigo accent, night mood but with a strong dark
+// accent-ink edge CORE (so the wireframe reads solid, not floating) wrapped in
+// a pale luminous glow. Light from the top-left, a few crisp stars.
 // Deterministic sin/hash only; bounded loops; 60fps.
 
 const TWO_PI = Math.PI * 2;
@@ -35,6 +38,11 @@ const LIGHT_Y = -0.72;
 function hash(x: number, y: number): number {
   const n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
   return n - Math.floor(n);
+}
+
+function smoothstep(e0: number, e1: number, x: number): number {
+  const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
+  return t * t * (3 - 2 * t);
 }
 
 interface V4 {
@@ -75,6 +83,20 @@ const EDGES: [number, number][] = (() => {
   return out;
 })();
 
+// Distortion parameters that turn a clean tesseract into a recognizable
+// "broken" one. Every field is STRUCTURAL (affine / coherent), never random
+// per-vertex noise — so the cube topology is always legible.
+interface Distort {
+  shearXY: number; // skew x by y (parallelogram)
+  shearZX: number; // skew z by x
+  twist: number; // extra rotation applied only to the inner (w=+1) cube
+  tear: number; // how far the inner cube is pulled out of the outer along W
+  offX: number; // bodily offset of the inner cube (the "torn apart" gap)
+  offY: number;
+  swayX: number; // slow breathing sway of the whole frame when wrong
+  swayY: number;
+}
+
 export class PhasorRenderer implements WorldRenderer {
   container = new Container();
   species: Species = "crystal";
@@ -82,25 +104,35 @@ export class PhasorRenderer implements WorldRenderer {
   private sky = new Graphics(); // night wash + faint stars
   private body = new Graphics(); // rotor mechanism (pale rings + spokes, reflected)
   private refl = new Graphics();
+  private ghost = new Graphics(); // faint target tesseract behind the live one
   private wire = new Graphics(); // tesseract edges + glowing vertices
   private fx = new Graphics(); // bloom
   private accent: Accent;
 
-  // tones resolved per accent (kept pale + luminous)
-  private edgeInk = 0;
-  private edgeGlow = 0;
+  // tones resolved per accent
+  private edgeInk = 0; // DARK accent-ink edge CORE (the solid line)
+  private edgeGlow = 0; // pale luminous halo around the edge
   private ring = 0;
 
   constructor(accent: Accent) {
     this.accent = accent;
-    this.container.addChild(this.sky, this.refl, this.body, this.wire, this.fx);
+    this.container.addChild(
+      this.sky,
+      this.refl,
+      this.body,
+      this.ghost,
+      this.wire,
+      this.fx,
+    );
     this.resolveTones();
   }
 
   private resolveTones() {
-    // Pale-luminous indigo edge ink, biased toward white so nothing reads dark.
-    this.edgeInk = mixColor(this.accent.ink, this.accent.accent, 0.55);
-    this.edgeGlow = mixColor(this.accent.accentSoft, PALETTE.white, 0.45);
+    // DARK indigo-ink edge core so the wireframe reads solid & finished (not a
+    // floating faint lavender thread). Kept just shy of black — strong dark.
+    this.edgeInk = mixColor(this.accent.ink, 0x1d1b2a, 0.62);
+    // pale luminous halo (cream-white) that wraps the dark core.
+    this.edgeGlow = mixColor(this.accent.accentSoft, PALETTE.white, 0.5);
     this.ring = mixColor(PALETTE.inkFaint, this.accent.inkSoft, 0.45);
   }
 
@@ -170,6 +202,45 @@ export class PhasorRenderer implements WorldRenderer {
     };
   }
 
+  // Apply a STRUCTURAL distortion to a clean vertex. Coherent affine warps +
+  // a fold-tear that pulls the inner cube out — so the result still reads as a
+  // hypercube, just a broken/unfolded one. At d.tear==0 it returns the clean v.
+  private distort(v: V4, d: Distort): V4 {
+    const inner = v.w > 0 ? 1 : 0; // 1 = inner (w=+1) cube
+    let x = v.x;
+    let y = v.y;
+    let z = v.z;
+    let w = v.w;
+
+    // 1) global parallelogram shear/skew (coherent — keeps faces flat)
+    x = x + d.shearXY * y;
+    z = z + d.shearZX * x;
+
+    // 2) the inner cube is rigidly twisted about screen-z (still a cube, just
+    //    rotated away from the outer — reads as "the fold misaligned")
+    if (inner) {
+      const c = Math.cos(d.twist);
+      const s = Math.sin(d.twist);
+      const rx = x * c - y * s;
+      const ry = x * s + y * c;
+      x = rx;
+      y = ry;
+      // and bodily torn out of the outer cube
+      x += d.offX;
+      y += d.offY;
+    }
+
+    // 3) TEAR open along W: push inner toward +W and outer toward -W so the
+    //    two cubes separate in the 4th dimension (the "unfolded" hypercube).
+    w += (inner ? 1 : -1) * d.tear;
+
+    // 4) whole-frame breathing sway when wrong
+    x += d.swayX;
+    y += d.swayY;
+
+    return { x, y, z, w };
+  }
+
   update(
     shape: ShapeData,
     target: ShapeData,
@@ -182,6 +253,7 @@ export class PhasorRenderer implements WorldRenderer {
     this.sky.clear();
     g.clear();
     r.clear();
+    this.ghost.clear();
     this.wire.clear();
     this.fx.clear();
     this.resolveTones();
@@ -199,8 +271,7 @@ export class PhasorRenderer implements WorldRenderer {
 
     // ===================================================================
     // THE ROTOR MECHANISM — faint nested phasor wheels (rings + spokes).
-    // These are the "gears" that fold the figure; kept pale so they read
-    // as mechanism, not noise.
+    // Kept pale & uncluttered so they read as the clockwork driving the fold.
     // ===================================================================
     const phasors = this.phasors(harmonics);
 
@@ -211,7 +282,7 @@ export class PhasorRenderer implements WorldRenderer {
 
     const spin = t * 0.5;
 
-    // chain the rotors tip-to-tip; the resulting tip drives the 4D wobble.
+    // chain the rotors tip-to-tip; the resulting tip drives the 4D fold.
     let armX = cx;
     let armY = cy;
     let phaseSum = 0;
@@ -229,9 +300,8 @@ export class PhasorRenderer implements WorldRenderer {
       const nextX = armX + Math.cos(ang) * len;
       const nextY = armY + Math.sin(ang) * len;
 
-      // pale rotor-ring rim, evenly drawn and lit on its top-left arc so it
-      // reads as a clean turning gear behind the hero wireframe (uncluttered).
-      const rimCol = mixColor(this.ring, this.edgeInk, 0.2 + 0.25 * lock);
+      // pale rotor-ring rim, lit on its top-left arc -> a clean turning gear.
+      const rimCol = mixColor(this.ring, this.accent.accent, 0.18 + 0.22 * lock);
       const steps = Math.max(36, Math.round(len * 0.85));
       for (let s = 0; s < steps; s++) {
         const a = (s / steps) * TWO_PI;
@@ -240,10 +310,9 @@ export class PhasorRenderer implements WorldRenderer {
         const gx = armX + nx * len;
         const gy = armY + ny * len;
         const lit = nx * LIGHT_X + ny * LIGHT_Y; // top-left illumination
-        // faint everywhere, brightening smoothly along the lit arc
         const litUp = Math.max(0, lit);
         const col = mixColor(rimCol, this.edgeGlow, litUp * 0.8);
-        const al = 0.08 + 0.1 * lock + litUp * (0.14 + 0.14 * lock);
+        const al = 0.07 + 0.08 * lock + litUp * (0.12 + 0.12 * lock);
         p.block(gx - 0.9, gy - 0.9, 1.8, 1.8, col, al);
       }
 
@@ -254,9 +323,8 @@ export class PhasorRenderer implements WorldRenderer {
         const u = s / armSteps;
         const sx = armX + (nextX - armX) * u;
         const sy = armY + (nextY - armY) * u;
-        // fade the spoke toward the rim so the hub reads as the anchor
         const fade = 0.7 + 0.3 * (1 - u);
-        p.block(sx - 0.55, sy - 0.55, 1.1, 1.1, spokeCol, (0.14 + 0.2 * lock) * fade);
+        p.block(sx - 0.55, sy - 0.55, 1.1, 1.1, spokeCol, (0.12 + 0.16 * lock) * fade);
       }
 
       // small lit hub bead at this joint
@@ -270,69 +338,95 @@ export class PhasorRenderer implements WorldRenderer {
     const penY = armY;
 
     // ===================================================================
-    // PHASOR-DRIVEN 4D ROTATION + GARBLE.
-    // The reconstruction waveform drives the projection wobble; when the
-    // signal is wrong (low score) the cube is sheared & scattered.
+    // CONTROL -> SCENE LINK. The rotor chain directly drives the fold:
+    //   - tip REACH (how far the pen is from centre)  -> how far the cube
+    //     tears open / how strong the shear (visibly reshapes the cube).
+    //   - tip ANGLE + summed phase                    -> twist / skew sign.
+    // The reconstruction-vs-target error sets the OVERALL distortion budget so
+    // the cube is most broken when the signal is most wrong, and closes as the
+    // player dials the stones toward the target.
     // ===================================================================
     const wave = resample(shape, 64);
     const tWave = resample(target, 64);
-    // signal-driven angles (deterministic, from the reconstruction)
+    let err = 0;
+    for (let i = 0; i < wave.length; i++) {
+      const dv = wave[i] - tWave[i];
+      err += dv * dv;
+    }
+    err = Math.sqrt(err / wave.length); // RMS reconstruction error
+
     const phaseMean = ampW > 1e-6 ? phaseSum / ampW : 0;
     const tipAng = Math.atan2(penY - cy, penX - cx);
-    // Smoother, more graceful 4D rotation: steady base spin with gentle
-    // sinusoidal easing so the fold breathes rather than ticking. The
-    // phasor signal nudges the planes, but only softly, so the turn stays
-    // legible and uncluttered.
+    const reach = Math.min(1, Math.hypot(penX - cx, penY - cy) / (chainSpan + 1e-6));
+
+    // graceful base 4D rotation (the fold breathes rather than ticking)
     const ease = Math.sin(t * 0.4);
-    const rotXW = t * 0.16 + Math.sin(t * 0.27) * 0.18 + phaseMean * 0.3 + tipAng * 0.1;
-    const rotYZ = t * 0.11 + Math.cos(t * 0.33) * 0.14 - phaseMean * 0.22;
+    const rotXW = t * 0.16 + Math.sin(t * 0.27) * 0.18 + phaseMean * 0.22 + tipAng * 0.06;
+    const rotYZ = t * 0.11 + Math.cos(t * 0.33) * 0.14 - phaseMean * 0.16;
     const rotXY = t * 0.06 + ease * 0.05;
-    // 4D fold wobble: slow, smooth, lightly phasor-coloured
-    const wobZW = Math.sin(t * 0.5) * 0.42 + Math.sin(t * 0.19) * 0.16 + phaseMean * 0.18;
+    const wobZW = Math.sin(t * 0.5) * 0.42 + Math.sin(t * 0.19) * 0.16 + phaseMean * 0.14;
 
-    const scale = span * 0.62;
+    const scale = span * 0.6;
 
-    // GARBLE field: per-vertex displacement that vanishes as score -> 1.
-    // Cubic easing makes the final snap-to-clean feel sudden & satisfying:
-    // it stays visibly tangled across most of the range, then collapses.
-    const inv = 1 - lock;
-    const garble = inv * inv * inv;
+    // DISTORTION BUDGET: how broken the cube is. Driven by score AND the live
+    // reconstruction error / rotor reach, eased so it stays visibly distorted
+    // across the low range then closes smoothly & continuously as score -> 1.
+    const wrong = Math.max(1 - lock, smoothstep(0, 0.5, err)); // 0 clean .. 1 broken
+    const broke = wrong * wrong; // ease: lingers broken, then settles
 
-    // project every vertex, applying score-driven garble (shear + scatter)
+    // The rotors visibly drive the SHAPE of the break.
+    const d: Distort = {
+      shearXY: Math.sin(phaseMean * 1.3 + tipAng) * 0.85 * broke,
+      shearZX: Math.cos(phaseMean * 0.9) * 0.6 * broke,
+      twist: (tipAng * 0.7 + phaseMean * 0.5 + 0.6) * broke,
+      // tip reach pulls the inner cube bodily out — the signature "tear".
+      tear: (0.6 + 0.9 * reach) * broke,
+      offX: Math.cos(tipAng) * 0.9 * reach * broke,
+      offY: Math.sin(tipAng) * 0.9 * reach * broke,
+      swayX: Math.sin(t * 0.7) * 0.18 * broke,
+      swayY: Math.cos(t * 0.55) * 0.16 * broke,
+    };
+
+    // ===================================================================
+    // GHOST TARGET — a faint, perfectly clean tesseract at the same scale &
+    // rotation, so the player always sees the goal they are folding toward.
+    // It fades out as the live figure converges onto it (no double-vision when
+    // already solved).
+    // ===================================================================
+    const ghostProj: P2[] = [];
+    for (let i = 0; i < 16; i++) {
+      ghostProj.push(
+        this.project(CUBE4[i], cx, cy, scale, rotXW, rotYZ, rotXY, wobZW),
+      );
+    }
+    const ghostA = 0.5 * (1 - lock) * (1 - lock) + 0.06; // strong when wrong, faint when near
+    this.drawGhost(ghostProj, ghostA);
+
+    // ===================================================================
+    // THE LIVE WIREFRAME — structurally distorted hypercube. Project every
+    // vertex through the coherent Distort (NEVER random scatter) so it always
+    // reads as a recognizable, if broken, tesseract.
+    // ===================================================================
     const proj: P2[] = [];
     for (let i = 0; i < 16; i++) {
-      const v = CUBE4[i];
-      // mismatch between current & target reconstruction smears the cube
-      const wi = (v.w + 1) * 0.5; // 0 inner, 1 outer
-      const si = Math.floor(((i + 0.5) / 16) * wave.length);
-      const mism = wave[si] - tWave[si]; // signed error
-      // a slow churning tangle so wrongness reads as restless, not frozen
-      const churn = Math.sin(t * 1.3 + i * 2.2) * garble;
-      // shear the two cubes apart along W; scatter vertices by hash + error
-      const sh = mism * garble * 1.6;
-      const scx = (hash(i, 3) - 0.5) * garble * 2.2 + churn * 0.4;
-      const scy = (hash(i, 7) - 0.5) * garble * 2.2;
-      const scz = (hash(i, 11) - 0.5) * garble * 2.2;
-      const gv: V4 = {
-        x: v.x + sh * v.x * 0.5 + scx,
-        y: v.y + scy + Math.sin(t * 1.3 + i) * garble * 0.7,
-        z: v.z + scz + Math.cos(t * 0.9 + i * 1.7) * garble * 0.5,
-        // pull inner/outer cubes apart in W when wrong (the cubes "unfold")
-        w: v.w + (wi - 0.5) * garble * 2.4 + sh,
-      };
       proj.push(
-        this.project(gv, cx, cy, scale, rotXW, rotYZ, rotXY, wobZW),
+        this.project(
+          this.distort(CUBE4[i], d),
+          cx,
+          cy,
+          scale,
+          rotXW,
+          rotYZ,
+          rotXY,
+          wobZW,
+        ),
       );
     }
 
-    // ===================================================================
-    // THE WIREFRAME — 32 edges as clean glowing lines, drawn into wire.
-    // Inner cube (w=+1) and outer cube (w=-1) get distinct emphasis so the
-    // CUBE-WITHIN-A-CUBE reads instantly. Connecting edges glow brightest.
-    // ===================================================================
-    // Ease the cleanliness so the snap feels deliberate, not linear.
-    const crisp = lock * lock * (3 - 2 * lock); // 0 garbled .. 1 crisp (smoothstep)
-    // Draw outer cube first, then connecting edges, then the bright inner
+    // cleanliness (for value/contrast): 0 broken .. 1 crisp.
+    const crisp = smoothstep(0, 1, lock);
+
+    // Draw outer cube, then connecting "fold" edges, then the bright inner
     // cube last so the cube-within-a-cube nesting reads back-to-front.
     type EdgeKind = 0 | 1 | 2; // 0 outer, 1 connecting, 2 inner
     const order: EdgeKind[] = [0, 1, 2];
@@ -349,29 +443,29 @@ export class PhasorRenderer implements WorldRenderer {
         const a = proj[ia];
         const b = proj[ib];
 
-        let col: number;
+        let core: number;
         let baseA: number;
         let thick: number;
         if (connecting) {
-          // the 8 "fold" edges — the signature of the tesseract: brightest,
-          // accent-tinted, slightly heavier so the inner/outer link reads.
-          col = mixColor(this.accent.accent, PALETTE.white, 0.2 + 0.25 * crisp);
-          baseA = 0.32 + 0.5 * crisp;
-          thick = 1.5 + 0.8 * crisp;
+          // the 8 "fold" edges — the signature of the tesseract: brightest
+          // accent, heaviest, so the inner/outer link reads even when torn.
+          core = mixColor(this.accent.accent, this.edgeInk, 0.35);
+          baseA = 0.5 + 0.45 * crisp;
+          thick = 2.2 + 1.1 * crisp;
         } else if (inner) {
-          // inner cube — cool-bright, crisp, a touch thinner (it sits "far"
+          // inner cube — dark ink core, crisp, slightly thinner (it sits far
           // in W and reads as the small nested cube).
-          col = mixColor(this.edgeGlow, PALETTE.white, 0.4 + 0.3 * crisp);
-          baseA = 0.34 + 0.46 * crisp;
-          thick = 1.2 + 0.6 * crisp;
+          core = mixColor(this.edgeInk, this.accent.accent, 0.28);
+          baseA = 0.5 + 0.45 * crisp;
+          thick = 1.9 + 0.9 * crisp;
         } else {
-          // outer cube — the calm inked frame.
-          col = mixColor(this.edgeInk, this.edgeGlow, 0.35 + 0.35 * crisp);
-          baseA = 0.32 + 0.46 * crisp;
-          thick = 1.4 + 0.7 * crisp;
+          // outer cube — the calm dark inked frame.
+          core = this.edgeInk;
+          baseA = 0.52 + 0.42 * crisp;
+          thick = 2.1 + 1.0 * crisp;
         }
 
-        this.drawEdge(a, b, col, baseA, thick, crisp);
+        this.drawEdge(a, b, core, baseA, thick, crisp);
       }
     }
 
@@ -382,39 +476,38 @@ export class PhasorRenderer implements WorldRenderer {
       const a = proj[i];
       const inner = CUBE4[i].w > 0;
       const dep = 0.55 + 0.55 * a.depth; // depth cue
-      const vr = (inner ? 1.5 : 2.1) * dep * (0.72 + 0.28 * crisp);
+      const vr = (inner ? 1.9 : 2.6) * dep * (0.78 + 0.22 * crisp);
       // wide soft halo
       this.wire.circle(a.x, a.y, vr * (2.1 + 0.8 * crisp)).fill({
         color: this.edgeGlow,
-        alpha: (0.06 + 0.15 * crisp) * dep,
+        alpha: (0.08 + 0.16 * crisp) * dep,
       });
       // tighter bloom
       this.wire.circle(a.x, a.y, vr * 1.4).fill({
-        color: mixColor(this.edgeGlow, this.accent.accentSoft, 0.4),
-        alpha: (0.12 + 0.2 * crisp) * dep,
+        color: mixColor(this.edgeGlow, this.accent.accent, 0.35),
+        alpha: (0.16 + 0.22 * crisp) * dep,
       });
       // bright round core
       this.wire.circle(a.x, a.y, vr).fill({
-        color: mixColor(this.accent.accent, PALETTE.white, inner ? 0.6 : 0.48),
-        alpha: 0.5 + 0.42 * crisp,
+        color: mixColor(this.accent.accent, PALETTE.white, inner ? 0.6 : 0.5),
+        alpha: 0.62 + 0.34 * crisp,
       });
       // crisp specular highlight, top-left lit
       this.wire
         .circle(a.x - vr * 0.32, a.y - vr * 0.34, Math.max(0.5, vr * 0.42))
-        .fill({ color: PALETTE.white, alpha: (0.6 + 0.32 * crisp) * dep });
+        .fill({ color: PALETTE.white, alpha: (0.65 + 0.3 * crisp) * dep });
     }
 
     // central pivot of the mechanism
     this.hub(p, cx, cy, 2.6 + lock * 1.6, 0.5 + 0.5 * lock);
 
     // ===================================================================
-    // RESOLVED: the clean hypercube radiates a soft bloom + the connecting
-    // "fold" cube haloes gently.
+    // RESOLVED: the clean hypercube radiates a soft bloom + light pulses run
+    // along the 8 connecting "fold" edges (now perfectly closed).
     // ===================================================================
     if (lock > 0.62) {
       const open = (lock - 0.62) / 0.38; // 0..1
-      const breathe = 0.85 + 0.15 * Math.sin(t * 1.4); // gentle living pulse
-      // soft layered bloom around the figure (wide -> tight, never harsh)
+      const breathe = 0.85 + 0.15 * Math.sin(t * 1.4);
       this.fx.circle(cx, cy, scale * 1.28).fill({
         color: mixColor(PALETTE.glow, this.accent.accentSoft, 0.5),
         alpha: 0.035 * open * breathe,
@@ -427,12 +520,9 @@ export class PhasorRenderer implements WorldRenderer {
         color: PALETTE.white,
         alpha: 0.04 * open * breathe,
       });
-      // a travelling light-pulse running along each of the 8 connecting
-      // "fold" edges, with a short comet trail so the fold direction reads.
       const pulse = (t * 0.22) % 1;
       const trail = 5;
       for (let i = 0; i < 8; i++) {
-        // the 8 connecting edges go vertex i (w=-1) -> vertex i|8 (w=+1)
         const a = proj[i];
         const b = proj[i | 8];
         const head = (pulse + i / 8) % 1;
@@ -451,12 +541,41 @@ export class PhasorRenderer implements WorldRenderer {
     }
   }
 
-  // Draw a clean glowing edge line as a chain of small blocks (pixel-art),
-  // with a faint outer glow that strengthens as the figure becomes crisp.
+  // The faint GHOST target: clean tesseract wireframe drawn as thin pale lines
+  // + tiny dim vertices, so the player sees the goal silhouette behind the
+  // live figure without it competing with the hero wireframe.
+  private drawGhost(proj: P2[], alpha: number) {
+    if (alpha < 0.02) return;
+    const col = mixColor(this.accent.accentSoft, PALETTE.white, 0.35);
+    for (let e = 0; e < EDGES.length; e++) {
+      const [ia, ib] = EDGES[e];
+      const a = proj[ia];
+      const b = proj[ib];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const steps = Math.max(2, Math.min(48, Math.round(dist / 6)));
+      for (let s = 0; s <= steps; s++) {
+        const u = s / steps;
+        this.ghost
+          .circle(a.x + dx * u, a.y + dy * u, 0.7)
+          .fill({ color: col, alpha: alpha * 0.5 });
+      }
+    }
+    for (let i = 0; i < 16; i++) {
+      this.ghost
+        .circle(proj[i].x, proj[i].y, 1.3)
+        .fill({ color: col, alpha: alpha * 0.7 });
+    }
+  }
+
+  // Draw a BOLD glowing edge: a pale luminous halo underlay + a crisp DARK
+  // accent-ink core on top, with a depth cue (nearer = thicker & stronger) so
+  // the wireframe reads solid and finished rather than floating.
   private drawEdge(
     a: P2,
     b: P2,
-    color: number,
+    core: number,
     alpha: number,
     thick: number,
     crisp: number,
@@ -464,39 +583,36 @@ export class PhasorRenderer implements WorldRenderer {
     const dx = b.x - a.x;
     const dy = b.y - a.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    // denser sampling => smooth, consistent crisp line (not a dotted chain)
-    const steps = Math.max(3, Math.min(96, Math.round(dist / 2.2)));
+    const steps = Math.max(3, Math.min(110, Math.round(dist / 2.0)));
     const glowCol = this.edgeGlow;
-    // soft glow underlay first, then the crisp core on top — gives every
-    // edge a uniform luminous halo without thickening the core.
-    if (crisp > 0.1) {
-      for (let s = 0; s <= steps; s += 2) {
-        const u = s / steps;
-        const x = a.x + dx * u;
-        const y = a.y + dy * u;
-        const depth = a.depth + (b.depth - a.depth) * u;
-        const gr = thick * (1.3 + 0.5 * depth);
-        this.wire
-          .circle(x, y, gr)
-          .fill({ color: glowCol, alpha: alpha * 0.14 * crisp * (0.6 + 0.4 * depth) });
-      }
+
+    // 1) pale luminous halo underlay (gives the dark core a finished glow).
+    for (let s = 0; s <= steps; s += 2) {
+      const u = s / steps;
+      const x = a.x + dx * u;
+      const y = a.y + dy * u;
+      const depth = a.depth + (b.depth - a.depth) * u;
+      const gr = thick * (1.4 + 0.6 * depth);
+      this.wire
+        .circle(x, y, gr)
+        .fill({ color: glowCol, alpha: alpha * (0.1 + 0.16 * crisp) * (0.6 + 0.4 * depth) });
     }
+
+    // 2) crisp DARK core on top — round caps via small circles -> smooth bold
+    //    line. Depth cue: nearer edges thicker AND a touch brighter.
     for (let s = 0; s <= steps; s++) {
       const u = s / steps;
       const x = a.x + dx * u;
       const y = a.y + dy * u;
-      const depth = a.depth + (b.depth - a.depth) * u; // nearer => bigger
-      // depth cue: nearer edges thicker AND brighter
-      const tk = thick * (0.62 + 0.48 * depth);
-      const da = alpha * (0.7 + 0.4 * Math.min(1.2, depth)) / 1.1;
-      // round caps via small circles -> smooth, "rounder" crisp edge
-      this.wire.circle(x, y, tk * 0.55).fill({ color, alpha: Math.min(1, da) });
+      const depth = a.depth + (b.depth - a.depth) * u;
+      const tk = thick * (0.6 + 0.5 * depth);
+      const da = alpha * (0.78 + 0.34 * Math.min(1.2, depth));
+      this.wire.circle(x, y, tk * 0.55).fill({ color: core, alpha: Math.min(1, da) });
     }
   }
 
   // ---------------------------------------------------------------------
   // Night sky: a soft luminous wash + a few faint twinkling stars.
-  // Pale — never dark. Drawn into the sky layer behind everything.
   // ---------------------------------------------------------------------
   private drawSky(
     t: number,
@@ -509,8 +625,6 @@ export class PhasorRenderer implements WorldRenderer {
     const bot = LAYOUT.waterY;
     const W = LAYOUT.W;
 
-    // a gentle vertical night wash: cream up high softening to a faint
-    // indigo-tinted band low (still pale-luminous, not dark)
     const bands = 10;
     const skyTop = mixColor(PALETTE.paper, PALETTE.white, 0.25);
     const skyBot = mixColor(PALETTE.paperDeep, this.accent.accentSoft, 0.28);
@@ -531,23 +645,20 @@ export class PhasorRenderer implements WorldRenderer {
     });
 
     // a few crisp STARS — twinkling pale points, deterministic positions.
-    // Kept sparse so the sky stays quiet behind the hero wireframe.
     const stars = 14;
     for (let i = 0; i < stars; i++) {
       const sx = Math.round(hash(i, 1) * W);
       const sy = Math.round(top + hash(i, 2) * (bot - top) * 0.8);
       const tw = 0.5 + 0.5 * Math.sin(t * (0.8 + hash(i, 3) * 0.6) + i * 2.1);
       const sr = 0.6 + hash(i, 4) * 0.9;
-      // soft halo + crisp white core => the star reads bright but clean
       this.sky.circle(sx, sy, sr * 2.4).fill({
         color: mixColor(PALETTE.white, this.accent.accentSoft, 0.4),
-        alpha: (0.06 + 0.12 * tw),
+        alpha: 0.06 + 0.12 * tw,
       });
       this.sky.circle(sx, sy, sr).fill({
         color: mixColor(PALETTE.white, this.accent.accentSoft, 0.15),
         alpha: 0.28 + 0.45 * tw,
       });
-      // a crisp twinkle cross on the brighter stars only
       if (hash(i, 6) > 0.7 && tw > 0.55) {
         const len = sr * 2.6;
         this.sky

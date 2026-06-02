@@ -8,20 +8,28 @@ import { Species } from "./Scenery";
 
 // "Read the Bars" reimagined — a WITCH'S APOTHECARY.
 //
-// Level 16, "THE WITCHING HOUR". A row of bubbling POTION VIALS stands on a
-// wooden SHELF — one vial per frequency. Each vial's LIQUID FILL HEIGHT is that
-// harmonic's current amplitude; a glowing GHOST FILL-LINE on the glass marks
-// the recipe's required level (from targetHarmonics). The witch raises and
-// lowers each brew to its mark.
+// Level 16, "THE WITCHING HOUR". A row of POTION VIALS stands on a wooden
+// SHELF — one vial per frequency. Each vial's LIQUID FILL HEIGHT is that
+// harmonic's current amplitude; the recipe demands each be filled to a marked
+// LINE (from targetHarmonics). The puzzle: raise every brew to its line.
 //
 //   • One stout glass VIAL per frequency, standing on a plank shelf.
-//   • A bright crimson GHOST LINE across each vial = the target fill level.
-//   • When a vial's liquid reaches its mark it BUBBLES, glows, and pops a
-//     little sparkle. Discrete vials, obvious marks — the matching puzzle.
-//   • A black CAULDRON and a pointy WITCH-HAT silhouette preside at the side,
-//     under a crescent MOON, with a BAT and a BROOM.
-//   • When ALL vials match (score→1) the brew completes: the cauldron erupts
-//     in sparkles and smoke, the witch-glow flares, the bat flutters.
+//   • Each vial shows a clear "FILL TO HERE" zone: the gap between the current
+//     liquid and the target is GHOSTED inside the glass and capped by a bold
+//     crimson FILL LINE — so it plainly reads "raise the liquid to this line".
+//   • The brew is a SATURATED dark crimson with an ink meniscus, so every vial
+//     reads crisply against the cream. Under-filled shows a hollow zone to
+//     fill; over-filled shows the excess spilling past the line.
+//   • When a vial reaches its line it SNAPS: the zone closes, the line glows,
+//     a sparkle pops. Discrete vials, obvious lines — the matching puzzle.
+//
+// DRAMATIC ARC, driven continuously by `score`:
+//   • UNMATCHED shelf reads obviously WRONG — vials sit at the wrong levels,
+//     the cauldron is COLD and dull, the whole scene is desaturated and dim.
+//   • As more vials match, the witch RESPONDS: the cauldron warms, bubbles
+//     harder, the brew-surface stirs, the glow rises.
+//   • A fully MATCHED shelf ERUPTS into a finished BREW — the cauldron boils
+//     over with glowing light, sparkles fountain, the whole scene flares.
 //
 // White-first cream base, crimson accent (no neon — pale-luminous pixel-art,
 // light from top-left). The shelf and liquid reflect via the Painter. Fully
@@ -89,31 +97,47 @@ export class SpectrogramRenderer implements WorldRenderer {
     const accent = this.accent;
     const p = new Painter(sh, r, LAYOUT.waterY, LAYOUT.reflectionDepth, t);
 
+    // ===== DRAMA DRIVERS ====================================================
+    // `score` continuously drives the whole scene from COLD/WRONG → BOILING.
+    // brew: 0 when nothing matches, 1 when the recipe is complete.
+    const brew = Math.max(0, Math.min(1, score));
+    // a sharper "life" curve so the corner stays cold until the brew really
+    // gets going, then erupts hard near completion.
+    const life = brew * brew * (3 - 2 * brew); // smoothstep(brew)
+    const heat = Math.max(0, Math.min(1, (brew - 0.15) / 0.85)); // cauldron warmth
+
+    const pulse = 0.5 + 0.5 * Math.sin(t * (1.2 + 2.4 * heat)); // bubbles harder when hot
+    const fast = 0.5 + 0.5 * Math.sin(t * 3.0); // quick shimmer [0,1]
+    const slow = 0.5 + 0.5 * Math.sin(t * 0.5); // slow ambient [0,1]
+
     // ---- witch's apothecary palette — cream base, crimson accent -----------
-    const night = mixColor(PALETTE.paper, accent.ink, 0.16); // pale night wash
+    // Night deepens and warms as the brew comes alive; cold scene stays muted.
+    const night = mixColor(
+      mixColor(PALETTE.paper, accent.ink, 0.12),
+      mixColor(accent.ink, accent.accent, 0.25),
+      0.06 + 0.22 * life,
+    );
     const glass = mixColor(PALETTE.paper, accent.ink, 0.1); // vial body
     const glassLit = mixColor(glass, PALETTE.white, 0.7); // top-left highlight
     const glassShade = mixColor(glass, accent.ink, 0.3); // right edge
     const glassRim = mixColor(accent.ink, PALETTE.white, 0.4); // cork band
-    const potion = mixColor(PALETTE.paper, accent.accent, 0.55); // crimson brew
-    const potionLit = mixColor(potion, PALETTE.white, 0.5);
-    const potionShade = mixColor(potion, accent.ink, 0.4);
+    // SATURATED dark brew — clearly darker than the cream so every vial reads.
+    const potion = mixColor(accent.accent, accent.ink, 0.18); // deep crimson brew
+    const potionLit = mixColor(potion, PALETTE.white, 0.4);
+    const potionShade = mixColor(potion, accent.ink, 0.55); // near-ink depths
+    const potionInk = mixColor(accent.ink, PALETTE.ink, 0.5); // dark meniscus edge
     const wood = mixColor(accent.ink, PALETTE.paperDeep, 0.42); // shelf plank
     const woodLit = mixColor(wood, PALETTE.white, 0.4);
     const woodShade = mixColor(wood, accent.ink, 0.45);
     const glassSheen = mixColor(glass, PALETTE.white, 0.92); // hot specular streak
-    const menisc = mixColor(potion, PALETTE.white, 0.62); // bright liquid surface
-    const ghost = accent.accent; // bright crimson target mark
-    const ghostUnder = mixColor(accent.accent, PALETTE.paper, 0.3); // dim (not yet reached)
+    const menisc = mixColor(potion, PALETTE.white, 0.5); // brighter liquid lip
+    const ghost = accent.accent; // bright crimson target line
+    const ghostZone = mixColor(accent.accent, PALETTE.paper, 0.45); // "fill to here" tint
     const silh = mixColor(accent.ink, PALETTE.paper, 0.18); // hat/cauldron silhouette
     const silhLit = mixColor(silh, PALETTE.white, 0.28);
     const moonGlow = mixColor(PALETTE.glow, accent.accentSoft, 0.25);
     const sparkle = mixColor(PALETTE.white, accent.accentSoft, 0.2);
     const snapGlow = mixColor(PALETTE.white, accent.accentSoft, 0.35); // match flash
-
-    const pulse = 0.5 + 0.5 * Math.sin(t * 1.4); // bubbling pulse [0,1]
-    const fast = 0.5 + 0.5 * Math.sin(t * 3.0); // quick shimmer [0,1]
-    const slow = 0.5 + 0.5 * Math.sin(t * 0.5); // slow ambient [0,1]
 
     // ---- scene geometry ----------------------------------------------------
     const W = LAYOUT.W;
@@ -132,16 +156,20 @@ export class SpectrogramRenderer implements WorldRenderer {
     const vialW = Math.max(9, Math.min(slot * 0.62, 26));
     const maxFill = shelfY - top - 18; // tallest a brew can rise
 
-    // snap factor: as score rises, shown fills ease toward their targets
-    const snap = Math.max(0, Math.min(1, (score - 0.2) / 0.8));
+    // snap factor: a gentle ease toward targets so a near-complete brew settles
+    // crisply onto its marks — kept small so an unmatched shelf genuinely shows
+    // the liquid at the WRONG level (the whole point of the puzzle).
+    const snap = Math.max(0, Math.min(1, (score - 0.45) / 0.55));
 
     // ===== BACKGROUND: night wash + crescent moon ===========================
+    // wash deepens with life — a cold scene is a thin, flat night; a live brew
+    // saturates the whole sky.
     bg.rect(0, top - 30, W, shelfY - top + 60).fill({
       color: night,
-      alpha: 0.45,
+      alpha: 0.4 + 0.28 * life,
     });
 
-    // a scatter of tiny stars across the night
+    // a scatter of tiny stars across the night — brighter when the brew lives
     {
       const stars = 16;
       for (let s = 0; s < stars; s++) {
@@ -151,7 +179,7 @@ export class SpectrogramRenderer implements WorldRenderer {
         const sr = 0.5 + hash(s, 19) * 0.9;
         bg.circle(sx, sy, sr).fill({
           color: PALETTE.glow,
-          alpha: (0.12 + 0.28 * tw) * (0.4 + hash(s, 23) * 0.6),
+          alpha: (0.06 + (0.1 + 0.3 * life) * tw) * (0.4 + hash(s, 23) * 0.6),
         });
       }
     }
@@ -161,14 +189,14 @@ export class SpectrogramRenderer implements WorldRenderer {
       const mx = W - cornerW * 0.42;
       const my = top + 14;
       const mr = 18;
-      // two soft glow rings for a luminous halo
-      gl.circle(mx, my, mr + 12).fill({
+      // two soft glow rings for a luminous halo — flare with the brew
+      gl.circle(mx, my, mr + 12 + 6 * life).fill({
         color: moonGlow,
-        alpha: 0.08 + 0.05 * slow,
+        alpha: 0.05 + 0.04 * slow + 0.1 * life,
       });
       gl.circle(mx, my, mr + 6).fill({
         color: moonGlow,
-        alpha: 0.18 + 0.08 * slow,
+        alpha: 0.12 + 0.06 * slow + 0.14 * life,
       });
       bg.circle(mx, my, mr).fill({ color: PALETTE.glow, alpha: 0.96 });
       // faint top-left lit edge on the disc before the bite
@@ -212,6 +240,8 @@ export class SpectrogramRenderer implements WorldRenderer {
     };
     const vials: V[] = [];
     const tol = maxFill * 0.06;
+    let activeCount = 0;
+    let matchedCount = 0;
     for (let i = 0; i < n; i++) {
       const cx = rowX + slot * i + slot / 2;
       const live = this.amp(harmonics[i]);
@@ -224,9 +254,15 @@ export class SpectrogramRenderer implements WorldRenderer {
       const side = matched ? 0 : diff < 0 ? -1 : 1;
       // 1 when on the mark, falling off over ~3x the tolerance band
       const near = tgt >= 0.02 ? 1 - smooth(tol, tol * 3.5, Math.abs(diff)) : 0;
-      if (tgt >= 0.02 && !matched) allMatched = false;
+      if (tgt >= 0.02) {
+        activeCount++;
+        if (matched) matchedCount++;
+        else allMatched = false;
+      }
       vials.push({ cx, live: shown, tgt, matched, side, near });
     }
+    // fraction of recipe vials at their mark — used to warm the corner
+    const matchFrac = activeCount > 0 ? matchedCount / activeCount : 0;
 
     // ---- the pointy WITCH-HAT silhouette behind the cauldron --------------
     {
@@ -300,34 +336,46 @@ export class SpectrogramRenderer implements WorldRenderer {
       for (let f = -1; f <= 1; f++) {
         p.block(cornerCx + f * cauldronR * 0.6 - 2.5, cauldronCy + cauldronR * 0.5, 5, 6, silh, 0.9);
       }
-      // crimson brew surface inside the rim, gently bubbling
+      // brew surface inside the rim. COLD = a dull, dark, near-still pool;
+      // HOT = a bright crimson churn that wobbles and lifts as the recipe fills.
       const surfY = cauldronCy - cauldronR * 0.55;
+      // dead cold base — a flat dark surface so an unmatched scene reads inert
+      const coldSurf = mixColor(potionShade, accent.ink, 0.45);
+      gl.ellipse(cornerCx, surfY + 1, cauldronR * 0.95, 5).fill({
+        color: coldSurf,
+        alpha: 0.55,
+      });
+      // warming churn layered on top, amplitude scaled by heat
+      const churn = 0.4 + 1.8 * heat;
       for (let bx = -1; bx <= 1; bx += 0.5) {
-        const wob = Math.sin(t * 2.2 + bx * 3) * 2;
+        const wob = Math.sin(t * (1.5 + 2.5 * heat) + bx * 3) * churn;
         gl.ellipse(cornerCx + bx * cauldronR * 0.5, surfY + wob, cauldronR * 0.95, 4).fill({
-          color: mixColor(potion, PALETTE.white, 0.15 * pulse),
-          alpha: 0.4,
+          color: mixColor(potion, PALETTE.white, (0.1 + 0.3 * pulse) * heat),
+          alpha: 0.25 + 0.4 * heat,
         });
       }
+      // bright stirred lip — only really lights up once the brew warms
       gl.ellipse(cornerCx, surfY, cauldronR * 0.95, 5).fill({
-        color: potionLit,
-        alpha: 0.55 + 0.2 * pulse,
+        color: mixColor(coldSurf, potionLit, heat),
+        alpha: 0.4 + (0.25 + 0.2 * pulse) * heat,
       });
-      // fat bubbles welling up and bursting at the surface
-      for (let b = 0; b < 5; b++) {
+      // fat bubbles welling up and bursting at the surface — count + vigour
+      // climb with heat, so a cold cauldron is essentially still.
+      const cb = Math.round(1 + 5 * heat);
+      for (let b = 0; b < cb; b++) {
         const seed = hash(b, 41);
-        const ph = (t * (0.6 + seed * 0.5) + b * 0.37) % 1; // 0..1 life
+        const ph = (t * (0.6 + seed * 0.5) * (0.5 + heat) + b * 0.37) % 1; // 0..1 life
         const bx = cornerCx + (seed - 0.5) * cauldronR * 1.2;
-        const by = surfY - ph * 5;
-        const br = (0.6 + seed * 1.6) * (1 - ph * 0.5);
+        const by = surfY - ph * (3 + 5 * heat);
+        const br = (0.6 + seed * 1.6) * (1 - ph * 0.5) * (0.6 + 0.5 * heat);
         gl.circle(bx, by, br).fill({
-          color: menisc,
-          alpha: 0.5 * (1 - ph),
+          color: mixColor(coldSurf, menisc, heat),
+          alpha: (0.3 + 0.3 * heat) * (1 - ph),
         });
         // tiny top-left glint on the bubble
         gl.circle(bx - br * 0.3, by - br * 0.3, br * 0.4).fill({
           color: PALETTE.white,
-          alpha: 0.5 * (1 - ph),
+          alpha: 0.4 * heat * (1 - ph),
         });
       }
     }
@@ -429,23 +477,27 @@ export class SpectrogramRenderer implements WorldRenderer {
       // --- the POTION FILL (reflected via Painter) ---------------------------
       const fillTop = bodyBot - liveH;
       const innerW = vialW - 2;
+      const fillTopClamped = Math.max(bodyTop + 7, fillTop);
+      const surfWob = Math.sin(t * 2 + i) * 1.4;
       if (liveH > 2) {
-        const fillTopClamped = Math.max(bodyTop + 7, fillTop);
         const fh = bodyBot - fillTopClamped;
-        // body of the brew
-        p.block(cx - innerW / 2, fillTopClamped, innerW, fh, potion, 0.92);
+        // SATURATED dark brew — clearly darker than the cream so it reads crisp.
+        // An unmatched (cold) vial reads a touch more muted/grey; a matched one
+        // sits at full saturation.
+        const bodyCol = v.matched ? potion : mixColor(potion, accent.ink, 0.12);
+        p.block(cx - innerW / 2, fillTopClamped, innerW, fh, bodyCol, 0.96);
         // top-left lit column + right shade inside the liquid
-        p.block(cx - innerW / 2, fillTopClamped, Math.max(1, innerW * 0.28), fh, potionLit, 0.45);
-        p.block(cx + innerW / 2 - Math.max(1, innerW * 0.2), fillTopClamped, Math.max(1, innerW * 0.2), fh, potionShade, 0.45);
-        // depth gradient — slightly darker toward the bottom of the brew
-        p.block(cx - innerW / 2, bodyBot - Math.min(fh, 6), innerW, Math.min(fh, 6), potionShade, 0.3);
-        // wobbling meniscus: a curved bright lip with a soft shadow just under it
-        const surfWob = Math.sin(t * 2 + i) * 1.4;
+        p.block(cx - innerW / 2, fillTopClamped, Math.max(1, innerW * 0.28), fh, potionLit, 0.4);
+        p.block(cx + innerW / 2 - Math.max(1, innerW * 0.2), fillTopClamped, Math.max(1, innerW * 0.2), fh, potionShade, 0.5);
+        // depth gradient — darker toward the bottom of the brew
+        p.block(cx - innerW / 2, bodyBot - Math.min(fh, 7), innerW, Math.min(fh, 7), potionShade, 0.4);
+        // wobbling meniscus: a DARK ink edge with a bright lip on top so the
+        // surface reads as a crisp coloured line, not a pale smear.
         const my = fillTopClamped + surfWob;
-        sh.ellipse(cx, my + 2, innerW / 2 - 0.5, 2.2).fill({ color: potionShade, alpha: 0.4 });
-        sh.ellipse(cx, my, innerW / 2, 2.8).fill({ color: menisc, alpha: 0.85 });
+        sh.ellipse(cx, my + 1.6, innerW / 2 - 0.4, 2.4).fill({ color: potionInk, alpha: 0.85 });
+        sh.ellipse(cx, my, innerW / 2, 2.4).fill({ color: menisc, alpha: 0.9 });
         // a hot glint on the top-left of the surface lip
-        sh.ellipse(cx - innerW * 0.22, my - 0.4, innerW * 0.14, 1.3).fill({
+        sh.ellipse(cx - innerW * 0.22, my - 0.4, innerW * 0.14, 1.2).fill({
           color: PALETTE.white,
           alpha: 0.7,
         });
@@ -475,54 +527,76 @@ export class SpectrogramRenderer implements WorldRenderer {
         }
       }
 
-      // --- the GHOST TARGET MARK: bright crimson fill-line ------------------
+      // --- THE TARGET as a "FILL TO HERE" LINE + GHOSTED ZONE ----------------
+      // This is the key tell: instead of a mark floating on empty glass, the
+      // gap between the liquid and the target is drawn as a translucent zone
+      // INSIDE the vial, capped by a bold crimson FILL LINE. It unmistakably
+      // means "raise the liquid to this line".
       if (v.tgt >= 0.02) {
-        const markY = bodyBot - tgtH;
-        // mark dims slightly until reached, then snaps to full crisp crimson
+        const markY = bodyBot - tgtH; // the target fill line
         const reached = v.matched;
-        const markCol = reached ? ghost : ghostUnder;
-        const ga = (reached ? 0.85 : 0.5) + 0.15 * pulse;
-        // a thin engraved groove behind the dashes for legibility
-        lq.rect(cx - hw, markY - 0.4, vialW, 0.8).fill({
-          color: mixColor(markCol, PALETTE.white, 0.3),
-          alpha: 0.18,
-        });
-        // crisp dashed fill-line across the glass at the target level
-        for (let dx = -hw + 1; dx < hw - 1; dx += 4) {
-          lq.rect(cx + dx, markY - 0.9, 2.6, 1.8).fill({ color: markCol, alpha: ga });
+        const liqY = fillTopClamped + surfWob; // current liquid surface
+        const innerL = cx - innerW / 2;
+
+        if (!reached) {
+          if (v.side < 0) {
+            // UNDER-FILLED: ghost the empty band the brew still has to climb,
+            // from the current surface up to the line — a hollow "to-fill" zone.
+            const zTop = Math.max(bodyTop + 7, markY);
+            const zBot = Math.min(bodyBot, liqY);
+            const zh = zBot - zTop;
+            if (zh > 0.5) {
+              // translucent crimson wash = the volume still owed
+              lq.rect(innerL, zTop, innerW, zh).fill({
+                color: ghostZone,
+                alpha: 0.16 + 0.1 * pulse,
+              });
+              // faint hatched rungs so the empty zone reads as "to be filled"
+              for (let ry = zTop + 2; ry < zBot - 1; ry += 4) {
+                lq.rect(innerL + 1, ry, innerW - 2, 0.9).fill({
+                  color: ghost,
+                  alpha: 0.14,
+                });
+              }
+            }
+          } else {
+            // OVER-FILLED: the excess above the line spills past it — tint the
+            // overshoot a hot, wrong colour so it reads as "too much".
+            const oTop = Math.max(bodyTop + 7, liqY);
+            const oBot = markY;
+            const oh = oBot - oTop;
+            if (oh > 0.5) {
+              lq.rect(innerL, oTop, innerW, oh).fill({
+                color: mixColor(ghost, PALETTE.white, 0.45),
+                alpha: 0.28 + 0.12 * pulse,
+              });
+            }
+          }
         }
-        // bold solid tick chevrons flanking the glass — unmistakable mark
+
+        // the bold FILL LINE itself — a solid crimson bar locked to the glass
+        // edge to edge (no floating dashes). Brightens + thickens when reached.
+        const lineCol = reached ? mixColor(ghost, PALETTE.white, 0.25) : ghost;
+        const lineA = reached ? 0.95 : 0.7 + 0.2 * pulse;
+        // dark seat under the line so it reads against pale glass
+        lq.rect(cx - hw, markY + 0.6, vialW, 1).fill({
+          color: potionInk,
+          alpha: reached ? 0.5 : 0.3,
+        });
+        lq.rect(cx - hw, markY - (reached ? 1.4 : 1), vialW, reached ? 2.8 : 2).fill({
+          color: lineCol,
+          alpha: lineA,
+        });
+        // solid side ticks gripping the glass — unmistakable "this level"
         for (const dir of [-1, 1]) {
           const ex = dir < 0 ? cx - hw - 5 : cx + hw + 1.5;
-          lq.rect(ex, markY - 1.6, 4, 3.2).fill({ color: markCol, alpha: ga });
-          // arrowhead pointing inward
-          lq.rect(ex + (dir < 0 ? 3.5 : -0.5), markY - 1, 1.5, 2, ).fill({
-            color: mixColor(markCol, PALETTE.white, 0.4),
-            alpha: ga,
-          });
+          lq.rect(ex, markY - 1.4, 4, 2.8).fill({ color: lineCol, alpha: lineA });
         }
-        // soft glow halo on the mark — intensifies as the fill nears it
-        gl.circle(cx, markY, hw + 3 + v.near * 2).fill({
+        // soft glow halo on the line — intensifies as the fill nears it
+        gl.circle(cx, markY, hw + 3 + v.near * 3).fill({
           color: mixColor(ghost, PALETTE.white, 0.4),
-          alpha: (reached ? 0.16 : 0.06 + 0.08 * v.near) + 0.05 * pulse,
+          alpha: (reached ? 0.2 : 0.05 + 0.12 * v.near) + 0.05 * pulse,
         });
-
-        // --- UNDER / OVER indicator (only while unmatched) -----------------
-        if (!reached) {
-          const fillTopY = Math.max(bodyTop + 7, fillTop);
-          // a small chevron drifting from the current surface toward the mark,
-          // pointing up when under-filled, down when over-filled
-          const arrowDir = v.side; // -1 under (need more, point up), +1 over
-          const drift = (t * 0.9 + i) % 1;
-          const ay = fillTopY + arrowDir * (4 + drift * 5);
-          const tip = ay - arrowDir * 2.4;
-          const col = mixColor(ghost, PALETTE.white, 0.2);
-          const aa = (0.35 + 0.3 * pulse) * (1 - drift);
-          // chevron drawn from two short angled strokes
-          lq.rect(cx - 2.6, ay, 2.6, 1.4).fill({ color: col, alpha: aa });
-          lq.rect(cx, ay, 2.6, 1.4).fill({ color: col, alpha: aa });
-          lq.rect(cx - 1, tip, 2, 1.4).fill({ color: col, alpha: aa });
-        }
       }
 
       // --- MATCHED: SNAP flash, glow, sparkle burst ------------------------
@@ -612,65 +686,87 @@ export class SpectrogramRenderer implements WorldRenderer {
       );
     }
 
-    // ===== BROOM leaning in the witch's corner ==============================
+    // ===== BROOM leaning in the witch's corner (a real prop, not a 1px line) ==
+    // The broom leans against the corner and REACTS: as the brew comes alive
+    // it tips upright and its bristles fan out, as if stirred by the magic.
     {
-      const broomBx = W - 14;
-      const broomTop = top + 4;
+      const broomBx = W - 16;
+      const broomTop = top + 6;
       const broomBot = shelfY + 4;
-      // angled handle
-      const lean = 10;
-      const segs = 10;
+      // leans further out when cold, straightens (and twitches) as life rises
+      const lean = 16 - 8 * life + Math.sin(t * 1.6) * 1.5 * life;
+      const handleW = 3.4; // chunky enough to read as a stick, never a hairline
+      const segs = 12;
+      const broomWood = mixColor(wood, accent.ink, 0.15);
       for (let k = 0; k < segs; k++) {
         const u = k / segs;
         const hx = broomBx - u * lean;
-        const hy = broomTop + u * (broomBot - broomTop - 18);
-        bg.rect(hx - 1, hy, 2.4, (broomBot - broomTop) / segs + 1).fill({
-          color: wood,
-          alpha: 0.9,
-        });
+        const hy = broomTop + u * (broomBot - broomTop - 20);
+        const segH = (broomBot - broomTop) / segs + 1;
+        bg.rect(hx - handleW / 2, hy, handleW, segH).fill({ color: broomWood, alpha: 0.95 });
+        // top-left lit edge so the handle reads round
+        bg.rect(hx - handleW / 2, hy, 1.2, segH).fill({ color: woodLit, alpha: 0.55 });
+        bg.rect(hx + handleW / 2 - 1, hy, 1, segH).fill({ color: woodShade, alpha: 0.5 });
       }
-      // bristle bundle at the bottom
+      // knob at the top of the handle
+      bg.circle(broomBx, broomTop, 2.4).fill({ color: broomWood, alpha: 0.95 });
+      bg.circle(broomBx - 0.7, broomTop - 0.7, 1).fill({ color: woodLit, alpha: 0.6 });
+      // bristle bundle at the bottom — fans wider as the brew lives
       const brBx = broomBx - lean;
-      const brBy = broomBot - 18;
-      for (let b = -3; b <= 3; b++) {
-        const fan = b * 1.6;
-        bg.rect(brBx + fan - 0.6, brBy, 1.6, 18).fill({
-          color: mixColor(wood, PALETTE.paperDeep, 0.3 + hash(b, 5) * 0.3),
-          alpha: 0.85,
+      const brBy = broomBot - 20;
+      const fanK = 1.6 + 1.4 * life;
+      for (let b = -4; b <= 4; b++) {
+        const fan = b * fanK + Math.sin(t * 2 + b) * 0.6 * life;
+        bg.rect(brBx + fan - 0.7, brBy, 1.7, 20).fill({
+          color: mixColor(wood, PALETTE.paperDeep, 0.25 + hash(b, 5) * 0.35),
+          alpha: 0.88,
         });
       }
-      // tie band
-      bg.rect(brBx - 5, brBy - 1, 10, 3).fill({ color: accent.accent, alpha: 0.7 });
+      // tie band — crimson, brightens when the brew is alive
+      bg.rect(brBx - 6, brBy - 1, 12, 3.4).fill({
+        color: accent.accent,
+        alpha: 0.6 + 0.3 * life,
+      });
     }
 
     // ===== smoke curling up from the cauldron ===============================
+    // Cold brew gives off only a faint thread; as it heats the column thickens
+    // and curls vigorously — another way the witch's corner responds.
     {
       const surfY = cauldronCy - cauldronR * 0.55;
       const span = cauldronCy - top + 20;
-      const puffs = 7;
+      const puffs = Math.round(2 + 6 * heat);
       for (let s = 0; s < puffs; s++) {
         const seed = hash(s, 29);
-        const rise = (t * (6 + seed * 5) + s * 22) % span;
+        const rise = (t * (6 + seed * 5) * (0.6 + heat) + s * 22) % span;
         const u = rise / span;
         // S-curve sway so the column reads as a curling tendril, widening as it climbs
-        const curl = Math.sin(t * 0.7 + s * 1.3 + u * 4) * (8 + rise * 0.16);
+        const curl = Math.sin(t * 0.7 + s * 1.3 + u * 4) * (4 + 8 * heat + rise * 0.16);
         const sx = cornerCx + curl + (seed - 0.5) * 8;
         const sy = surfY - rise;
-        const rr = 2 + u * 6;
-        const col = mixColor(PALETTE.glow, accent.accentSoft, 0.3);
-        gl.circle(sx, sy, rr).fill({ color: col, alpha: 0.16 * (1 - u) });
+        const rr = (2 + u * 6) * (0.7 + 0.5 * heat);
+        // smoke warms from grey wisps (cold) to luminous crimson plume (hot)
+        const col = mixColor(
+          mixColor(PALETTE.glow, accent.ink, 0.2),
+          mixColor(PALETTE.glow, accent.accentSoft, 0.35),
+          heat,
+        );
+        gl.circle(sx, sy, rr).fill({ color: col, alpha: (0.08 + 0.12 * heat) * (1 - u) });
         // a softer trailing wisp offset to one side fattens the curl
         gl.circle(sx + Math.sin(u * 6) * rr * 0.8, sy + rr * 0.5, rr * 0.7).fill({
           color: col,
-          alpha: 0.1 * (1 - u),
+          alpha: (0.05 + 0.08 * heat) * (1 - u),
         });
       }
     }
 
-    // ===== BREW COMPLETE: all vials match (score → 1) =======================
-    if (score > 0.7) {
-      const k = (score - 0.7) / 0.3;
-      const flare = allMatched ? 1 : k;
+    // ===== BREW ERUPTION: builds continuously, peaks when the recipe is done =
+    // Starts as a faint warmth partway through and intensifies with the brew,
+    // erupting fully when every vial is on its line.
+    if (brew > 0.5) {
+      const k = (brew - 0.5) / 0.5;
+      // flare follows the eased brew, snapping to full on a complete recipe
+      const flare = allMatched ? 1 : k * matchFrac;
       const surfY = cauldronCy - cauldronR * 0.55;
 
       // layered witch-glow flare — concentric crimson washes over the corner
@@ -690,8 +786,8 @@ export class SpectrogramRenderer implements WorldRenderer {
       });
 
       // cauldron eruption — fountains of sparkles bursting upward
-      if (allMatched || k > 0.3) {
-        const m = Math.min(1, allMatched ? 1 : (k - 0.3) / 0.7);
+      if (allMatched || flare > 0.25) {
+        const m = Math.min(1, allMatched ? 1 : (flare - 0.25) / 0.75);
         const span = cauldronR * 3.2;
         for (let s = 0; s < 26; s++) {
           const seed = hash(s, 31);
@@ -741,9 +837,10 @@ export class SpectrogramRenderer implements WorldRenderer {
     }
 
     // ---- soft glow at the waterline base (echoes other structures) ---------
-    gl.circle(LAYOUT.glowX, LAYOUT.glowY, 70).fill({
+    // grows with the brew so the whole scene lifts as the recipe completes
+    gl.circle(LAYOUT.glowX, LAYOUT.glowY, 70 + 30 * life).fill({
       color: mixColor(accent.accentSoft, PALETTE.white, 0.5),
-      alpha: 0.05 + 0.05 * score + 0.02 * slow,
+      alpha: 0.04 + 0.1 * life + 0.02 * slow,
     });
   }
 
