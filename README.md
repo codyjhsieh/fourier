@@ -60,55 +60,52 @@ ever **interprets** it — drawing physical architecture, never a chart. A share
 ## Levels
 
 Twenty levels across twenty distinct environments — each environment a
-different way of seeing the same harmonics, paired with a different mechanic
-(reconstruction, energy, phase, symmetry, denoise, filtering, timbre,
-interference, combined amp+phase, epicycles…).
+different way of seeing the same harmonics, paired with a different mechanic.
+The order is a **difficulty ramp**: pure amplitude first, a gentle taste of
+phase in the middle, then filtering and combined amplitude + phase, building to
+the two full-mastery bosses at the end.
 
 | # | Level | Teaches | Biome |
 |---|-------|---------|-------|
-| 1 | The Fractured Arch | **amplitude** — reconstruct the span | bridge (lavender) |
-| 2 | The Living Wave | **frequency energy** — calm the high frequencies | dragon (cyan) |
-| 3 | The Harmonic Gate | **phase** — align the light-threads | gate (coral) |
-| 4 | The Twin Span | amplitude — raise two arches | bridge |
-| 5 | The Restless Deep | energy — still a denser agitation | dragon |
-| 6 | The Sealed Vault | phase — align five threads | gate |
-| 7 | The Long Viaduct | amplitude — strip an over-built span | bridge |
-| 8 | The Tideturner | energy — break the storm (boss) | dragon |
-| 9 | The Last Seal | phase — align six threads (boss) | gate |
-| 10 | The Harmonic Cathedral | **combined mastery** — amplitude + phase | cathedral (gold) |
-| 11 | The Caldera | **low-pass** — settle the eruption to a dormant cone | volcano |
-| 12 | The Long Shot | **high-pass** — pull the target into sharp focus | sniper scope |
-| 13 | The Visitors | **band-pass** — tune past static to the signal | UFO abduction |
-| 14 | The Steady Pulse | **broadband pulse** — stack harmonics into a spike | cardiograph |
-| 15 | The Tuned Bell | **harmonic series** — tune the overtones | bell |
-| 16 | The Witching Hour | **match the spectrum** — fill each vial to its mark | witch's brew |
-| 17 | The Twin Wyrms | **odd symmetry** — point-symmetric twin dragons | twin dragons |
-| 18 | The Sand Figure | **resonant figure** (Chladni nodal lines) | chladni plate |
-| 19 | The Dead Calm | **low-pass** — settle the squall to glass | pirate ship |
-| 20 | The Hypercube | **epicycles** — fold a tesseract with phasors | tesseract |
+| 1 | The Fractured Arch | **amplitude** — reconstruct the span | bridge |
+| 2 | The Sand Figure | resonant figure (Chladni nodal lines) | chladni plate |
+| 3 | The Tuned Bell | harmonic series — tune the overtones | bell |
+| 4 | The First Square | amplitude — build a square from odd harmonics | skyline |
+| 5 | The Harmonic Gate | **phase** — a gentle two-dial intro | gate |
+| 6 | The Steady Pulse | broadband — stack harmonics into one spike | cardiograph |
+| 7 | The Witching Hour | match the spectrum — fill each vial to its mark | witch's brew |
+| 8 | The Living Wave | **frequency energy** — calm the high frequencies | dragon |
+| 9 | The Caldera | **low-pass** — settle the eruption to a dormant cone | volcano |
+| 10 | The Visitors | **band-pass** — tune past static to the signal | UFO abduction |
+| 11 | The Long Shot | **high-pass** — pull the target into sharp focus | sniper scope |
+| 12 | The Troubled Reef | energy/beats — still the throb | reef |
+| 13 | The Dead Calm | low-pass — settle the squall to glass | pirate ship |
+| 14 | The Impostor Bloom | **denoise** — pull the decoy harmonics | garden |
+| 15 | The Hypercube | **epicycles** — fold a tesseract with phasors | tesseract |
+| 16 | The Clockwork Climb | combined amp + phase — size and angle each orbit | orrery |
+| 17 | The Mirrored Veil | **even symmetry** — fold the curtain onto its mirror | aurora |
+| 18 | The Twin Wyrms | **odd symmetry** — point-symmetric twin dragons | twin dragons |
+| 19 | The Singularity | combined mastery — collapse every wave to a star | starfield |
+| 20 | The Harmonic Cathedral | **combined mastery** (grand finale) | cathedral |
 
-- **L1 — Fractured Arch.** Two mountains joined by a stone arch bridge (2D side
-  view). The deck top follows the waveform and meets each mountain ledge; pixel
-  travellers walk across the top and tip off the edge into the water wherever the
-  span is broken. Rebuilding the wave heals the gaps so they cross safely.
-- **L2 — Living Wave.** A serpentine dragon whose body *is* the waveform. High
-  frequencies raise its crest and open its jaw (aggression); removing them calms
-  it into a smooth form. `aggression = highFrequencyEnergy / totalEnergy`.
-- **L3 — Harmonic Gate.** A sealed gothic doorway with a rose-window rune-lock.
-  Each harmonic drives one concentric ring rotated by its **phase**; wrong phases
-  shear the doorway apart, aligned phases seal the arch and open it with light.
-- **L4 — Harmonic Cathedral.** Every palette knob (indices 0–8, **amplitude and
-  phase**) drives a distinct element: foundation, nave + spire-sway, flanking
-  arches, a rotating rose window, colonnade, pinnacles, tracery, flying
-  buttresses, finials. Disable a harmonic and its architecture disappears.
+- **The Fractured Arch (L1).** Two mountains joined by a stone arch bridge (2D
+  side view). The deck top follows the waveform; pixel travellers walk across and
+  tip off the edge wherever the span is broken. Rebuilding the wave heals it.
+- **The Harmonic Gate (L5).** A sealed gothic doorway with a rose-window
+  rune-lock. Each harmonic drives one ring rotated by its **phase**; this is the
+  gentle phase intro — two dials are pre-aligned, leaving two to rotate home.
+- **The Harmonic Cathedral (L20).** The finale: every palette knob (**amplitude
+  and phase**) drives a distinct element — foundation, nave + spire-sway, flanking
+  arches, rotating rose window, colonnade, pinnacles, tracery, buttresses,
+  finials. Reconstruct all nine to raise the whole cathedral.
 
 ## Interaction
 
 - **Stones** (all levels) — tap a stone to add/remove that harmonic; drag a stone
   up/down to set its **amplitude**. The glyph grows from an inert cube to a
   blossoming crystal as amplitude rises.
-- **Phase dials** (L3, L4) — a row of circular dials; drag around to rotate a
-  harmonic's **phase**.
+- **Phase dials** (phase / symmetry / mastery levels) — a row of circular dials;
+  drag around to rotate a harmonic's **phase**.
 - **Navigate levels** — on-screen ‹ › chevrons, or the keyboard arrow keys.
 - Solving a level fades in a banner; tap to continue to the next.
 
@@ -119,7 +116,7 @@ silenced by the mute switch (Safari 16.4+).
 
 ## Dev query params
 
-- `?level=N` — jump straight to level N (1–4)
+- `?level=N` — jump straight to level N (1–20)
 - `?solve=1` — snap the world onto its target solution (to inspect the solved state)
 
 ## Deploy
