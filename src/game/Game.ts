@@ -28,6 +28,26 @@ import { LoomRenderer } from "../render/structures/LoomRenderer";
 import { ChladniRenderer } from "../render/structures/ChladniRenderer";
 import { TidepoolRenderer } from "../render/structures/TidepoolRenderer";
 import { PhasorRenderer } from "../render/structures/PhasorRenderer";
+import { ChoirRenderer } from "../render/structures/ChoirRenderer";
+import { SkeletonRenderer } from "../render/structures/SkeletonRenderer";
+import { PeacockRenderer } from "../render/structures/PeacockRenderer";
+import { LineupRenderer } from "../render/structures/LineupRenderer";
+import { ZodiacRenderer } from "../render/structures/ZodiacRenderer";
+import { SonarRenderer } from "../render/structures/SonarRenderer";
+import { TornadoRenderer } from "../render/structures/TornadoRenderer";
+import { LeviathanRenderer } from "../render/structures/LeviathanRenderer";
+import { RocketRenderer } from "../render/structures/RocketRenderer";
+import { PhoenixRenderer } from "../render/structures/PhoenixRenderer";
+import { LighthouseRenderer } from "../render/structures/LighthouseRenderer";
+import { CarouselRenderer } from "../render/structures/CarouselRenderer";
+import { MirrorTwinsRenderer } from "../render/structures/MirrorTwinsRenderer";
+import { WebRenderer } from "../render/structures/WebRenderer";
+import { RoseWindowRenderer } from "../render/structures/RoseWindowRenderer";
+import { HelixRenderer } from "../render/structures/HelixRenderer";
+import { SeanceRenderer } from "../render/structures/SeanceRenderer";
+import { GolemRenderer } from "../render/structures/GolemRenderer";
+import { WormholeRenderer } from "../render/structures/WormholeRenderer";
+import { VaultRenderer } from "../render/structures/VaultRenderer";
 import { LEVELS, LevelDef, buildHarmonics } from "./Levels";
 import { LAYOUT, recomputeLayout } from "../render/Layout";
 import {
@@ -71,6 +91,7 @@ export class Game {
   private banner!: Text;
   private bannerHint!: Text;
   private levelIndex = 0;
+  private moves = 0;
   private unsub: (() => void) | null = null;
   private navLeft!: Graphics;
   private navRight!: Graphics;
@@ -229,6 +250,46 @@ export class Game {
         return new TidepoolRenderer(accent);
       case "phasor":
         return new PhasorRenderer(accent);
+      case "choir":
+        return new ChoirRenderer(accent);
+      case "skeleton":
+        return new SkeletonRenderer(accent);
+      case "peacock":
+        return new PeacockRenderer(accent);
+      case "lineup":
+        return new LineupRenderer(accent);
+      case "zodiac":
+        return new ZodiacRenderer(accent);
+      case "sonar":
+        return new SonarRenderer(accent);
+      case "tornado":
+        return new TornadoRenderer(accent);
+      case "leviathan":
+        return new LeviathanRenderer(accent);
+      case "rocket":
+        return new RocketRenderer(accent);
+      case "phoenix":
+        return new PhoenixRenderer(accent);
+      case "lighthouse":
+        return new LighthouseRenderer(accent);
+      case "carousel":
+        return new CarouselRenderer(accent);
+      case "mirrortwins":
+        return new MirrorTwinsRenderer(accent);
+      case "web":
+        return new WebRenderer(accent);
+      case "rosewindow":
+        return new RoseWindowRenderer(accent);
+      case "helix":
+        return new HelixRenderer(accent);
+      case "seance":
+        return new SeanceRenderer(accent);
+      case "golem":
+        return new GolemRenderer(accent);
+      case "wormhole":
+        return new WormholeRenderer(accent);
+      case "vault":
+        return new VaultRenderer(accent);
     }
   }
 
@@ -267,6 +328,12 @@ export class Game {
       this.level.subtitle,
       this.level.instructions,
     );
+    // blind verb: hide the dotted target guide — solve by reading the scene
+    this.targetWave.container.visible = !this.level.hideTarget;
+    // par verb: reset the move budget counter
+    this.moves = 0;
+    if (this.level.par != null) this.hud.setMoves(0, this.level.par);
+    else this.hud.clearMoves();
 
     this.root.addChild(
       this.background.container,
@@ -363,6 +430,10 @@ export class Game {
   private onControlStep() {
     this.audio.tick();
     (navigator as any).vibrate?.(8);
+    if (this.level.par != null) {
+      this.moves++;
+      this.hud.setMoves(this.moves, this.level.par);
+    }
   }
 
   // Build a finger-like demo: a sequence of single-value moves (one stone or

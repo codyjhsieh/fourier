@@ -15,6 +15,8 @@ export interface ControlConfig {
   showPhaseRow: boolean;
   amplitudeInteractive: boolean;
   phaseInteractive: boolean;
+  // chained stones: changing one mirrors amplitude/phase/enabled to its partner
+  links?: [number, number][];
 }
 
 type Row = "stone" | "amp" | "phase";
@@ -48,6 +50,7 @@ export class HarmonicControls {
   private lastStep = NaN; // last discrete value applied this drag (for click feedback)
   private onStep?: () => void; // tick / haptic on each discrete click
   private highlight: number | null = null; // index highlighted by the demo driver
+  private linkOf = new Map<number, number>(); // chained-stone partners
 
   constructor(
     world: FourierWorldState,
@@ -59,6 +62,10 @@ export class HarmonicControls {
     this.cfg = cfg;
     this.accent = accent;
     this.onStep = onStep;
+    for (const [a, b] of cfg.links ?? []) {
+      this.linkOf.set(a, b);
+      this.linkOf.set(b, a);
+    }
     this.container.addChild(this.gfx);
     this.layout();
     this.buildLabels();
@@ -75,6 +82,17 @@ export class HarmonicControls {
       this.lastStep = value;
       this.onStep?.();
     }
+  }
+
+  // Mirror a changed stone onto its chained partner (the "link" verb).
+  private syncLink(idx: number) {
+    const partner = this.linkOf.get(idx);
+    if (partner == null) return;
+    const h = this.world.get(idx);
+    if (!h) return;
+    this.world.setPhase(partner, h.phase);
+    this.world.setAmplitude(partner, h.amplitude);
+    this.world.setEnabled(partner, h.enabled);
   }
 
   private layout() {
@@ -195,6 +213,7 @@ export class HarmonicControls {
       const amp = snapAmp(this.startAmp + ((this.startY - local.y) / AMP_PIXELS) * 1.4);
       this.click(amp);
       this.world.setAmplitude(idx, amp);
+      this.syncLink(idx);
     } else if (this.mode === "phase") {
       if (this.dragRow === "phase") this.applyPhase(idx, local.x, local.y);
       else {
@@ -204,6 +223,7 @@ export class HarmonicControls {
         const ang = snapPhase(Math.atan2(local.y - cy, local.x - cx));
         this.click(ang);
         this.world.setPhase(idx, ang);
+        this.syncLink(idx);
       }
     }
   };
@@ -211,6 +231,7 @@ export class HarmonicControls {
   private onUp = () => {
     if (this.dragIndex != null && this.mode === "tap" && this.cfg.stoneToggle) {
       this.world.toggle(this.dragIndex);
+      this.syncLink(this.dragIndex);
     }
     this.dragIndex = null;
     this.dragRow = null;
@@ -224,6 +245,7 @@ export class HarmonicControls {
     const ang = snapPhase(Math.atan2(y - cy, x - cx)); // 30° clicks
     this.click(ang);
     this.world.setPhase(idx, ang);
+    this.syncLink(idx);
   }
 
   setAccent(a: Accent) {

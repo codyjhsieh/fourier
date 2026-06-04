@@ -43,7 +43,7 @@ export const LAYOUT = {
 
 // Reserved bands (in design px) measured from the top / bottom edges.
 const HEADER_BAND = 252; // header + floating target wave
-const CONTROLS_BAND = 296; // stone row + phase row + instructions
+const CONTROLS_BAND = 314; // stone row + phase row + instructions (+ bottom safe area)
 
 export function recomputeLayout(H: number) {
   const W = DESIGN.width;
@@ -74,5 +74,5 @@ export function recomputeLayout(H: number) {
   // The HarmonicControls component derives its own row positions from
   // controlsTop (so it can shift the stone row down when there is no phase
   // row). instructionsY is the fixed top of the bottom-most text block.
-  LAYOUT.instructionsY = controlsTop + 206;
+  LAYOUT.instructionsY = controlsTop + 190;
 }

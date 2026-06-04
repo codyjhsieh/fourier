@@ -25,7 +25,27 @@ export type RendererKind =
   | "loom"
   | "chladni"
   | "tidepool"
-  | "phasor";
+  | "phasor"
+  | "choir"
+  | "skeleton"
+  | "peacock"
+  | "lineup"
+  | "zodiac"
+  | "sonar"
+  | "tornado"
+  | "leviathan"
+  | "rocket"
+  | "phoenix"
+  | "lighthouse"
+  | "carousel"
+  | "mirrortwins"
+  | "web"
+  | "rosewindow"
+  | "helix"
+  | "seance"
+  | "golem"
+  | "wormhole"
+  | "vault";
 
 export interface HarmonicSpec {
   index: number;
@@ -51,6 +71,10 @@ export interface LevelDef {
   /** optional per-level dressing — distinct flora + sky for variety */
   scenery?: Species;
   time?: TimeOfDay;
+  /** blind: hide the dotted target wave — solve by reading the scene */
+  hideTarget?: boolean;
+  /** par: a move budget shown as moves N / par (non-blocking) */
+  par?: number;
 }
 
 // Build a full harmonic list for a palette, applying the given specs.
@@ -859,6 +883,314 @@ export const LEVELS: LevelDef[] = [
     ],
     start: [{ index: 1, amplitude: 0.5, phase: 0 }],
     threshold: 0.997,
+  },
+
+  // ================================================================ ACT II
+  // Twenty new environments (21-40). Introduces the new verbs: SELECT
+  // (toggle-only), BLIND (hidden target), LINK (chained stones), PAR (move
+  // budget) — so the second act plays differently, not just looks different.
+
+  // ---------------------------------------------------------------- L21
+  {
+    id: 21, indexLabel: "EXTREME 21",
+    title: "THE CHOIR",
+    subtitle: "tune each voice until the chord rings pure",
+    instructions: "raise the overtones 1, 2, 3, 4\nstack them until the voices ring as one chord",
+    accentKey: "cathedral", scenery: "palm", time: "dusk",
+    renderer: "choir", targetWaveStyle: "dotted", scoreModel: "waveform",
+    palette: [1, 2, 3, 4, 5, 6, 7, 8],
+    control: { indices: [1, 2, 3, 4, 5, 6, 7, 8], stoneToggle: true, stoneAmplitude: true, stonePhase: false, showAmplitudeRow: false, showPhaseRow: false, amplitudeInteractive: false, phaseInteractive: false },
+    target: [{ index: 1, amplitude: 1.0 }, { index: 2, amplitude: 0.5 }, { index: 3, amplitude: 0.3 }, { index: 4, amplitude: 0.2 }],
+    start: [{ index: 1, amplitude: 0.4 }],
+    threshold: 0.991,
+  },
+
+  // ---------------------------------------------------------------- L22
+  {
+    id: 22, indexLabel: "EXTREME 22",
+    title: "THE RESURRECTION",
+    subtitle: "assemble the bones until the skeleton stands",
+    instructions: "each stone sets a bone's length\nbuild the spine up to match the figure above",
+    accentKey: "slate", scenery: "dead", time: "night",
+    renderer: "skeleton", targetWaveStyle: "dotted", scoreModel: "waveform",
+    palette: [1, 2, 3, 4, 5, 6, 7, 8],
+    control: { indices: [1, 2, 3, 4, 5, 6, 7, 8], stoneToggle: true, stoneAmplitude: true, stonePhase: false, showAmplitudeRow: false, showPhaseRow: false, amplitudeInteractive: false, phaseInteractive: false },
+    target: [{ index: 1, amplitude: 0.8 }, { index: 2, amplitude: 0.5 }, { index: 3, amplitude: 0.4 }, { index: 5, amplitude: 0.3 }],
+    start: [{ index: 1, amplitude: 0.3 }],
+    threshold: 0.989,
+  },
+
+  // ---------------------------------------------------------------- L23
+  {
+    id: 23, indexLabel: "EXTREME 23",
+    title: "THE PEACOCK",
+    subtitle: "fan every feather into the full display",
+    instructions: "each stone raises one tier of the fan\nraise them all to spread the tail",
+    accentKey: "jade", scenery: "willow", time: "day",
+    renderer: "peacock", targetWaveStyle: "dotted", scoreModel: "waveform",
+    palette: [1, 2, 3, 4, 5, 6, 7, 8, 9],
+    control: { indices: [1, 2, 3, 4, 5, 6, 7, 8, 9], stoneToggle: true, stoneAmplitude: true, stonePhase: false, showAmplitudeRow: false, showPhaseRow: false, amplitudeInteractive: false, phaseInteractive: false },
+    target: [{ index: 1, amplitude: 0.6 }, { index: 2, amplitude: 0.5 }, { index: 3, amplitude: 0.4 }, { index: 4, amplitude: 0.3 }, { index: 5, amplitude: 0.2 }],
+    start: [{ index: 1, amplitude: 0.3 }],
+    threshold: 0.988,
+  },
+
+  // ---------------------------------------------------------------- L24  (SELECT)
+  {
+    id: 24, indexLabel: "EXTREME 24",
+    title: "THE LINEUP",
+    subtitle: "switch off the impostors, keep the real suspects",
+    instructions: "three of these don't belong in the lineup\ntap to switch off the ones that aren't real",
+    accentKey: "crimson", scenery: "dead", time: "night",
+    renderer: "lineup", targetWaveStyle: "dotted", scoreModel: "denoise",
+    palette: [1, 2, 3, 4, 5, 6],
+    control: { indices: [1, 2, 3, 4, 5, 6], stoneToggle: true, stoneAmplitude: false, stonePhase: false, showAmplitudeRow: false, showPhaseRow: false, amplitudeInteractive: false, phaseInteractive: false },
+    target: [{ index: 1, amplitude: 0.7 }, { index: 2, amplitude: 0.5 }, { index: 4, amplitude: 0.4 }],
+    start: [{ index: 1, amplitude: 0.7 }, { index: 2, amplitude: 0.5 }, { index: 3, amplitude: 0.5 }, { index: 4, amplitude: 0.4 }, { index: 5, amplitude: 0.5 }, { index: 6, amplitude: 0.4 }],
+    threshold: 0.994,
+  },
+
+  // ---------------------------------------------------------------- L25  (SELECT)
+  {
+    id: 25, indexLabel: "EXTREME 25",
+    title: "THE ZODIAC",
+    subtitle: "light only the true stars of the figure",
+    instructions: "the false stars are noise in the sky\ntap to extinguish the ones that aren't in the figure",
+    accentKey: "indigo", scenery: "crystal", time: "night",
+    renderer: "zodiac", targetWaveStyle: "dotted", scoreModel: "denoise",
+    palette: [1, 2, 3, 4, 5, 6, 7, 8, 9],
+    control: { indices: [1, 2, 3, 4, 5, 6, 7, 8, 9], stoneToggle: true, stoneAmplitude: false, stonePhase: false, showAmplitudeRow: false, showPhaseRow: false, amplitudeInteractive: false, phaseInteractive: false },
+    target: [{ index: 2, amplitude: 0.6 }, { index: 3, amplitude: 0.5 }, { index: 6, amplitude: 0.4 }, { index: 7, amplitude: 0.3 }],
+    start: [{ index: 1, amplitude: 0.4 }, { index: 2, amplitude: 0.6 }, { index: 3, amplitude: 0.5 }, { index: 4, amplitude: 0.4 }, { index: 5, amplitude: 0.4 }, { index: 6, amplitude: 0.4 }, { index: 7, amplitude: 0.3 }, { index: 8, amplitude: 0.3 }],
+    threshold: 0.994,
+  },
+
+  // ---------------------------------------------------------------- L26  (SELECT, band)
+  {
+    id: 26, indexLabel: "EXTREME 26",
+    title: "THE SONAR",
+    subtitle: "tune to the creature's band and it surfaces",
+    instructions: "low rumble and high static hide the signal\ntap off the lowest and highest pings to keep the middle band",
+    accentKey: "creature", scenery: "dead", time: "night",
+    renderer: "sonar", targetWaveStyle: "dotted", scoreModel: "denoise",
+    palette: [1, 2, 3, 4, 5, 6, 7, 8, 9],
+    control: { indices: [1, 2, 3, 4, 5, 6, 7, 8, 9], stoneToggle: true, stoneAmplitude: false, stonePhase: false, showAmplitudeRow: false, showPhaseRow: false, amplitudeInteractive: false, phaseInteractive: false },
+    target: [{ index: 4, amplitude: 0.6 }, { index: 5, amplitude: 0.5 }],
+    start: [{ index: 1, amplitude: 0.5 }, { index: 2, amplitude: 0.4 }, { index: 4, amplitude: 0.6 }, { index: 5, amplitude: 0.5 }, { index: 7, amplitude: 0.4 }, { index: 8, amplitude: 0.3 }],
+    threshold: 0.991,
+  },
+
+  // ---------------------------------------------------------------- L27  (calm)
+  {
+    id: 27, indexLabel: "EXTREME 27",
+    title: "THE TORNADO",
+    subtitle: "calm the funnel down to a gentle dust-devil",
+    instructions: "high frequencies whip the funnel into chaos\nstrip them away until only the calm low body turns",
+    accentKey: "slate", scenery: "dead", time: "dusk",
+    renderer: "tornado", targetWaveStyle: "dotted", scoreModel: "calm",
+    palette: [1, 2, 3, 4, 5, 6, 7, 8, 9],
+    control: { indices: [1, 2, 3, 4, 5, 6, 7, 8, 9], stoneToggle: true, stoneAmplitude: true, stonePhase: false, showAmplitudeRow: false, showPhaseRow: false, amplitudeInteractive: false, phaseInteractive: false },
+    target: [{ index: 1, amplitude: 0.9 }, { index: 2, amplitude: 0.5 }],
+    start: [{ index: 1, amplitude: 0.9 }, { index: 2, amplitude: 0.5 }, { index: 5, amplitude: 0.5 }, { index: 6, amplitude: 0.5 }, { index: 7, amplitude: 0.4 }, { index: 8, amplitude: 0.4 }],
+    threshold: 0.997,
+  },
+
+  // ---------------------------------------------------------------- L28  (calm)
+  {
+    id: 28, indexLabel: "EXTREME 28",
+    title: "THE LEVIATHAN",
+    subtitle: "still the storm so the whale can breach",
+    instructions: "the surface chop keeps the whale down\ncalm the high frequencies to a glassy swell",
+    accentKey: "creature", scenery: "palm", time: "day",
+    renderer: "leviathan", targetWaveStyle: "dotted", scoreModel: "calm",
+    palette: [1, 2, 3, 4, 5, 6, 7, 8, 9],
+    control: { indices: [1, 2, 3, 4, 5, 6, 7, 8, 9], stoneToggle: true, stoneAmplitude: true, stonePhase: false, showAmplitudeRow: false, showPhaseRow: false, amplitudeInteractive: false, phaseInteractive: false },
+    target: [{ index: 1, amplitude: 0.8 }, { index: 2, amplitude: 0.4 }, { index: 3, amplitude: 0.2 }],
+    start: [{ index: 1, amplitude: 0.8 }, { index: 2, amplitude: 0.4 }, { index: 3, amplitude: 0.2 }, { index: 6, amplitude: 0.5 }, { index: 7, amplitude: 0.5 }, { index: 8, amplitude: 0.4 }],
+    threshold: 0.997,
+  },
+
+  // ---------------------------------------------------------------- L29  (spike)
+  {
+    id: 29, indexLabel: "EXTREME 29",
+    title: "THE LIFTOFF",
+    subtitle: "stack the thrust into one clean burn",
+    instructions: "a clean burn needs every stage firing together\nraise the stones evenly until the rocket lifts",
+    accentKey: "amber", scenery: "dead", time: "dusk",
+    renderer: "rocket", targetWaveStyle: "dotted", scoreModel: "waveform",
+    palette: [1, 2, 3, 4, 5, 6, 7],
+    control: { indices: [1, 2, 3, 4, 5, 6, 7], stoneToggle: true, stoneAmplitude: true, stonePhase: false, showAmplitudeRow: false, showPhaseRow: false, amplitudeInteractive: false, phaseInteractive: false },
+    target: [{ index: 1, amplitude: 0.5 }, { index: 2, amplitude: 0.5 }, { index: 3, amplitude: 0.5 }, { index: 4, amplitude: 0.5 }, { index: 5, amplitude: 0.4 }, { index: 6, amplitude: 0.4 }],
+    start: [{ index: 1, amplitude: 0.5 }],
+    threshold: 0.989,
+  },
+
+  // ---------------------------------------------------------------- L30  (mixed signs)
+  {
+    id: 30, indexLabel: "EXTREME 30",
+    title: "THE PHOENIX",
+    subtitle: "gather the embers into a bird of fire",
+    instructions: "some stones lift, some drag below the line\nbalance them until the phoenix takes shape",
+    accentKey: "crimson", scenery: "dead", time: "dusk",
+    renderer: "phoenix", targetWaveStyle: "dotted", scoreModel: "waveform",
+    palette: [1, 2, 3, 4, 5, 6, 7, 8],
+    control: { indices: [1, 2, 3, 4, 5, 6, 7, 8], stoneToggle: true, stoneAmplitude: true, stonePhase: false, showAmplitudeRow: false, showPhaseRow: false, amplitudeInteractive: false, phaseInteractive: false },
+    target: [{ index: 1, amplitude: 0.7 }, { index: 2, amplitude: -0.4 }, { index: 3, amplitude: 0.4 }, { index: 4, amplitude: -0.2 }, { index: 5, amplitude: 0.2 }],
+    start: [{ index: 1, amplitude: 0.3 }],
+    threshold: 0.989,
+  },
+
+  // ---------------------------------------------------------------- L31  (phase)
+  {
+    id: 31, indexLabel: "EXTREME 31",
+    title: "THE LIGHTHOUSE",
+    subtitle: "swing the beams into one sweeping rhythm",
+    instructions: "a phase dial swings a beam around\nline the beams up so they sweep the ship home",
+    accentKey: "cathedral", scenery: "palm", time: "night",
+    renderer: "lighthouse", targetWaveStyle: "dotted", scoreModel: "phase",
+    palette: [-2, -1, 0, 1, 2, 3, 4],
+    control: { indices: [-2, -1, 0, 1, 2, 3, 4], stoneToggle: true, stoneAmplitude: true, stonePhase: false, showAmplitudeRow: false, showPhaseRow: true, amplitudeInteractive: false, phaseInteractive: true },
+    target: [{ index: 1, amplitude: 0.8, phase: 1.05 }, { index: 2, amplitude: 0.6, phase: 3.14 }, { index: 3, amplitude: 0.4, phase: 5.24 }],
+    start: [{ index: 1, amplitude: 0.8, phase: 4.19 }, { index: 2, amplitude: 0.6, phase: 0.52 }, { index: 3, amplitude: 0.4, phase: 2.09 }],
+    threshold: 0.994,
+  },
+
+  // ---------------------------------------------------------------- L32  (phase)
+  {
+    id: 32, indexLabel: "EXTREME 32",
+    title: "THE CAROUSEL",
+    subtitle: "set each horse's angle so the ride turns as one",
+    instructions: "every dial sets a horse's angle\nrotate them until the whole carousel turns together",
+    accentKey: "rose", scenery: "willow", time: "dusk",
+    renderer: "carousel", targetWaveStyle: "dotted", scoreModel: "phase",
+    palette: [-2, -1, 0, 1, 2, 3, 4],
+    control: { indices: [-2, -1, 0, 1, 2, 3, 4], stoneToggle: true, stoneAmplitude: true, stonePhase: false, showAmplitudeRow: false, showPhaseRow: true, amplitudeInteractive: false, phaseInteractive: true },
+    target: [{ index: 1, amplitude: 0.7, phase: 0.52 }, { index: 2, amplitude: 0.5, phase: 2.09 }, { index: 3, amplitude: 0.4, phase: 3.67 }, { index: 4, amplitude: 0.3, phase: 5.24 }],
+    start: [{ index: 1, amplitude: 0.7, phase: 3.14 }, { index: 2, amplitude: 0.5, phase: 5.24 }, { index: 3, amplitude: 0.4, phase: 0.52 }, { index: 4, amplitude: 0.3, phase: 2.62 }],
+    threshold: 0.994,
+  },
+
+  // ---------------------------------------------------------------- L33  (LINK)
+  {
+    id: 33, indexLabel: "EXTREME 33",
+    title: "THE MIRROR TWINS",
+    subtitle: "a figure and its reflection move as one",
+    instructions: "each stone is chained to its mirror twin\nset one side — the other follows — to match the figure",
+    accentKey: "jade", scenery: "willow", time: "day",
+    renderer: "mirrortwins", targetWaveStyle: "dotted", scoreModel: "waveform",
+    palette: [-3, -2, -1, 0, 1, 2, 3],
+    control: { indices: [-3, -2, -1, 0, 1, 2, 3], stoneToggle: true, stoneAmplitude: true, stonePhase: false, showAmplitudeRow: false, showPhaseRow: false, amplitudeInteractive: false, phaseInteractive: false, links: [[1, -1], [2, -2], [3, -3]] },
+    target: [{ index: 0, amplitude: 0.3 }, { index: 1, amplitude: 0.6 }, { index: -1, amplitude: 0.6 }, { index: 2, amplitude: 0.4 }, { index: -2, amplitude: 0.4 }, { index: 3, amplitude: 0.2 }, { index: -3, amplitude: 0.2 }],
+    start: [{ index: 0, amplitude: 0.3 }],
+    threshold: 0.992,
+  },
+
+  // ---------------------------------------------------------------- L34  (symmetry)
+  {
+    id: 34, indexLabel: "EXTREME 34",
+    title: "THE WEB",
+    subtitle: "balance the web into perfect symmetry",
+    instructions: "a lopsided web tears in the wind\nrotate the dials until both halves match exactly",
+    accentKey: "indigo", scenery: "willow", time: "night",
+    renderer: "web", targetWaveStyle: "dotted", scoreModel: "symmetry",
+    palette: [-2, -1, 0, 1, 2, 3, 4],
+    control: { indices: [-2, -1, 0, 1, 2, 3, 4], stoneToggle: true, stoneAmplitude: true, stonePhase: false, showAmplitudeRow: false, showPhaseRow: true, amplitudeInteractive: false, phaseInteractive: true },
+    target: [{ index: 1, amplitude: 0.7, phase: 0 }, { index: 2, amplitude: 0.5, phase: 0 }, { index: 3, amplitude: 0.4, phase: 0 }],
+    start: [{ index: 1, amplitude: 0.7, phase: 1.57 }, { index: 2, amplitude: 0.5, phase: 1.57 }, { index: 3, amplitude: 0.4, phase: 1.57 }],
+    threshold: 0.994,
+  },
+
+  // ---------------------------------------------------------------- L35  (symmetry)
+  {
+    id: 35, indexLabel: "EXTREME 35",
+    title: "THE ROSE WINDOW",
+    subtitle: "fold the shards into a flawless mandala",
+    instructions: "the glass is scattered off its axis\nrotate the dials until the rose window is even",
+    accentKey: "cathedral", scenery: "crystal", time: "dusk",
+    renderer: "rosewindow", targetWaveStyle: "dotted", scoreModel: "symmetry",
+    palette: [-2, -1, 0, 1, 2, 3, 4],
+    control: { indices: [-2, -1, 0, 1, 2, 3, 4], stoneToggle: true, stoneAmplitude: true, stonePhase: false, showAmplitudeRow: false, showPhaseRow: true, amplitudeInteractive: false, phaseInteractive: true },
+    target: [{ index: 1, amplitude: 0.6, phase: 0 }, { index: 2, amplitude: 0.5, phase: 0 }, { index: 3, amplitude: 0.4, phase: 0 }, { index: 4, amplitude: 0.3, phase: 0 }],
+    start: [{ index: 1, amplitude: 0.6, phase: 2.09 }, { index: 2, amplitude: 0.5, phase: 1.05 }, { index: 3, amplitude: 0.4, phase: 2.62 }, { index: 4, amplitude: 0.3, phase: 1.57 }],
+    threshold: 0.994,
+  },
+
+  // ---------------------------------------------------------------- L36  (phase)
+  {
+    id: 36, indexLabel: "EXTREME 36",
+    title: "THE DOUBLE HELIX",
+    subtitle: "twist the two strands into a clean helix",
+    instructions: "the strands have drifted out of phase\nrotate every dial until the helix locks together",
+    accentKey: "jade", scenery: "willow", time: "night",
+    renderer: "helix", targetWaveStyle: "dotted", scoreModel: "phase",
+    palette: [-3, -2, -1, 0, 1, 2, 3, 4, 5],
+    control: { indices: [-3, -2, -1, 0, 1, 2, 3, 4, 5], stoneToggle: true, stoneAmplitude: true, stonePhase: false, showAmplitudeRow: false, showPhaseRow: true, amplitudeInteractive: false, phaseInteractive: true },
+    target: [{ index: 1, amplitude: 0.7, phase: 0.52 }, { index: 2, amplitude: 0.55, phase: 1.57 }, { index: 3, amplitude: 0.45, phase: 2.62 }, { index: 4, amplitude: 0.35, phase: 3.67 }],
+    start: [{ index: 1, amplitude: 0.7, phase: 3.14 }, { index: 2, amplitude: 0.55, phase: 4.71 }, { index: 3, amplitude: 0.45, phase: 0.52 }, { index: 4, amplitude: 0.35, phase: 1.05 }],
+    threshold: 0.997,
+  },
+
+  // ---------------------------------------------------------------- L37  (BLIND)
+  {
+    id: 37, indexLabel: "EXTREME 37",
+    title: "THE SEANCE",
+    subtitle: "read the smoke — there is no guide",
+    instructions: "no target wave to copy this time\ntune by the scene alone until the apparition forms",
+    accentKey: "indigo", scenery: "dead", time: "night",
+    renderer: "seance", targetWaveStyle: "dotted", scoreModel: "waveform",
+    hideTarget: true,
+    palette: [1, 2, 3, 4, 5, 6, 7, 8],
+    control: { indices: [1, 2, 3, 4, 5, 6, 7, 8], stoneToggle: true, stoneAmplitude: true, stonePhase: false, showAmplitudeRow: false, showPhaseRow: false, amplitudeInteractive: false, phaseInteractive: false },
+    target: [{ index: 1, amplitude: 0.7 }, { index: 2, amplitude: 0.5 }, { index: 3, amplitude: 0.3 }, { index: 4, amplitude: 0.2 }],
+    start: [{ index: 1, amplitude: 0.3 }],
+    threshold: 0.987,
+  },
+
+  // ---------------------------------------------------------------- L38  (full)
+  {
+    id: 38, indexLabel: "EXTREME 38",
+    title: "THE GOLEM",
+    subtitle: "sculpt its form and set its stride",
+    instructions: "drag the stones for its body, turn the dials for its stride\nset both until the golem stirs and stands",
+    accentKey: "amber", scenery: "crystal", time: "dusk",
+    renderer: "golem", targetWaveStyle: "dotted", scoreModel: "full",
+    palette: [1, 2, 3, 4, 5, 6],
+    control: { indices: [1, 2, 3, 4, 5, 6], stoneToggle: true, stoneAmplitude: true, stonePhase: false, showAmplitudeRow: false, showPhaseRow: true, amplitudeInteractive: false, phaseInteractive: true },
+    target: [{ index: 1, amplitude: 0.8, phase: 0 }, { index: 2, amplitude: 0.5, phase: 1.57 }, { index: 3, amplitude: 0.4, phase: 3.14 }, { index: 4, amplitude: 0.3, phase: 0.52 }],
+    start: [{ index: 1, amplitude: 0.3, phase: 0 }],
+    threshold: 0.99,
+  },
+
+  // ---------------------------------------------------------------- L39  (full + BLIND)
+  {
+    id: 39, indexLabel: "EXTREME 39",
+    title: "THE WORMHOLE",
+    subtitle: "stabilise the churn into a clean ring — blind",
+    instructions: "no guide, and both amplitude and phase matter\nread the portal until it holds a steady ring",
+    accentKey: "indigo", scenery: "crystal", time: "night",
+    renderer: "wormhole", targetWaveStyle: "dotted", scoreModel: "full",
+    hideTarget: true,
+    palette: [-3, -2, -1, 0, 1, 2, 3],
+    control: { indices: [-3, -2, -1, 0, 1, 2, 3], stoneToggle: true, stoneAmplitude: true, stonePhase: false, showAmplitudeRow: false, showPhaseRow: true, amplitudeInteractive: false, phaseInteractive: true },
+    target: [{ index: 1, amplitude: 0.7, phase: 1.05 }, { index: 2, amplitude: 0.5, phase: 2.62 }, { index: 3, amplitude: 0.4, phase: 4.19 }],
+    start: [{ index: 1, amplitude: 0.3, phase: 0 }],
+    threshold: 0.99,
+  },
+
+  // ---------------------------------------------------------------- L40  (PAR finale)
+  {
+    id: 40, indexLabel: "EXTREME 40",
+    title: "THE VAULT",
+    subtitle: "crack every tumbler in as few moves as you can",
+    instructions: "align all six tumblers to open the vault\neach dial click is a move — beat par",
+    accentKey: "crimson", scenery: "dead", time: "night",
+    renderer: "vault", targetWaveStyle: "dotted", scoreModel: "phase",
+    par: 10,
+    palette: [-2, -1, 0, 1, 2, 3, 4],
+    control: { indices: [-2, -1, 0, 1, 2, 3, 4], stoneToggle: true, stoneAmplitude: true, stonePhase: false, showAmplitudeRow: false, showPhaseRow: true, amplitudeInteractive: false, phaseInteractive: true },
+    target: [{ index: 1, amplitude: 0.7, phase: 1.05 }, { index: 2, amplitude: 0.6, phase: 2.62 }, { index: 3, amplitude: 0.5, phase: 4.19 }, { index: 4, amplitude: 0.4, phase: 5.76 }],
+    start: [{ index: 1, amplitude: 0.7, phase: 1.57 }, { index: 2, amplitude: 0.6, phase: 2.09 }, { index: 3, amplitude: 0.5, phase: 4.71 }, { index: 4, amplitude: 0.4, phase: 5.24 }],
+    threshold: 0.995,
   },
 ];
 

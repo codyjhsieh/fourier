@@ -59,11 +59,24 @@ ever **interprets** it — drawing physical architecture, never a chart. A share
 
 ## Levels
 
-Twenty levels across twenty distinct environments — each environment a
+**Forty** levels across forty distinct environments — each environment a
 different way of seeing the same harmonics, paired with a different mechanic.
 The order is a **difficulty ramp**: pure amplitude first, a gentle taste of
 phase in the middle, then filtering and combined amplitude + phase, building to
-the two full-mastery bosses at the end.
+the full-mastery bosses.
+
+**Act I (1–20)** is the original arc. **Act II (21–40)** introduces four new
+*verbs* so the second act plays differently, not just looks different:
+
+- **select** — toggle-only levels where you choose a *subset* (The Lineup, The
+  Zodiac, The Sonar) instead of tuning amplitudes — pure deduction.
+- **blind** — no target guide; read the scene itself (The Séance, The Wormhole).
+- **link** — chained stones that mirror their twin (The Mirror Twins).
+- **par** — a move budget you try to beat (The Vault).
+
+Act II environments include the resurrection of a skeleton, a phoenix, a rocket
+launch, a peacock, a lighthouse, a carousel, a spider's web, a rose window, a
+DNA double helix, a clay golem, a wormhole, and a bank vault.
 
 | # | Level | Teaches | Biome |
 |---|-------|---------|-------|

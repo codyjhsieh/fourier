@@ -13,6 +13,7 @@ export class Hud {
   private subtitle: Text;
   private index: Text;
   private instructions: Text;
+  private moves: Text;
   private accent: Accent;
   private scoreDisplay = 0;
 
@@ -64,9 +65,9 @@ export class Hud {
       text: "",
       style: {
         fontFamily: FONT.family,
-        fontSize: 16,
+        fontSize: 15,
         fill: PALETTE.inkMid,
-        lineHeight: 23,
+        lineHeight: 21,
         letterSpacing: 1,
         wordWrap: true,
         wordWrapWidth: LAYOUT.W - (LAYOUT.instructionsX + 34) - 14,
@@ -75,6 +76,21 @@ export class Hud {
     this.instructions.x = LAYOUT.instructionsX + 34;
     this.instructions.y = LAYOUT.instructionsY;
 
+    this.moves = new Text({
+      text: "",
+      style: {
+        fontFamily: FONT.family,
+        fontSize: 14,
+        fill: PALETTE.inkSoft,
+        letterSpacing: 1,
+        align: "center",
+      },
+    });
+    this.moves.anchor.set(0.5, 0);
+    this.moves.x = LAYOUT.ringX;
+    this.moves.y = LAYOUT.ringY + LAYOUT.ringR + 12;
+    this.moves.visible = false;
+
     this.container.addChild(
       this.ring,
       this.handIcon,
@@ -82,12 +98,25 @@ export class Hud {
       this.title,
       this.subtitle,
       this.instructions,
+      this.moves,
     );
     this.drawHand();
   }
 
   setAccent(a: Accent) {
     this.accent = a;
+  }
+
+  setMoves(n: number, par: number) {
+    this.moves.text = `moves ${n} / ${par}`;
+    this.moves.style.fill = n > par ? PALETTE.inkSoft : this.accent.accent;
+    this.moves.x = LAYOUT.ringX;
+    this.moves.y = LAYOUT.ringY + LAYOUT.ringR + 12;
+    this.moves.visible = true;
+  }
+
+  clearMoves() {
+    this.moves.visible = false;
   }
 
   // Re-anchor bottom-aligned chrome when the screen height changes.
