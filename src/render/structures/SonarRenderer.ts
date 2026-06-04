@@ -180,8 +180,9 @@ export class SonarRenderer implements WorldRenderer {
 
     // ===== THE BEZEL: dark casing ring around the screen ====================
     // outer shadow then a beveled metal ring, top-left lit.
-    hud.circle(cx, cy + 2, R + 13).fill({ color: bezelShade, alpha: 0.45 });
-    hud.circle(cx, cy, R + 12).fill({ color: bezel, alpha: 1 });
+    // casing fill behind the screen (in bg) so it never covers the contact.
+    bg.circle(cx, cy + 2, R + 13).fill({ color: bezelShade, alpha: 0.45 });
+    bg.circle(cx, cy, R + 12).fill({ color: bezel, alpha: 1 });
     // top-left lit arc / bottom-right shade for a rounded casing
     hud.circle(cx, cy, R + 12).stroke({ width: 4, color: bezelLit, alpha: 0.35 });
     hud.arc(cx, cy, R + 10, Math.PI * 1.05, Math.PI * 1.95).stroke({
