@@ -264,9 +264,15 @@ export class ChoirRenderer implements WorldRenderer {
       // clash, even present voices stand low & hunched; harmony lifts them — but
       // every standing singer keeps a generous minimum height so it reads clearly.
       const ampHeight = 0.55 + ampN * 0.45;
-      const bodyH = maxBody * ampHeight * (0.78 + harm * 0.22);
+      // hunched in clash (singers slump), drawn up tall in harmony
+      const posture = 0.7 + harm * 0.3;
+      const bodyH = maxBody * ampHeight * (0.78 + harm * 0.22) * posture;
       const headR = Math.max(7, bodyH * 0.14);
-      const breathe = Math.sin(t * 1.6 + i * 0.9) * (1 + harm * 1.5);
+      // gentle breathing sway — the whole singer rocks & lifts with t; the
+      // chest rises (a slow inhale) and the body leans on a slow lateral sway.
+      const breathPhase = t * 1.6 + i * 0.9;
+      const breathe = Math.sin(breathPhase) * (1 + harm * 1.5);
+      const swayX = Math.sin(t * 0.9 + i * 1.3) * (1.2 + harm * 2.4);
       const standY = baseY + breathe * 0.3;
       const headY = standY - bodyH;
 
@@ -281,7 +287,7 @@ export class ChoirRenderer implements WorldRenderer {
       this.drawSinger(
         p,
         g,
-        cx,
+        cx + swayX,
         standY,
         bodyH,
         headR,
@@ -289,6 +295,9 @@ export class ChoirRenderer implements WorldRenderer {
         mouthOpen,
         present,
         harm,
+        t,
+        breathPhase,
+        i,
         {
           robeDark,
           robe,
@@ -297,10 +306,19 @@ export class ChoirRenderer implements WorldRenderer {
           skin: mixColor(skinShut, skin, harm),
           mouthC,
           gold,
+          goldSoft,
         },
       );
 
-      stands.push({ cx, headY, headR, mouthOpen, present, k: v.k, phase: v.phase });
+      stands.push({
+        cx: cx + swayX,
+        headY,
+        headR,
+        mouthOpen,
+        present,
+        k: v.k,
+        phase: v.phase,
+      });
     }
 
     // ============================================================
@@ -309,38 +327,69 @@ export class ChoirRenderer implements WorldRenderer {
     // they climb and SNAP onto one shared rising chord arc, gold and bright.
     // ============================================================
     const chordTop = top + skyH * 0.16; // where the unified chord gathers
+    // a faint golden STAFF gathers behind the chord as the voices align — the
+    // place the rising notes converge onto.
+    if (harm > 0.06 && stands.length > 0) {
+      let sMinX = right;
+      let sMaxX = left;
+      for (const s of stands) {
+        if (s.cx < sMinX) sMinX = s.cx;
+        if (s.cx > sMaxX) sMaxX = s.cx;
+      }
+      const padX = 22;
+      const lines = 5;
+      for (let li = 0; li < lines; li++) {
+        const ly = chordTop + 6 + li * 7;
+        f.rect(sMinX - padX, ly, sMaxX - sMinX + padX * 2, 1).fill({
+          color: mixColor(goldSoft, gold, harm),
+          alpha: harm * 0.26 * (0.6 + 0.4 * Math.sin(t * 1.2 + li)),
+        });
+      }
+    }
     for (let si = 0; si < stands.length; si++) {
       const s = stands[si];
       if (s.present < 0.05) continue;
       const sing = Math.max(0.0, s.mouthOpen);
+      const mx = s.cx;
+      const my = s.headY + s.headR * 0.5;
 
-      // -- expanding sound-rings off the mouth --
-      const ringCount = 3;
+      // -- expanding concentric sound-rings off the mouth. More rings and a
+      // brighter, thicker stroke as the voice opens and the choir aligns. --
+      const ringCount = 4;
       for (let rj = 0; rj < ringCount; rj++) {
         const cyc = (t * (0.5 + s.k * 0.02) + rj / ringCount + hash(si, rj) * 0.3) % 1;
-        const rad = 4 + cyc * (16 + sing * 26);
-        const a = (1 - cyc) * sing * (0.18 + harm * 0.4);
+        const rad = 4 + cyc * (18 + sing * 30);
+        const a = (1 - cyc) * sing * (0.16 + harm * 0.46);
         if (a < 0.02) continue;
-        const ringC = mixColor(goldSoft, gold, harm);
-        f.circle(s.cx, s.headY + s.headR * 0.5, rad).stroke({
-          width: 1.4 + harm * 1.0,
+        const ringC = mixColor(goldSoft, gold, harm * 0.85);
+        f.circle(mx, my, rad).stroke({
+          width: 1.2 + harm * 1.4 + sing * 0.6,
           color: ringC,
           alpha: a,
         });
       }
+      // a tiny bright breath-bloom right at the lips when singing hard
+      if (sing > 0.25) {
+        f.circle(mx, my, 2 + sing * 2.4).fill({
+          color: mixColor(goldSoft, PALETTE.white, 0.4),
+          alpha: sing * (0.12 + harm * 0.3),
+        });
+      }
 
       // -- notes rising from the voice --
-      const noteN = 3;
+      const noteN = 4;
       for (let nj = 0; nj < noteN; nj++) {
         const seed = hash(si * 7 + nj, s.k);
         const cyc = (t * (0.22 + sing * 0.12) + seed) % 1;
-        const rise = cyc; // 0 at mouth .. 1 at the top
+        const rise = ease(cyc); // 0 at mouth .. 1 at the top
         const startY = s.headY + s.headR * 0.4;
-        // dissonant target heights (scattered) vs. one aligned chord arc
-        const arcX = s.cx + (sunX - s.cx) * harm * 0.18;
+        // notes climb toward — and CONVERGE on — one shared point on the staff
+        // as harmony rises (gather toward the chord centre over the choir).
+        const gatherX = sunX + (seed - 0.5) * 30 * harm;
+        const arcX = mx + (gatherX - mx) * harm * 0.7;
         const dissonantY =
           startY - rise * (40 + seed * 60) - Math.sin(seed * 6.28) * 30 * clash;
-        const alignedY = startY + (chordTop - startY) * rise;
+        const alignedY = startY + (chordTop + 16 - startY) * rise;
         const ny = dissonantY * clash + alignedY * harm;
         const driftX =
           arcX +
@@ -431,6 +480,9 @@ export class ChoirRenderer implements WorldRenderer {
     mouthOpen: number,
     present: number,
     harm: number,
+    t: number,
+    breathPhase: number,
+    idx: number,
     col: {
       robeDark: number;
       robe: number;
@@ -439,19 +491,30 @@ export class ChoirRenderer implements WorldRenderer {
       skin: number;
       mouthC: number;
       gold: number;
+      goldSoft: number;
     },
   ) {
     const a = Math.min(1, present);
     const shoulderY = baseY - bodyH + headR * 1.7;
     const robeTopW = robeW * 0.42;
+    // the chest swells with the inhale — a subtle widening of the upper robe
+    const breath = Math.sin(breathPhase) * 0.5 + 0.5; // 0..1
+    const chestSwell = 1 + breath * (0.04 + harm * 0.05);
 
-    // ---- the ROBE: a tapered trapezoid of stacked rows, wide at the hem.
+    // ---- the ROBE: a tapered trapezoid of stacked rows, wide at the hem, with
+    // several vertical FOLDS of dark ink so the gown reads as draped cloth.
     // Light from the top-left: left columns lit, right columns shaded. ----
     const rows = Math.max(8, Math.round(bodyH / 5));
+    // two or three drape folds, placed deterministically per singer
+    const foldA = -0.34 + (hash(idx, 1) - 0.5) * 0.14;
+    const foldB = 0.3 + (hash(idx, 2) - 0.5) * 0.14;
+    const foldC = -0.02 + (hash(idx, 3) - 0.5) * 0.1;
     for (let row = 0; row < rows; row++) {
       const rt = row / (rows - 1); // 0 shoulders .. 1 hem
       const y = shoulderY + rt * (baseY - shoulderY);
-      const w = robeTopW + (robeW - robeTopW) * ease(rt);
+      // chest swell tapers off toward the hem
+      const swell = 1 + (chestSwell - 1) * (1 - rt);
+      const w = (robeTopW + (robeW - robeTopW) * ease(rt)) * swell;
       const cols = Math.max(4, Math.round(w / 4));
       for (let cI = 0; cI <= cols; cI++) {
         const cu = cI / cols - 0.5; // -0.5 left .. 0.5 right
@@ -464,7 +527,12 @@ export class ChoirRenderer implements WorldRenderer {
         if (lt > 0.62) c = mixColor(col.robe, col.robeLit, (lt - 0.62) / 0.38);
         else c = mixColor(col.robeDark, col.robe, lt / 0.62);
         // central fold shadow down the gown
-        if (Math.abs(cu) < 0.08) c = mixColor(c, col.robeDark, 0.4);
+        if (Math.abs(cu) < 0.08) c = mixColor(c, col.robeDark, 0.45);
+        // drape folds — dark-ink creases that deepen toward the hem
+        const foldDepth = 0.32 + rt * 0.35;
+        if (Math.abs(cu - foldA) < 0.05) c = mixColor(c, col.robeDark, foldDepth);
+        else if (Math.abs(cu - foldB) < 0.05) c = mixColor(c, col.robeDark, foldDepth);
+        else if (Math.abs(cu - foldC) < 0.04) c = mixColor(c, col.robeDark, foldDepth * 0.7);
         p.block(x - 2, y - 2, 4.6, 5.0, c, a * 0.98);
       }
     }
@@ -472,7 +540,8 @@ export class ChoirRenderer implements WorldRenderer {
     for (let row = 0; row < rows; row += 1) {
       const rt = row / (rows - 1);
       const y = shoulderY + rt * (baseY - shoulderY);
-      const w = robeTopW + (robeW - robeTopW) * ease(rt);
+      const swell = 1 + (chestSwell - 1) * (1 - rt);
+      const w = (robeTopW + (robeW - robeTopW) * ease(rt)) * swell;
       p.block(cx - w / 2 - 1, y - 1.5, 2.4, 4.2, col.robeRim, a * 0.5 * (1 - rt * 0.4));
     }
     // a hem accent stripe — a thread of gold (sparing) along the bottom
@@ -483,26 +552,80 @@ export class ChoirRenderer implements WorldRenderer {
       }
     }
 
-    // ---- the HOOD + HEAD ----
-    const headY = shoulderY - headR * 0.5;
-    // hood: a darker ring framing the face, lit on the top-left
-    const hoodR = headR * 1.42;
-    const hsteps = 18;
-    for (let i = 0; i < hsteps; i++) {
-      const ang = (i / hsteps) * Math.PI * 2;
-      const lx = Math.cos(ang);
-      const ly = Math.sin(ang);
-      const lit = -lx * 0.5 - ly * 0.5; // top-left bright
-      const c = lit > 0.1 ? col.robeLit : col.robeDark;
+    // ---- the HANDS: clasped at the chest holding a small song-sheet. They lift
+    // a touch as the voice opens, and the sheet glows gold in harmony. ----
+    const handY = shoulderY + bodyH * 0.16 - mouthOpen * 2;
+    const handW = robeW * 0.16;
+    // the song-sheet (a pale rectangle) between the two hands
+    p.block(
+      cx - handW * 0.9,
+      handY - 3,
+      handW * 1.8,
+      handW * 1.5,
+      mixColor(col.robeRim, col.goldSoft, 0.2 + harm * 0.4),
+      a * 0.9,
+    );
+    // staff lines on the sheet — a tiny suggestion of music
+    for (let li = 0; li < 2; li++) {
       p.block(
-        cx + lx * hoodR - 2,
-        headY + ly * hoodR - 2,
-        4.2,
-        4.2,
-        mixColor(col.robe, c, 0.5),
+        cx - handW * 0.7,
+        handY - 1 + li * 2.4,
+        handW * 1.4,
+        0.8,
+        mixColor(col.robeDark, col.gold, harm),
+        a * 0.5,
+      );
+    }
+    // two hands cupping the sheet
+    for (const hx of [-1, 1]) {
+      p.block(
+        cx + hx * handW * 1.1 - 2,
+        handY - 1,
+        4,
+        4.4,
+        mixColor(col.skin, col.robeDark, 0.2),
         a * 0.95,
       );
     }
+
+    // ---- the HOOD + HEAD ----
+    const headY = shoulderY - headR * 0.5;
+    // hood: a deep cowl framing the face. Two concentric rings (an outer dark
+    // shell + an inner shadow lip) read as a real hood with the face recessed
+    // inside it, lit on the top-left.
+    const hoodR = headR * 1.5;
+    const hsteps = 22;
+    for (const ring of [
+      { r: hoodR * 1.12, w: 4.6, dark: 0.0, raise: 1.0 },
+      { r: hoodR, w: 4.2, dark: 0.5, raise: 1.0 },
+    ]) {
+      for (let i = 0; i < hsteps; i++) {
+        const ang = (i / hsteps) * Math.PI * 2;
+        const lx = Math.cos(ang);
+        const ly = Math.sin(ang);
+        // open the cowl at the lower-front so the face shows; full ring on top
+        if (ly > 0.55) continue;
+        const lit = -lx * 0.5 - ly * 0.5; // top-left bright
+        const c = lit > 0.1 ? col.robeLit : col.robeDark;
+        p.block(
+          cx + lx * ring.r - 2,
+          headY + ly * ring.r - 2,
+          ring.w,
+          ring.w,
+          mixColor(mixColor(col.robe, c, 0.5), col.robeDark, ring.dark),
+          a * 0.95,
+        );
+      }
+    }
+    // the inner shadow of the cowl behind the head (face sits in front of it)
+    p.block(
+      cx - headR,
+      headY - headR * 1.05,
+      headR * 2,
+      headR * 1.4,
+      col.robeDark,
+      a * 0.55,
+    );
     // face — a soft warm oval inside the hood
     const fsteps = 5;
     for (let yy = -fsteps; yy <= fsteps; yy++) {
@@ -517,28 +640,49 @@ export class ChoirRenderer implements WorldRenderer {
     // brow shadow under the hood
     p.block(cx - headR * 0.7, headY - headR * 0.55, headR * 1.4, 2.2, col.robeDark, a * 0.45);
 
-    // ---- the singing MOUTH: a dark open oval that grows as the voice opens.
-    // Shut (a thin line) in clash; a tall dark "O" when singing in harmony. ----
-    const mY = headY + headR * 0.42;
-    const mW = headR * (0.34 + mouthOpen * 0.22);
-    const mH = Math.max(1.2, headR * (0.12 + mouthOpen * 0.62));
+    // ---- the singing MOUTH: a dark open "O" that clearly grows as the voice
+    // opens. Shut (a thin line) in clash; a rounded, rim-lit dark "O" with a
+    // warm throat when singing in harmony. ----
+    const mY = headY + headR * 0.44;
+    // a rounder O — width tracks the open height so it reads as an oval, not a slit
+    const mW = headR * (0.26 + mouthOpen * 0.36);
+    const mH = Math.max(1.0, headR * (0.1 + mouthOpen * 0.74));
+    if (mouthOpen > 0.12) {
+      // soft lip-shadow ring just outside the opening
+      g.ellipse(cx, mY, mW + 1.2, mH + 1.2).fill({
+        color: mixColor(col.skin, col.robeDark, 0.5),
+        alpha: a * 0.4,
+      });
+    }
     g.ellipse(cx, mY, mW, mH).fill({ color: col.mouthC, alpha: a * 0.92 });
-    // a faint warm inner glow at the back of an open throat
-    if (mouthOpen > 0.3) {
-      g.ellipse(cx, mY + mH * 0.2, mW * 0.5, mH * 0.45).fill({
+    // a warm inner glow at the back of an open throat — brighter the wider it opens
+    if (mouthOpen > 0.22) {
+      g.ellipse(cx, mY + mH * 0.18, mW * 0.55, mH * 0.5).fill({
         color: mixColor(col.gold, col.mouthC, 0.4),
-        alpha: a * (mouthOpen - 0.3) * 0.5,
+        alpha: a * (mouthOpen - 0.22) * 0.7,
+      });
+      // a tiny bright highlight on the lower lip (light catching the rounded O)
+      g.ellipse(cx, mY + mH * 0.85, mW * 0.6, 1.0).fill({
+        color: col.skin,
+        alpha: a * mouthOpen * 0.5,
       });
     }
     // closed-mouth thin line when barely singing (the "clash" read)
     if (mouthOpen < 0.18) {
       g.rect(cx - mW, mY - 0.6, mW * 2, 1.4).fill({ color: col.mouthC, alpha: a * 0.7 });
     }
-    // two small eyes
+    // a soft brow line above the eyes
+    g.rect(cx - headR * 0.55, headY - headR * 0.28, headR * 1.1, 1.2).fill({
+      color: col.robeDark,
+      alpha: a * 0.4,
+    });
+    // two small eyes — they soften (half-close, lifted) as the singer pours into the note
     for (const ex of [-1, 1]) {
-      g.circle(cx + ex * headR * 0.4, headY - headR * 0.12, 1.1).fill({
-        color: col.robeDark,
-        alpha: a * 0.75,
+      const eyeC = mixColor(col.robeDark, col.mouthC, 0.2);
+      const eyeR = 1.1 - mouthOpen * 0.3;
+      g.ellipse(cx + ex * headR * 0.4, headY - headR * 0.1, 1.2, Math.max(0.5, eyeR)).fill({
+        color: eyeC,
+        alpha: a * 0.78,
       });
     }
   }

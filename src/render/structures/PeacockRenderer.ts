@@ -185,11 +185,52 @@ export class PeacockRenderer implements WorldRenderer {
     const maxReach = (waterY - top) * 0.92; // longest feathers nearly fill the world
 
     const tiers = 9;
-    const featherC = mixColor(jade, PALETTE.white, 0.18);
-    const eyeOuter = jade;
-    const eyeRing = mixColor(jade, PALETTE.glow, 0.55);
-    const eyeCore = darkInk;
+    const featherC = mixColor(jade, PALETTE.white, 0.22); // bright barb green
+    const featherDeep = mixColor(jade, ink, 0.32); // shaded inner barb
+    const quillC = mixColor(jadeSoft, PALETTE.white, 0.45); // pale quill shaft
+    const eyeHalo = mixColor(jadeSoft, PALETTE.glow, 0.55); // pale outer halo
+    const eyeBronze = mixColor(jade, PALETTE.paper, 0.2); // warm jade ring
+    const eyeRing = mixColor(jade, PALETTE.glow, 0.4); // bright jade iris
+    const eyeCore = darkInk; // dark-ink pupil
     const drabFeather = mixColor(PALETTE.paper, ink, 0.34); // drab muted plume
+
+    // a smooth quadratic-bezier quill from pivot to tip, with a gentle outward
+    // bow so feathers curve like real plumes. Drawn as a tapered stroke.
+    const drawQuill = (
+      tipX: number,
+      tipY: number,
+      dx: number,
+      dy: number,
+      len: number,
+      sweep: number,
+      vivid: number,
+    ) => {
+      const perpX = -dy;
+      const perpY = dx;
+      // control point bowed sideways so quills splay gracefully
+      const bow = sweep * len * 0.12;
+      const ctrlX = pivotX + dx * len * 0.5 + perpX * bow;
+      const ctrlY = pivotY + dy * len * 0.5 + perpY * bow;
+      const steps = Math.max(10, Math.round(len / 8));
+      let prevX = pivotX;
+      let prevY = pivotY;
+      for (let s = 1; s <= steps; s++) {
+        const sf = s / steps;
+        const omf = 1 - sf;
+        const qx = omf * omf * pivotX + 2 * omf * sf * ctrlX + sf * sf * tipX;
+        const qy = omf * omf * pivotY + 2 * omf * sf * ctrlY + sf * sf * tipY;
+        // thin shaft, slightly thicker near the base
+        const wdt = (0.8 + (1 - sf) * 1.0) * (0.6 + vivid * 0.6);
+        fan.moveTo(prevX, prevY).lineTo(qx, qy).stroke({
+          width: wdt,
+          color: mixColor(featherDeep, quillC, vivid),
+          alpha: 0.7 * (0.4 + vivid * 0.6),
+          cap: "round",
+        });
+        prevX = qx;
+        prevY = qy;
+      }
+    };
 
     // draw tiers back (longest, outermost) to front (shortest)
     for (let ti = tiers - 1; ti >= 0; ti--) {
@@ -218,70 +259,95 @@ export class PeacockRenderer implements WorldRenderer {
 
         const dx = Math.cos(ang);
         const dy = Math.sin(ang);
-        const tipX = pivotX + dx * len;
-        const tipY = pivotY + dy * len;
-
-        // ---- the quill: a tapered line of segments from pivot to tip ----
-        const segs = Math.max(6, Math.round(len / 12));
-        // drab tiers fade toward muted paper; open tiers are jade-bright.
+        const perpX = -dy;
+        const perpY = dx;
         const vivid = ease(raise);
-        const shaftC = mixColor(drabFeather, featherC, vivid);
         // top-left lit side vs shaded side based on feather sweep
-        const lit = sweep < 0 ? 0.5 : 0.0; // left feathers catch more light
-        for (let s = 0; s <= segs; s++) {
-          const sf = s / segs;
-          const px = pivotX + dx * len * sf;
-          const py = pivotY + dy * len * sf;
-          // barbs widen toward the tip then pinch at the eyespot
-          const barb = (0.6 + Math.sin(sf * Math.PI) * 1.4) * (0.7 + vivid * 0.6);
-          const c = mixColor(shaftC, PALETTE.white, lit * 0.3 * sf);
-          p.block(px - barb, py - barb, barb * 2, barb * 2, c, 0.85 * (0.5 + vivid * 0.5));
-        }
-        // faint feather barb fringe along the shaft when vivid
-        if (vivid > 0.3) {
-          for (let s = 2; s < segs - 1; s += 1) {
-            const sf = s / segs;
-            const px = pivotX + dx * len * sf;
-            const py = pivotY + dy * len * sf;
-            const perpX = -dy;
-            const perpY = dx;
-            const fr = Math.sin(sf * Math.PI) * (3 + vivid * 4);
-            for (const sgn of [-1, 1]) {
-              p.block(
-                px + perpX * fr * sgn - 0.6,
-                py + perpY * fr * sgn - 0.6,
-                1.4,
-                1.4,
-                mixColor(featherC, PALETTE.white, 0.2),
-                0.3 * vivid,
-              );
-            }
+        const lit = sweep < 0 ? 0.45 : 0.0; // left feathers catch more light
+
+        // the eyespot sits a little short of the geometric tip so the quill
+        // reads as passing into it
+        const eyeFrac = 0.9;
+        const eyeX = pivotX + dx * len * eyeFrac + perpX * sweep * len * 0.1;
+        const eyeY = pivotY + dy * len * eyeFrac + perpY * sweep * len * 0.1;
+
+        // ---- the thin curved quill from pivot toward the eyespot ----
+        drawQuill(eyeX, eyeY, dx, dy, len * eyeFrac, sweep, vivid);
+
+        // ---- a soft barb plume hugging the upper shaft (the feather vane) ----
+        // a slim translucent leaf shape woven from a few offset blobs, fading
+        // toward the eyespot so the eye reads cleanly.
+        if (vivid > 0.18) {
+          const vaneSteps = 9;
+          for (let s = 1; s <= vaneSteps; s++) {
+            const sf = s / (vaneSteps + 1);
+            const bx = pivotX + dx * len * eyeFrac * sf + perpX * sweep * len * 0.1 * sf;
+            const by = pivotY + dy * len * eyeFrac * sf + perpY * sweep * len * 0.1 * sf;
+            // vane widest mid-shaft, pinching near base and eyespot
+            const vw = Math.sin(sf * Math.PI) * (2.2 + vivid * 3.0) * (0.7 + tierF * 0.5);
+            const barbC = mixColor(
+              mixColor(featherDeep, featherC, sf),
+              PALETTE.white,
+              lit * 0.3,
+            );
+            fan.ellipse(bx, by, vw, vw * 1.5).fill({
+              color: barbC,
+              alpha: 0.22 * vivid * (0.6 + 0.4 * Math.sin(sf * Math.PI)),
+            });
           }
         }
 
-        // ---- the iridescent EYESPOT at the tip ----
+        // ---- the iridescent concentric EYESPOT (a true oval eye) ----
         if (vivid > 0.12) {
-          const er = (3.2 + tierF * 2.2) * (0.5 + vivid * 0.6);
-          // outer jade halo
-          p.block(tipX - er * 1.5, tipY - er * 1.6, er * 3, er * 3.2, eyeOuter, 0.85 * vivid);
-          // bronze/soft ring
-          p.block(
-            tipX - er * 1.05,
-            tipY - er * 1.1,
-            er * 2.1,
-            er * 2.2,
-            mixColor(jadeSoft, PALETTE.white, 0.2),
-            0.9 * vivid,
-          );
-          // bright ring
-          p.block(tipX - er * 0.7, tipY - er * 0.75, er * 1.4, er * 1.5, eyeRing, 0.95 * vivid);
-          // dark-ink core so it pops
-          p.block(tipX - er * 0.42, tipY - er * 0.46, er * 0.84, er * 0.92, eyeCore, vivid);
-          // a top-left catchlight on the eye
-          fan.circle(tipX - er * 0.3, tipY - er * 0.4, er * 0.22).fill({
-            color: PALETTE.white,
-            alpha: 0.8 * vivid,
+          const er = (3.4 + tierF * 2.4) * (0.55 + vivid * 0.55);
+          // ovals slightly elongated along the feather's radial direction
+          const rx = er * 1.0;
+          const ry = er * 1.18;
+          // pale outer halo
+          fan.ellipse(eyeX, eyeY, rx * 1.5, ry * 1.55).fill({
+            color: eyeHalo,
+            alpha: 0.7 * vivid,
           });
+          // warm jade outer ring
+          fan.ellipse(eyeX, eyeY, rx * 1.15, ry * 1.2).fill({
+            color: eyeBronze,
+            alpha: 0.92 * vivid,
+          });
+          // bright jade iris
+          fan.ellipse(eyeX, eyeY, rx * 0.78, ry * 0.82).fill({
+            color: eyeRing,
+            alpha: 0.96 * vivid,
+          });
+          // a crescent of deeper jade hugging the lower-right (shaded) edge
+          fan.ellipse(eyeX + rx * 0.12, eyeY + ry * 0.14, rx * 0.62, ry * 0.66).fill({
+            color: mixColor(jade, ink, 0.25),
+            alpha: 0.5 * vivid,
+          });
+          // dark-ink pupil so it pops
+          fan.ellipse(eyeX, eyeY, rx * 0.42, ry * 0.5).fill({
+            color: eyeCore,
+            alpha: vivid,
+          });
+          // top-left catchlight on the pupil
+          fan.circle(eyeX - rx * 0.18, eyeY - ry * 0.24, rx * 0.18).fill({
+            color: PALETTE.white,
+            alpha: 0.85 * vivid,
+          });
+          // mirror the whole eyespot into the still water
+          const reflEyeY = 2 * waterY - eyeY;
+          const reflDist = reflEyeY - waterY;
+          if (reflDist > 0 && reflDist < LAYOUT.reflectionDepth) {
+            const fade = Math.max(0, 1 - reflDist / LAYOUT.reflectionDepth) * 0.4;
+            const wob = Math.sin(t * 1.6 + reflEyeY * 0.12) * 1.5;
+            r.ellipse(eyeX + wob, reflEyeY, rx * 1.15, ry * 1.2).fill({
+              color: mixColor(eyeBronze, PALETTE.water, 0.35),
+              alpha: 0.9 * vivid * fade,
+            });
+            r.ellipse(eyeX + wob, reflEyeY, rx * 0.42, ry * 0.5).fill({
+              color: mixColor(eyeCore, PALETTE.water, 0.35),
+              alpha: vivid * fade,
+            });
+          }
         }
       }
     }

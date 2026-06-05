@@ -92,6 +92,35 @@ export class MirrorTwinsRenderer implements WorldRenderer {
 
     const p = new Painter(g, r, waterY, depth, t);
 
+    // Cast a solid filled disc into both the figure layer AND the mirrored
+    // reflection layer, so canopy masses read as clean rounded shapes (NOT a
+    // scatter of blocks) and still get a true glassy double below the waterline.
+    const disc = (
+      cx: number,
+      cy: number,
+      rx: number,
+      ry: number,
+      color: number,
+      alpha = 1,
+    ) => {
+      g.ellipse(cx, cy, rx, ry).fill({ color, alpha });
+      const reflY = 2 * waterY - cy;
+      const dist = reflY - waterY;
+      if (dist > -ry && dist < depth) {
+        const fade = Math.max(0, 1 - dist / depth) * 0.45;
+        if (fade > 0.01) {
+          // broken water shears & wobbles the twin; a perfect mirror is still
+          const wob =
+            Math.sin(t * 1.6 + reflY * 0.12) * (1 + dist * 0.03) +
+            broken * Math.sin(reflY * 0.2 + t * 2.6) * 9;
+          r.ellipse(cx + wob, reflY, rx, ry).fill({
+            color: mixColor(color, PALETTE.water, 0.35),
+            alpha: alpha * fade,
+          });
+        }
+      }
+    };
+
     // ============================================================
     // PALETTE — cream/white base, jade accent, bright day. Dark-ink figure.
     // ============================================================
@@ -224,21 +253,48 @@ export class MirrorTwinsRenderer implements WorldRenderer {
     const hillX = (u: number) => figCX + (u - 0.5) * 2 * hillHalf;
     const hillTopY = (i: number) => waterY - profile[i] * hillPeak;
 
-    // ---- hill body (filled dark grass mound) drawn via Painter so it mirrors ----
-    // Build as vertical columns so the Painter casts each into the reflection.
-    for (let i = 0; i < N; i++) {
-      const u = i / (N - 1);
-      const x = hillX(u);
-      const yTop = hillTopY(i);
-      const colH = waterY - yTop;
-      if (colH <= 0.5) continue;
-      const w = (2 * hillHalf) / (N - 1) + 1.4;
-      // top-left lighting: left side of the dome is lit, right side shaded
-      const lightSide = (u - 0.5) * -1; // >0 on left
-      const shade = 0.5 + lightSide * 0.5; // 1 left .. 0 right
-      let gc = mixColor(grassSh, grassLit, ease(shade));
-      gc = mixColor(gc, grassC, 0.4);
-      p.block(x - w / 2, yTop, w, colH, gc, 0.98);
+    // ---- hill body: ONE clean filled mound (and its mirrored twin) ----
+    // Build the silhouette polygon from the waveform profile, fill it solid in
+    // the figure layer, and cast a matching polygon into the reflection layer so
+    // the mound has a true glassy double. No column dithering — a coherent shape.
+    {
+      const lit = mixColor(grassLit, grassC, 0.25);
+      const sh = mixColor(grassSh, grassC, 0.3);
+      const mid = mixColor(grassC, grassLit, 0.18);
+      // base fill (mid grass)
+      const poly: number[] = [];
+      for (let i = 0; i < N; i++) poly.push(hillX(i / (N - 1)), hillTopY(i));
+      poly.push(hillX(1), waterY, hillX(0), waterY);
+      g.poly(poly).fill({ color: mid, alpha: 0.99 });
+      // mirrored twin of the mound below the waterline
+      const rpoly: number[] = [];
+      for (let i = 0; i < N; i++) {
+        const u = i / (N - 1);
+        const yTop = hillTopY(i);
+        const reflY = 2 * waterY - yTop;
+        const wob = broken * Math.sin(reflY * 0.2 + t * 2.6) * 9;
+        rpoly.push(hillX(u) + wob, reflY);
+      }
+      rpoly.push(hillX(1), waterY, hillX(0), waterY);
+      r.poly(rpoly).fill({ color: mixColor(mid, PALETTE.water, 0.35), alpha: 0.42 });
+
+      // top-left lit half-overlay (a soft sweep of light down the left flank)
+      const litPoly: number[] = [];
+      for (let i = 0; i < N; i++) {
+        const u = i / (N - 1);
+        litPoly.push(hillX(u), hillTopY(i));
+      }
+      // close along a diagonal so only the left/upper flank is lit
+      litPoly.push(hillX(0.5), waterY, hillX(0), waterY);
+      g.poly(litPoly).fill({ color: lit, alpha: 0.22 });
+      // shaded right flank
+      const shPoly: number[] = [];
+      for (let i = Math.floor(N * 0.5); i < N; i++) {
+        const u = i / (N - 1);
+        shPoly.push(hillX(u), hillTopY(i));
+      }
+      shPoly.push(hillX(1), waterY, hillX(0.5), waterY);
+      g.poly(shPoly).fill({ color: sh, alpha: 0.2 });
     }
 
     // ---- crisp grassy crest rim along the top of the hill (lit edge) ----
@@ -252,9 +308,9 @@ export class MirrorTwinsRenderer implements WorldRenderer {
         x - 1.6,
         y - 1.5,
         3.4,
-        3,
+        2.6,
         lit ? grassLit : mixColor(grassC, grassLit, 0.3),
-        0.95,
+        0.9,
       );
     }
 
@@ -301,51 +357,55 @@ export class MirrorTwinsRenderer implements WorldRenderer {
       }
     }
 
-    // canopy: a symmetric blob of foliage built from rings of leaf-clusters.
-    // Symmetric by construction so the reflection is exact when the water stills.
+    // canopy: a coherent, rounded crown built from a few large overlapping
+    // SOLID jade ellipse-lobes — clean masses, not a scatter of blocks. The lobe
+    // layout is bilaterally symmetric (mirrored pairs about treeX) so the crown
+    // and its reflection are exact when the water stills. Each lobe is cast into
+    // the reflection layer by disc(), giving a true glassy double.
     const canopyCX = treeX;
     const canopyCY = trunkTopY - hillPeak * 0.26;
     const canRx = span * 0.2;
     const canRy = hillPeak * 0.42;
-    const leafRings = 5;
-    for (let ring = leafRings - 1; ring >= 0; ring--) {
-      const rr = (ring + 1) / leafRings;
-      const segs = 10 + ring * 4;
-      for (let s = 0; s < segs; s++) {
-        const ang = (s / segs) * Math.PI * 2;
-        // bushy lobed outline via a few harmonics of the angle (symmetric in x)
-        const lobe =
-          1 +
-          0.12 * Math.cos(ang * 3) +
-          0.08 * Math.cos(ang * 5) +
-          0.05 * Math.cos(ang * 7);
-        const ex = canopyCX + Math.cos(ang) * canRx * rr * lobe;
-        const ey = canopyCY - Math.sin(ang) * canRy * rr * lobe;
-        // top-left lit, lower-right shaded
-        const lit = Math.cos(ang) < 0.1 && Math.sin(ang) > -0.1;
-        const deep = ring < 2;
-        let lc = deep ? leafDark : leafC;
-        if (lit) lc = mixColor(lc, leafLit, 0.5);
-        const sz = 6 + (1 - rr) * 5;
-        p.block(ex - sz / 2, ey - sz / 2, sz, sz, lc, 0.97);
+
+    // mirrored-pair lobes: [dx, dy, rx, ry] — dx>=0; each is drawn at +dx and
+    // -dx so the crown is perfectly symmetric. A big core anchors the mass.
+    const lobes: [number, number, number, number][] = [
+      [0, 0.06, 1.0, 1.0], // central core (largest)
+      [0.52, 0.14, 0.62, 0.66], // lower flanks
+      [0.34, -0.46, 0.6, 0.62], // upper shoulders
+      [0.0, -0.74, 0.5, 0.54], // crown top
+      [0.74, -0.1, 0.42, 0.46], // outer edge lobes
+    ];
+
+    // 1) DEEP under-layer (slightly larger + darker) reads as the shaded mass
+    for (const [dx, dy, lrx, lry] of lobes) {
+      for (const side of dx === 0 ? [0] : [-1, 1]) {
+        const ex = canopyCX + side * dx * canRx + 1.5; // nudged lower-right
+        const ey = canopyCY - dy * canRy + 1.5;
+        disc(ex, ey, lrx * canRx * 1.06, lry * canRy * 1.06, leafDark, 0.96);
       }
     }
-    // a solid inner mass so the canopy reads as one shape, not a ring
-    for (let i = 0; i < 26; i++) {
-      const ang = (i / 26) * Math.PI * 2;
-      const rad = hash(i, 9) * 0.7;
-      const ex = canopyCX + Math.cos(ang) * canRx * rad;
-      const ey = canopyCY - Math.sin(ang) * canRy * rad;
-      const sz = 7 + hash(i, 10) * 4;
-      p.block(ex - sz / 2, ey - sz / 2, sz, sz, leafC, 0.96);
+    // 2) MAIN jade body — the solid coherent canopy
+    for (const [dx, dy, lrx, lry] of lobes) {
+      for (const side of dx === 0 ? [0] : [-1, 1]) {
+        const ex = canopyCX + side * dx * canRx;
+        const ey = canopyCY - dy * canRy;
+        disc(ex, ey, lrx * canRx, lry * canRy, leafC, 0.98);
+      }
     }
-    // top-left highlight crescent on the canopy
-    for (let s = 0; s < 8; s++) {
-      const ang = Math.PI * (0.5 + s / 16); // upper-left arc
-      const ex = canopyCX + Math.cos(ang) * canRx * 0.92;
-      const ey = canopyCY - Math.sin(ang) * canRy * 0.92;
-      p.block(ex - 2, ey - 2, 4.4, 4.4, leafLit, 0.55);
+    // 3) top-left LIT layer — a coherent crescent of bright jade catching the sun
+    const litLobes: [number, number, number, number][] = [
+      [-0.18, 0.4, 0.62, 0.6], // upper-left of crown
+      [-0.5, 0.04, 0.4, 0.44],
+      [-0.05, 0.66, 0.42, 0.4],
+    ];
+    for (const [dx, dy, lrx, lry] of litLobes) {
+      const ex = canopyCX + dx * canRx;
+      const ey = canopyCY - dy * canRy;
+      disc(ex, ey, lrx * canRx, lry * canRy, leafLit, 0.6);
     }
+    // 4) a soft inner mid-tone so the crown has gentle internal form (not flat)
+    disc(canopyCX, canopyCY + canRy * 0.1, canRx * 0.5, canRy * 0.5, mixColor(leafC, leafLit, 0.25), 0.4);
 
     // ============================================================
     // LAKE BODY — still day water, jade-tinted, lighter at the surface. Drawn

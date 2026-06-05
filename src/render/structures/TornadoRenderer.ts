@@ -91,6 +91,10 @@ export class TornadoRenderer implements WorldRenderer {
     const calm = ease(Math.min(1, Math.max(calmRaw * 0.45, score)));
     const stormRaw = 1 - calm; // 1 violent .. 0 dust-devil
     const storm = ease(stormRaw); // sharpened storm curve
+    // a hard "stormy" gate: TRUE only while the sky is genuinely violent, so
+    // lightning / heavy darks vanish completely the moment it starts clearing.
+    // This is what keeps stray bolts out of the gentle dust-devil state.
+    const stormy = storm > 0.4 ? ease((storm - 0.4) / 0.45) : 0;
 
     const cols = 96;
     const wave = resample(shape, cols); // the live waveform IS the funnel's wander
@@ -116,8 +120,9 @@ export class TornadoRenderer implements WorldRenderer {
     const groundCol = mixColor(groundCalm, groundStorm, storm * 0.9);
     const groundDeep = mixColor(groundCol, this.accent.ink, 0.4 + storm * 0.16);
 
-    // funnel tones: pale dust on calm, dark storm-ink on violent
-    const funnelPale = mixColor(PALETTE.white, this.accent.accentSoft, 0.3);
+    // funnel tones: a soft slate dust-devil on calm (pale yet clearly readable
+    // against the bright clearing sky), dark storm-ink on violent.
+    const funnelPale = mixColor(PALETTE.white, this.accent.accentSoft, 0.55);
     const funnelDark = mixColor(this.accent.ink, 0x000000, 0.4);
     const funnelLit = mixColor(PALETTE.white, this.accent.accentSoft, 0.12);
 
@@ -214,25 +219,28 @@ export class TornadoRenderer implements WorldRenderer {
       }
     }
 
-    // ---------- LIGHTNING — forked bolts flickering behind the storm in the
-    // violence, gone on the calm. Deterministic flicker from sin/hash. ----------
-    if (storm > 0.3) {
+    // ---------- LIGHTNING — forked bolts flickering behind the storm ONLY while
+    // the sky is genuinely violent (`stormy`). It is hard-gated so not a single
+    // bolt or flash can linger into the gentle dust-devil. Cool slate-white core
+    // (never warm/yellow). Deterministic flicker from sin/hash. ----------
+    if (stormy > 0.01) {
       // staccato flicker: only fires on certain phase windows
       const flick = Math.sin(t * 9.3) * 0.5 + Math.sin(t * 23.7 + 1.3) * 0.5;
-      const fire = flick > 1.3 - storm * 0.5 ? 1 : 0;
+      const fire = flick > 1.35 - stormy * 0.45 ? 1 : 0;
       if (fire) {
         const seed = Math.floor(t * 3) % 7;
         const bx = left + span * (0.2 + hash(seed, 11) * 0.6);
         let lx = bx;
         let ly = cloudY + cloudH;
         const segs = 9;
-        const boltC = mixColor(PALETTE.white, this.accent.accentSoft, 0.1);
+        // cool, slightly bluish slate-white — explicitly NOT warm/glow
+        const boltC = mixColor(PALETTE.white, this.accent.accentSoft, 0.18);
         for (let s = 0; s < segs; s++) {
           const ny = ly + (groundY - cloudY - cloudH) / segs;
           const nx = lx + (hash(seed + s, 13) - 0.5) * 26;
           // glow then core
           b.rect(Math.min(lx, nx) - 2, Math.min(ly, ny), Math.abs(nx - lx) + 4, ny - ly + 2)
-            .fill({ color: boltC, alpha: 0.08 * storm });
+            .fill({ color: boltC, alpha: 0.1 * stormy });
           // draw the bolt segment as a thin slanted run of blocks
           const bsteps = 6;
           for (let k = 0; k <= bsteps; k++) {
@@ -241,7 +249,7 @@ export class TornadoRenderer implements WorldRenderer {
             const py = ly + (ny - ly) * kk;
             b.rect(px - 1, py, 2.2, (ny - ly) / bsteps + 1).fill({
               color: boltC,
-              alpha: 0.85 * storm,
+              alpha: 0.9 * stormy,
             });
           }
           // occasional fork
@@ -253,7 +261,7 @@ export class TornadoRenderer implements WorldRenderer {
               const fny = fyn + 16;
               b.rect(Math.min(fxn, fnx) - 0.8, fyn, 1.6, fny - fyn + 1).fill({
                 color: boltC,
-                alpha: 0.5 * storm,
+                alpha: 0.55 * stormy,
               });
               fxn = fnx;
               fyn = fny;
@@ -262,8 +270,8 @@ export class TornadoRenderer implements WorldRenderer {
           lx = nx;
           ly = ny;
         }
-        // full-sky flash wash
-        b.rect(0, top, W, skyH).fill({ color: PALETTE.white, alpha: 0.05 * storm });
+        // full-sky flash wash (cool white)
+        b.rect(0, top, W, skyH).fill({ color: PALETTE.white, alpha: 0.06 * stormy });
       }
     }
 
@@ -337,9 +345,11 @@ export class TornadoRenderer implements WorldRenderer {
     const funnelMouthY = cloudY + cloudH * 0.8; // where it leaves the cloud
     const touchdownY = groundY - 2;
     const funH = touchdownY - funnelMouthY;
-    // width envelope: a wide violent twister vs a thin gentle dust-devil
-    const topWidth = 34 + storm * 46; // mouth width at the cloud
-    const baseWidth = 6 + storm * 16; // narrow neck near the ground
+    // width envelope: a WIDE violent twister vs a SLENDER-but-readable dust-devil.
+    // Even fully calm the funnel keeps a clear (if thin) pale column so it always
+    // reads as a tornado; storm widens it dramatically into a churning monster.
+    const topWidth = 20 + storm * 64; // mouth width at the cloud
+    const baseWidth = 7 + storm * 18; // neck near the ground
 
     // spin phase for the texture bands wrapping the funnel
     const spin = t * (1.4 + storm * 3.2);
@@ -394,9 +404,11 @@ export class TornadoRenderer implements WorldRenderer {
         if (lightSide > 0.2)
           c2 = mixColor(bodyC, funnelLit, (lightSide - 0.2) * (0.5 + calm * 0.4));
         else c2 = mixColor(bodyC, funnelDark, Math.min(0.5, -lightSide * 0.7));
-        // spin stripe darkening
+        // spin stripe darkening (storm only — keeps the dust-devil soft, not banded)
         if (wrap < -0.2) c2 = mixColor(c2, funnelDark, 0.3 * storm);
-        const aBlk = (0.85 - calm * 0.45) * (0.7 + 0.3 * Math.abs(Math.cos(uk * Math.PI)));
+        else if (wrap > 0.3) c2 = mixColor(c2, PALETTE.white, 0.25 * calm); // soft lit stripe on the dust-devil
+        // keep a solid opacity floor so the calm dust-devil still clearly reads
+        const aBlk = (0.7 + storm * 0.2) * (0.78 + 0.22 * Math.abs(Math.cos(uk * Math.PI)));
         p.block(px - 2, a.y - 1, 4.4, c.y - a.y + 2.4, c2, aBlk);
       }
     }
@@ -405,15 +417,16 @@ export class TornadoRenderer implements WorldRenderer {
     for (let i = 0; i < fpts.length - 1; i++) {
       const a = fpts[i];
       const c = fpts[i + 1];
-      // left (lit) edge
+      // left (lit) edge — bright rim, strongest on the calm dust-devil
       g.rect(a.x - a.halfW - 1, a.y, 2.4, c.y - a.y + 1).fill({
         color: mixColor(funnelLit, PALETTE.white, 0.4),
-        alpha: 0.4 + calm * 0.4,
+        alpha: 0.45 + calm * 0.4,
       });
-      // right (shaded) edge
+      // right (shaded) edge — a soft slate rim on the calm, hard dark in storm,
+      // so the gentle dust-devil keeps a defined silhouette either way
       g.rect(a.x + a.halfW - 1.4, a.y, 2.4, c.y - a.y + 1).fill({
-        color: funnelDark,
-        alpha: 0.4 + storm * 0.4,
+        color: mixColor(this.accent.accentSoft, funnelDark, storm),
+        alpha: 0.5 + storm * 0.35,
       });
     }
 

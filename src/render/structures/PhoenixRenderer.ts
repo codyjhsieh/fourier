@@ -242,11 +242,12 @@ export class PhoenixRenderer implements WorldRenderer {
     }
   }
 
-  // One WING: a broad, solid, curved fan that sweeps out and up from the
-  // shoulder. The wing area is filled span-wise (root -> tip) AND chord-wise
-  // (leading edge -> scalloped trailing edge) so it reads as a wing shape, not
-  // a bundle of spokes. The waveform scallops the trailing edge; negative
-  // harmonics notch the primaries; harmonic amplitudes lengthen feathers.
+  // One WING: a broad, SOLID, curved crescent/airfoil. We define a smooth
+  // curved LEADING edge (the bowed top of the wing) and, below it, a smooth
+  // curved TRAILING edge that the waveform scallops into feather tips. The area
+  // BETWEEN the two edges is filled chord-wise so the wing reads as one solid
+  // shape — never a bundle of radial spokes. Dark-ink leading edge, hot
+  // amber/crimson fill, layered feather scallops along the trailing edge.
   private drawWing(
     p: Painter,
     cx: number,
@@ -260,76 +261,121 @@ export class PhoenixRenderer implements WorldRenderer {
     t: number,
     col: Fire,
   ) {
-    const shoulderX = cx + side * 4;
-    const shoulderY = by - 6;
+    const shoulderX = cx + side * 5;
+    const shoulderY = by - 7;
 
-    // The wing arcs from the shoulder out to the tip. We sweep a parameter u
-    // along the leading edge; the whole arc rocks with the flap.
-    const lift = 0.55 + 0.35 * flap; // how high the tips are raised
-    const segs = 18;
-    const alphaGain = 0.45 + 0.55 * ign;
+    // how high the wingtip is raised; the whole wing rocks with the flap
+    const lift = 0.6 + 0.32 * flap;
+    const alphaGain = 0.5 + 0.5 * ign;
 
+    // Sample the curved span at fine resolution. For each span position u we
+    // compute the leading-edge point and the chord depth (distance down to the
+    // trailing edge), then fill the chord with a smooth tone ramp.
+    const segs = 40;
     for (let i = 0; i < segs; i++) {
       const u = i / (segs - 1); // 0 root .. 1 wingtip
 
-      // LEADING EDGE: a curved arc bowing up then out. The arc gives the wing
-      // its characteristic crescent silhouette instead of a straight spoke.
-      const arc = Math.sin(u * Math.PI * 0.92); // 0..1..~0 bow
+      // LEADING EDGE: a smooth crescent arc. Bows UP off the shoulder, reaches
+      // its highest a bit past mid-span, then curves back down to the tip — a
+      // classic swept wing, not a straight line.
+      const arc = Math.sin(u * Math.PI * 0.86); // 0..1..~0.4 bow
+      const sweep = u * u * 0.5; // tip droops slightly forward/down
       const ex = shoulderX + side * (u * wingSpan);
-      const ey = shoulderY - arc * (wingSpan * 0.62) * lift + u * u * 6;
+      const ey =
+        shoulderY - arc * (wingSpan * 0.66) * lift + sweep * wingSpan * 0.18;
 
-      // local feathering: which harmonic governs this part of the span
-      const ampIdx = Math.min(amps.length - 1, Math.floor(u * (amps.length - 1)));
-      const amp = amps[ampIdx];
-      const featherGain = 0.7 + Math.min(1.3, Math.abs(amp) * 1.6);
+      // CHORD depth: thin at the root, deepest around mid-wing, tapering to the
+      // pointed primaries at the tip — the airfoil belly.
+      const cprof = Math.sin(Math.min(1, u * 1.05) * Math.PI * 0.92);
+      let chord = (12 + cprof * wingSpan * 0.5) * (0.4 + 0.6 * ign);
 
-      // CHORD: the feathers hang DOWN-and-BACK from the leading edge. Their
-      // length grows toward the wingtip (long primaries). The waveform
-      // scallops the trailing edge; a negative coefficient notches it inward.
-      const wIdx = Math.round((side < 0 ? 0.5 - u * 0.5 : 0.5 + u * 0.5) * (wave.length - 1));
+      // The waveform SCALLOPS the trailing edge: each span position reads one
+      // sample, lengthening/shortening that feather. Negative samples notch the
+      // edge inward (carving gaps between primaries).
+      const wIdx = Math.round(
+        (side < 0 ? 0.5 - u * 0.5 : 0.5 + u * 0.5) * (wave.length - 1),
+      );
       const wv = wave[Math.max(0, Math.min(wave.length - 1, wIdx))];
-      const notch = amp < 0 ? 0.6 : 1.0;
-      const chord =
-        (10 + u * wingSpan * 0.72) * featherGain * notch * (0.35 + 0.65 * ign) *
-        (0.85 + 0.15 * wv);
+      // local harmonic amplitude lengthens this feather band
+      const ampIdx = Math.min(
+        amps.length - 1,
+        Math.floor(u * (amps.length - 1)),
+      );
+      const amp = amps[ampIdx];
+      const scallop = 1 + 0.32 * wv + Math.min(0.7, Math.abs(amp) * 0.9);
+      const notch = amp < 0 ? 0.7 : 1.0;
+      chord *= scallop * notch;
 
-      // direction the feathers stream: down and trailing (toward the body
-      // centre = backward). flap adds a little waver.
-      const back = -side; // toward centre
-      const fdx = back * (0.32 + u * 0.18);
-      const fdy = 1; // mostly downward
-      const fl = Math.hypot(fdx, fdy);
+      // The chord streams DOWN and slightly toward the body (trailing back).
+      const back = -side;
+      const fdx = back * 0.26;
+      const fl = Math.hypot(fdx, 1);
       const dx = fdx / fl;
-      const dy = fdy / fl;
+      const dy = 1 / fl;
+      // gentle curl of the trailing edge toward the tip + soft flutter
+      const curl = u * u * 4 + (amp < 0 ? 3 : 0);
+      const flutter = Math.sin(t * 2.2 + u * 5) * (0.6 + 0.8 * ign) * u;
 
-      const steps = Math.max(3, Math.round(chord / 3));
+      // FILL the chord from leading edge (hot) to trailing tip (dark ink).
+      const steps = Math.max(4, Math.round(chord / 2.4));
       for (let k = 0; k <= steps; k++) {
         const kt = k / steps;
-        // gentle curl toward the feather tip
-        const curl = kt * kt * (3 + (amp < 0 ? 5 : 0));
-        const flutter = Math.sin(t * 2.4 + i * 0.6) * kt * (1 + ign);
-        const fx = ex + dx * chord * kt + back * curl * 0.4 + flutter;
-        const fy = ey + dy * chord * kt + curl;
+        const fx = ex + dx * chord * kt + back * curl * kt + flutter * kt;
+        const fy = ey + dy * chord * kt + curl * kt;
 
-        // tone: dark-ink trailing tip, hot fire near the leading edge so the
-        // top of the wing glows and the bottom reads as a crisp dark edge.
+        // tone ramp: bright hot top (top-left light), amber mid, crimson then
+        // dark-ink trailing edge so the silhouette stays crisp underneath.
         let c: number;
-        if (kt > 0.86) c = col.inkEdge;
-        else if (kt > 0.62) c = mixColor(col.fireDark, col.ember, 0.5);
-        else if (kt > 0.34) c = col.amber;
-        else c = mixColor(col.amber, col.fireHot, 0.45);
+        if (kt > 0.9) c = col.inkEdge;
+        else if (kt > 0.7) c = mixColor(col.fireDark, col.inkEdge, 0.5);
+        else if (kt > 0.46) c = col.fireDark;
+        else if (kt > 0.2) c = col.amber;
+        else c = mixColor(col.amber, col.fireHot, 0.5 - side * 0.15);
 
-        // wider near the leading edge so the wing fills solid; the tips taper
-        const rad = (1.15 - kt * 0.5) * (2.1 - u * 0.5) + 0.5;
-        const a = (0.95 - kt * 0.2) * alphaGain;
+        // fat dots so the chord paints a SOLID band, tapering at the tip
+        const rad = (2.2 - kt * 0.9) * (1.0 - u * 0.28) + 0.6;
+        const a = (0.95 - kt * 0.18) * alphaGain;
         p.dot(fx, fy, rad, c, a);
       }
 
-      // a bright lit highlight running along the leading edge (top-left light)
-      const litA = (side < 0 ? 0.6 : 0.32) * (0.4 + 0.6 * ign);
-      p.dot(ex, ey - 1.4, 1.7 - u * 0.5, col.fireHot, litA);
-      // a dark ink stroke ON the leading edge keeps the silhouette crisp
-      p.dot(ex + side * 0.6, ey + 1.2, 1.2, col.inkEdge, 0.5 * (0.4 + 0.6 * ign));
+      // FEATHER SCALLOP at the trailing tip: a small rounded lobe so the
+      // bottom edge reads as layered feathers rather than a hard cut.
+      const tx = ex + dx * chord + back * curl + flutter;
+      const ty = ey + dy * chord + curl;
+      p.dot(tx, ty, 1.6 + 1.4 * cprof, col.inkEdge, 0.5 * alphaGain);
+      p.dot(
+        tx,
+        ty - 1.6,
+        1.2 + cprof,
+        mixColor(col.fireDark, col.amber, 0.4),
+        0.6 * alphaGain,
+      );
+
+      // LEADING-EDGE ink line keeps the top of the wing a crisp dark arc, with
+      // a hot lit rim just above it (light from top-left).
+      p.dot(ex + side * 0.5, ey + 1.0, 1.5 - u * 0.4, col.inkEdge, 0.55 * alphaGain);
+      const litA = (side < 0 ? 0.7 : 0.4) * alphaGain;
+      p.dot(ex, ey - 1.6, 1.8 - u * 0.5, col.fireHot, litA);
+    }
+
+    // a couple of bold COVERT feather strokes layered over the upper wing for
+    // depth — broad curved arcs echoing the leading edge.
+    for (let row = 0; row < 2; row++) {
+      const drop = 5 + row * 5;
+      for (let i = 0; i < segs; i += 2) {
+        const u = i / (segs - 1);
+        const arc = Math.sin(u * Math.PI * 0.86);
+        const ex = shoulderX + side * (u * wingSpan);
+        const ey =
+          shoulderY - arc * (wingSpan * 0.66) * lift + u * u * 0.5 * wingSpan * 0.18;
+        p.dot(
+          ex + (-side) * 0.26 * drop,
+          ey + drop,
+          1.3,
+          row === 0 ? col.amber : col.fireDark,
+          0.4 * alphaGain * (1 - u * 0.3),
+        );
+      }
     }
   }
 
@@ -343,18 +389,22 @@ export class PhoenixRenderer implements WorldRenderer {
     t: number,
     col: Fire,
   ) {
+    // A long streaming fire TAIL: a few broad ribbons fanning down from the
+    // tail root. Each ribbon is filled across its width so the tail reads as a
+    // cohesive sheet of fire, not separate lines. The waveform waves the
+    // streamers; negative harmonics fork them wider.
     const streamers = 5;
-    const len = 30 + ign * 78;
+    const len = 30 + ign * 80;
     for (let s = 0; s < streamers; s++) {
       const off = (s - (streamers - 1) / 2) / streamers; // - .. + spread
-      // negative harmonics fork the tail outward
       const ampIdx = Math.min(amps.length - 1, s);
       const fork = amps[ampIdx] < 0 ? 1.8 : 1.0;
-      const steps = Math.max(6, Math.round(len / 3));
+      const steps = Math.max(8, Math.round(len / 2.6));
       for (let k = 0; k <= steps; k++) {
         const kt = k / steps;
         const wv = wave[Math.round(kt * (wave.length - 1))];
-        const sway = Math.sin(t * 1.8 + s + kt * 4) * (2 + kt * 7) * (0.4 + 0.6 * ign);
+        const sway =
+          Math.sin(t * 1.8 + s + kt * 4) * (2 + kt * 8) * (0.4 + 0.6 * ign);
         const tx = cx + off * (7 + kt * 26 * fork) + sway + wv * 6 * kt;
         const ty = by + 10 + kt * len + Math.abs(off) * kt * 12;
 
@@ -364,10 +414,14 @@ export class PhoenixRenderer implements WorldRenderer {
         else if (kt > 0.3) c = mixColor(col.amber, col.fireDark, 0.4);
         else c = col.fireDark;
         // a dark spine root keeps the tail attached crisply to the body
-        if (s === Math.floor(streamers / 2) && kt < 0.18) c = col.inkEdge;
+        if (s === Math.floor(streamers / 2) && kt < 0.16) c = col.inkEdge;
 
-        const r = (1 - kt * 0.55) * 2.1 + 0.6;
+        // broad ribbon near the root, tapering to a wisp at the tip
+        const r = (1 - kt * 0.5) * 2.6 + 0.5;
         p.dot(tx, ty, r, c, (0.9 - kt * 0.42) * (0.35 + 0.65 * ign));
+        // hot lit core down the centre of each ribbon
+        if (kt < 0.7)
+          p.dot(tx, ty - 0.8, r * 0.5, col.fireHot, 0.3 * (0.3 + 0.7 * ign));
         // a fiery flare at the streamer tip
         if (k === steps) {
           p.dot(tx, ty, r * 1.9, col.fireHot, 0.5 * ign);
