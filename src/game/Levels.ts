@@ -75,6 +75,9 @@ export interface LevelDef {
   hideTarget?: boolean;
   /** par: a move budget shown as moves N / par (non-blocking) */
   par?: number;
+  /** ambient tutorial: show a looping gesture hint for a newly-introduced
+   * mechanic (only set this on the FIRST level that introduces each one) */
+  tutorial?: "amplitude" | "phase" | "select" | "link" | "blind" | "par";
 }
 
 // Build a full harmonic list for a palette, applying the given specs.
@@ -108,6 +111,7 @@ export const LEVELS: LevelDef[] = [
       "tap a stone to add or remove\ndrag a stone up / down to change amplitude",
     accentKey: "bridge",
     renderer: "bridge",
+    tutorial: "amplitude",
     targetWaveStyle: "dotted",
     scoreModel: "waveform",
     palette: [-2, -1, 0, 1, 2, 3, 4, 5],
@@ -248,6 +252,7 @@ export const LEVELS: LevelDef[] = [
       "a phase dial slides its thread sideways\nline every thread up with its ghost to seal the gate",
     accentKey: "gate",
     renderer: "gate",
+    tutorial: "phase",
     targetWaveStyle: "dotted",
     scoreModel: "phase",
     palette: [-2, -1, 0, 1, 2, 3, 4],
@@ -966,7 +971,8 @@ export const LEVELS: LevelDef[] = [
     subtitle: "switch off the impostors, keep the real suspects",
     instructions: "three of these don't belong in the lineup\ntap to switch off the ones that aren't real",
     accentKey: "crimson", scenery: "dead", time: "night",
-    renderer: "lineup", targetWaveStyle: "dotted", scoreModel: "denoise",
+    renderer: "lineup",
+    tutorial: "select", targetWaveStyle: "dotted", scoreModel: "denoise",
     palette: [1, 2, 3, 4, 5, 6],
     control: { indices: [1, 2, 3, 4, 5, 6], stoneToggle: true, stoneAmplitude: false, stonePhase: false, showAmplitudeRow: false, showPhaseRow: false, amplitudeInteractive: false, phaseInteractive: false },
     target: [{ index: 1, amplitude: 0.7 }, { index: 2, amplitude: 0.5 }, { index: 4, amplitude: 0.4 }],
@@ -1148,7 +1154,8 @@ export const LEVELS: LevelDef[] = [
     subtitle: "a figure and its reflection move as one",
     instructions: "each stone is chained to its mirror twin\nset one side — the other follows — to match the figure",
     accentKey: "jade", scenery: "willow", time: "day",
-    renderer: "mirrortwins", targetWaveStyle: "dotted", scoreModel: "waveform",
+    renderer: "mirrortwins",
+    tutorial: "link", targetWaveStyle: "dotted", scoreModel: "waveform",
     palette: [-3, -2, -1, 0, 1, 2, 3],
     control: { indices: [-3, -2, -1, 0, 1, 2, 3], stoneToggle: true, stoneAmplitude: true, stonePhase: false, showAmplitudeRow: false, showPhaseRow: false, amplitudeInteractive: false, phaseInteractive: false, links: [[1, -1], [2, -2], [3, -3]] },
     target: [{ index: 0, amplitude: 0.3 }, { index: 1, amplitude: 0.6 }, { index: -1, amplitude: 0.6 }, { index: 2, amplitude: 0.4 }, { index: -2, amplitude: 0.4 }, { index: 3, amplitude: 0.2 }, { index: -3, amplitude: 0.2 }],
@@ -1208,7 +1215,8 @@ export const LEVELS: LevelDef[] = [
     subtitle: "read the smoke — there is no guide",
     instructions: "no target wave to copy this time\ntune by the scene alone until the apparition forms",
     accentKey: "indigo", scenery: "dead", time: "night",
-    renderer: "seance", targetWaveStyle: "dotted", scoreModel: "waveform",
+    renderer: "seance",
+    tutorial: "blind", targetWaveStyle: "dotted", scoreModel: "waveform",
     hideTarget: true,
     palette: [1, 2, 3, 4, 5, 6, 7, 8],
     control: { indices: [1, 2, 3, 4, 5, 6, 7, 8], stoneToggle: true, stoneAmplitude: true, stonePhase: false, showAmplitudeRow: false, showPhaseRow: false, amplitudeInteractive: false, phaseInteractive: false },
@@ -1255,7 +1263,8 @@ export const LEVELS: LevelDef[] = [
     subtitle: "crack every tumbler in as few moves as you can",
     instructions: "align all six tumblers to open the vault\neach dial click is a move — beat par",
     accentKey: "crimson", scenery: "dead", time: "night",
-    renderer: "vault", targetWaveStyle: "dotted", scoreModel: "phase",
+    renderer: "vault",
+    tutorial: "par", targetWaveStyle: "dotted", scoreModel: "phase",
     par: 10,
     palette: [-2, -1, 0, 1, 2, 3, 4],
     control: { indices: [-2, -1, 0, 1, 2, 3, 4], stoneToggle: true, stoneAmplitude: true, stonePhase: false, showAmplitudeRow: false, showPhaseRow: true, amplitudeInteractive: false, phaseInteractive: true },

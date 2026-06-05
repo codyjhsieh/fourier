@@ -77,6 +77,14 @@ export class HarmonicControls {
     this.highlight = idx;
   }
 
+  // Screen position of a control (used by the ambient tutorial hint).
+  controlPos(index: number, row: "stone" | "phase"): { x: number; y: number } {
+    const i = this.cfg.indices.indexOf(index);
+    const x = i >= 0 ? this.xs[i] : LAYOUT.W / 2;
+    const y = row === "phase" ? this.phaseRowY : this.stoneRowY;
+    return { x, y };
+  }
+
   private click(value: number) {
     if (value !== this.lastStep) {
       this.lastStep = value;

@@ -7,6 +7,7 @@ import { Background } from "../render/Background";
 import { TargetWave } from "../render/TargetWave";
 import { Hud } from "../render/ui/Hud";
 import { HarmonicControls } from "../render/ui/HarmonicControls";
+import { TutorialHint } from "../render/ui/TutorialHint";
 import { WorldRenderer } from "../render/structures/common";
 import { BridgeRenderer } from "../render/structures/BridgeRenderer";
 import { CreatureRenderer } from "../render/structures/CreatureRenderer";
@@ -92,6 +93,9 @@ export class Game {
   private bannerHint!: Text;
   private levelIndex = 0;
   private moves = 0;
+  private hint?: TutorialHint;
+  private idleT = 0;
+  private hintDone = false;
   private unsub: (() => void) | null = null;
   private navLeft!: Graphics;
   private navRight!: Graphics;
@@ -148,6 +152,14 @@ export class Game {
     for (const ev of ["pointerdown", "touchend", "mousedown"]) {
       window.addEventListener(ev, unlock, { passive: true });
     }
+    // any touch dismisses the ambient tutorial hint (it has served its purpose)
+    window.addEventListener("pointerdown", () => {
+      this.idleT = 0;
+      if (this.hint && !this.hintDone) {
+        this.hintDone = true;
+        this.hint.dismiss();
+      }
+    }, { passive: true });
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) this.audio.resume();
     });
@@ -359,9 +371,47 @@ export class Game {
       this.world.solveToTarget();
     }
     if (this.demo) this.buildDemoMoves();
+    this.setupHint();
     this.recomputeScore();
     this.targetWave.draw(this.world.targetShape, this.world.shape);
     this.audio.update(this.world.harmonics);
+  }
+
+  // Ambient tutorial: on the first level that introduces a mechanic, prepare a
+  // looping gesture hint over the relevant control. It reveals after a short
+  // idle and fades the moment the player touches anything.
+  private setupHint() {
+    this.hint = undefined;
+    this.idleT = 0;
+    this.hintDone = false;
+    const k = this.level.tutorial;
+    if (!k || this.showcase || this.demo) return;
+    const h = new TutorialHint(this.accent);
+    if (k === "amplitude") {
+      const idx = this.level.target[0]?.index ?? this.level.palette[0];
+      const p = this.controls.controlPos(idx, "stone");
+      h.set("drag", p.x, p.y, "drag up or down");
+    } else if (k === "phase") {
+      const t = this.level.target.find((s) => s.phase != null) ?? this.level.target[0];
+      const p = this.controls.controlPos(t.index, "phase");
+      h.set("rotate", p.x, p.y, "drag around to rotate");
+    } else if (k === "select") {
+      const tIdx = new Set(this.level.target.map((s) => s.index));
+      const decoy = this.level.start.find((s) => !tIdx.has(s.index));
+      const idx = decoy?.index ?? this.level.start[0].index;
+      const p = this.controls.controlPos(idx, "stone");
+      h.set("tap", p.x, p.y, "tap to switch off");
+    } else if (k === "link") {
+      const idx = this.level.palette.find((i) => i > 0) ?? this.level.palette[0];
+      const p = this.controls.controlPos(idx, "stone");
+      h.set("drag", p.x, p.y, "chained — its twin moves too");
+    } else if (k === "par") {
+      h.set("point", LAYOUT.ringX, LAYOUT.ringY + LAYOUT.ringR + 12, "solve in few moves");
+    } else if (k === "blind") {
+      h.set("point", LAYOUT.W / 2, LAYOUT.waveCenterY, "no guide — read the scene");
+    }
+    this.hint = h;
+    this.root.addChild(h.container);
   }
 
   private recomputeScore() {
@@ -544,6 +594,17 @@ export class Game {
     this.targetWave.draw(this.world.targetShape, this.world.shape);
     this.controls.update(this.t);
     this.hud.setScore(this.score.finalScore);
+
+    // ambient tutorial hint: reveal after a short idle, fade once engaged
+    if (this.hint) {
+      if (!this.hintDone && !this.complete) {
+        this.idleT += dt;
+        if (this.idleT > 2.0) this.hint.reveal();
+      } else {
+        this.hint.dismiss();
+      }
+      this.hint.update(this.t);
+    }
 
     // completion detection (suppressed in capture modes)
     if (this.showcase || this.demo) {
