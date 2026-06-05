@@ -501,13 +501,22 @@ export class PrismRenderer implements WorldRenderer {
       alpha: 0.28,
     });
     // top-left bevel highlight arc on the barrel.
-    g.arc(cx, cy, R + 5, Math.PI * 1.05, Math.PI * 1.55).stroke({
+    // NOTE: arc() does NOT emit an implicit moveTo to its start point. Since the
+    // previous .stroke() closed the path, the path cursor would be at (0,0) and
+    // the arc would draw a stray line from the top-left corner to its start.
+    // moveTo the arc's true start point first to suppress that artifact.
+    const arcR = R + 5;
+    const a0 = Math.PI * 1.05;
+    g.moveTo(cx + Math.cos(a0) * arcR, cy + Math.sin(a0) * arcR);
+    g.arc(cx, cy, arcR, a0, Math.PI * 1.55).stroke({
       width: 11,
       color: mixColor(barrel, PALETTE.white, 0.45),
       alpha: 0.55,
     });
     // bottom-right shade arc.
-    g.arc(cx, cy, R + 5, Math.PI * 0.05, Math.PI * 0.55).stroke({
+    const a1 = Math.PI * 0.05;
+    g.moveTo(cx + Math.cos(a1) * arcR, cy + Math.sin(a1) * arcR);
+    g.arc(cx, cy, arcR, a1, Math.PI * 0.55).stroke({
       width: 11,
       color: mixColor(barrel, PALETTE.ink, 0.6),
       alpha: 0.55,

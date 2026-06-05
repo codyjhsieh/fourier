@@ -294,11 +294,10 @@ export class ChladniRenderer implements WorldRenderer {
     const breath = resample(_shape, this.grid);
 
     // colors
-    const sandLine = this.accent.ink; // dark crisp sand on light steel
-    const sandLineHot = mixColor(this.accent.accent, PALETTE.ink, 0.25);
     const ghostCol = mixColor(this.accent.inkSoft, PALETTE.paperDeep, 0.45);
     const grainPale = mixColor(PALETTE.inkSoft, PALETTE.paperDeep, 0.3);
-    const grainDark = this.accent.ink;
+    // dark amber/ink for piled sand on the nodal lines
+    const grainDark = mixColor(this.accent.ink, this.accent.accent, 0.35);
 
     // ============================================================
     // 1) GHOST — faint outline of the TARGET nodal figure to aim for.
@@ -323,93 +322,98 @@ export class ChladniRenderer implements WorldRenderer {
     }
 
     // ============================================================
-    // 2) SAND — the player's field rendered two ways, cross-faded by `lock`:
-    //    (a) CHAOTIC SCATTER everywhere (dominant at low score) — buzzing grains
-    //    (b) CRISP NODAL-LINE STROKES (dominant at high score) — the figure
+    // 2) SAND — a dense field of real sand GRAINS on the plate. Each grain has
+    //    a fixed "home" cell; off-resonance it buzzes randomly about that home
+    //    (chaotic scatter, no figure). As `lock`→1 every grain MIGRATES down the
+    //    field gradient toward the nearest nodal line (field==0) and piles up
+    //    there, leaving the antinodes bare — so the figure emerges as lines made
+    //    of *accumulated sand*, never as a drawn stroke.
     // ============================================================
-
-    // (a) chaotic scatter: present strongly off-resonance, thins to nothing as
-    //     the figure locks. Grains spray across the whole plate and jitter.
-    const scatterAmt = 1 - lock; // 1 off-res -> 0 locked
-    if (haveP && scatterAmt > 0.02) {
-      // grains are biased toward (but not confined to) the nodal band so the
-      // scatter already "wants" to find the lines — it's just too noisy to read.
-      const band = 0.42 - lock * 0.3; // wide, sloppy band off-res
-      const count = 520;
-      for (let i = 0; i < count; i++) {
-        // deterministic position over the plate
-        const nx = this.hash(i * 1.37 + 0.11, 3.7);
-        const ny = this.hash(i * 2.71 + 0.53, 8.1);
-        const gi = Math.round(nx * this.grid);
-        const gj = Math.round(ny * this.grid);
-        const fv = Math.abs(this.fbufP[gj * (this.grid + 1) + gi]);
-
-        // proximity to the nodal line, 1 on the line, 0 at band edge
-        const near = fv < band ? 1 - fv / band : 0;
-        // off-line grains survive only off-resonance (the buzzing noise);
-        // near-line grains survive a bit longer. As lock rises both thin out
-        // because the crisp lines (below) replace them.
-        const survive = (0.18 + near * 0.55) * scatterAmt;
-        if (this.hash(i * 4.1, 1.9) > survive) continue;
-
-        // buzzing motion — violent off-res, calm near lock
-        const buzz = (0.5 + (1 - near) * 0.5) * scatterAmt;
-        const ph = i * 0.7;
-        const vx = Math.sin(t * (6 + (1 - near) * 10) + ph) * cell * 1.3 * buzz;
-        const vy =
-          Math.cos(t * (5.5 + (1 - near) * 10) + ph * 0.8) * cell * 1.3 * buzz;
-
-        const px = L + nx * size + vx;
-        const py =
-          Tp + ny * size + vy + breath[Math.min(gi, this.grid - 1)] * 0.8;
-
-        const r = 0.7 + near * 0.6;
-        const col = mixColor(grainPale, grainDark, near * 0.6);
-        const a = (0.25 + near * 0.4) * Math.min(1, scatterAmt * 1.4);
-        p.dot(px, py, r, col, a);
-      }
-    }
-
-    // (b) crisp nodal-line figure: faint at low score, bold & dark at high.
-    //     This is THE figure — thin, clean, symmetric strokes along field==0.
     if (haveP) {
-      // line emerges from ~0.12 alpha at score 0 to a strong dark stroke at 1.
-      const lineA = 0.12 + lock * 0.78;
-      const lineW = Math.max(1, cell * (0.32 + lock * 0.42));
-      const lineCol = mixColor(sandLine, sandLineHot, lock * 0.6);
-      // a hair of breath only while unlocked, so a settled figure is dead steady
-      this.traceNodes(
-        this.lines,
-        this.fbufP,
-        L,
-        Tp,
-        size,
-        lineCol,
-        lineA,
-        lineW,
-        cell * 0.5 * (1 - lock),
-        breath,
-      );
+      const stride = this.grid + 1;
+      // bilinear field sampler in normalized [0,1] space (clamped to grid).
+      const sampleF = (nx: number, ny: number): number => {
+        const fx = Math.min(0.99999, Math.max(0, nx)) * this.grid;
+        const fy = Math.min(0.99999, Math.max(0, ny)) * this.grid;
+        const i0 = Math.floor(fx);
+        const j0 = Math.floor(fy);
+        const tx = fx - i0;
+        const ty = fy - j0;
+        const a = this.fbufP[j0 * stride + i0];
+        const b = this.fbufP[j0 * stride + i0 + 1];
+        const c = this.fbufP[(j0 + 1) * stride + i0];
+        const d = this.fbufP[(j0 + 1) * stride + i0 + 1];
+        return (
+          a * (1 - tx) * (1 - ty) +
+          b * tx * (1 - ty) +
+          c * (1 - tx) * ty +
+          d * tx * ty
+        );
+      };
 
-      // sand "grain" texture sitting ON the line so it still reads as piled
-      // sand, not a vector stroke — sampled along the contour cells.
-      if (lock > 0.15) {
-        const tex = 360;
-        for (let i = 0; i < tex; i++) {
-          const nx = this.hash(i * 1.9 + 0.2, 5.3);
-          const ny = this.hash(i * 3.3 + 0.7, 2.1);
-          const gi = Math.round(nx * this.grid);
-          const gj = Math.round(ny * this.grid);
-          const fv = Math.abs(this.fbufP[gj * (this.grid + 1) + gi]);
-          // only grains hugging the line, tightening as it locks
-          const tol = 0.06 - lock * 0.035;
-          if (fv > tol) continue;
-          const jx = (this.hash(i, 7) - 0.5) * cell * 0.4;
-          const jy = (this.hash(i, 13) - 0.5) * cell * 0.4;
-          const px = L + nx * size + jx;
-          const py = Tp + ny * size + jy;
-          p.dot(px, py, 0.7 + lock * 0.5, lineCol, 0.4 * lock + 0.1);
+      // grain count capped for 60fps; denser when locked so piles read solid.
+      const count = 880;
+      const eps = 1.0 / this.grid; // gradient probe step in normalized space
+
+      for (let i = 0; i < count; i++) {
+        // fixed home position over the plate (deterministic).
+        let nx = this.hash(i * 1.37 + 0.11, 3.7);
+        let ny = this.hash(i * 2.71 + 0.53, 8.1);
+
+        // --- migration: descend |field| toward the nearest nodal line ---
+        // A few short gradient-descent steps on |field|, their length scaled by
+        // `lock` so off-res the grain barely moves (stays scattered) and at full
+        // resonance it lands right on the line.
+        if (lock > 0.001) {
+          const steps = 4;
+          for (let s = 0; s < steps; s++) {
+            const f = sampleF(nx, ny);
+            const gx = (sampleF(nx + eps, ny) - sampleF(nx - eps, ny)) / (2 * eps);
+            const gy = (sampleF(nx, ny + eps) - sampleF(nx, ny - eps)) / (2 * eps);
+            const g2 = gx * gx + gy * gy + 1e-4;
+            // Newton-ish step toward f==0, attenuated by lock.
+            const stepK = (lock * 0.9 * f) / g2;
+            nx -= stepK * gx;
+            ny -= stepK * gy;
+            nx = Math.min(1, Math.max(0, nx));
+            ny = Math.min(1, Math.max(0, ny));
+          }
         }
+
+        // residual distance to the line after migration (0 == on the line).
+        const fv = Math.abs(sampleF(nx, ny));
+
+        // --- buzzing: violent off-res, near-still when locked. Grains far from
+        // the line buzz hardest; ones that have reached the line barely jitter.
+        const buzz = (1 - lock) * (0.6 + 0.6 * Math.min(1, fv * 2));
+        const ph = i * 0.7;
+        const jx = Math.sin(t * (7 + (i % 5)) + ph) * cell * 1.25 * buzz;
+        const jy = Math.cos(t * (6 + (i % 4)) + ph * 0.8) * cell * 1.25 * buzz;
+        // a tiny permanent grain-scatter so piles look granular, not vector.
+        const sjx = (this.hash(i, 7.0) - 0.5) * cell * (0.5 + lock * 0.3);
+        const sjy = (this.hash(i, 13.0) - 0.5) * cell * (0.5 + lock * 0.3);
+
+        const gi = Math.round(nx * this.grid);
+        const px = L + nx * size + jx + sjx;
+        const py =
+          Tp +
+          ny * size +
+          jy +
+          sjy +
+          (breath[Math.min(gi, this.grid - 1)] || 0) * 0.8 * (1 - lock);
+
+        // grains ON the line are the dark amber/ink pile; scattered grains are
+        // pale. As lock rises, on-line grains darken & fatten (sand piling up),
+        // off-line grains fade (the antinodes go bare).
+        const onLine = fv < 0.08 ? 1 - fv / 0.08 : 0;
+        const pile = onLine * lock;
+        const col = mixColor(grainPale, grainDark, 0.25 + pile * 0.75);
+        const r = 0.7 + pile * 0.85;
+        // base visibility for the buzzing field, boosted where sand accumulates.
+        const a =
+          (0.16 + 0.12 * (1 - lock)) * (0.6 + 0.4 * Math.min(1, fv * 3)) +
+          (0.55 * pile);
+        if (a > 0.02) p.dot(px, py, r, col, Math.min(0.9, a));
       }
     }
 

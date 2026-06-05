@@ -247,31 +247,33 @@ export class WebRenderer implements WorldRenderer {
     const g = this.web;
     const N = 18; // radial spokes
     const tiltY = 0.92;
-    const wave = resample(shape, N); // [-1,1] modulates reach
+    const wave = resample(shape, N); // [-1,1] modulates reach (only when torn)
     const reach = anchors.reduce((m, a) => Math.max(m, a.r), 1);
     const spokes: { ang: number; len: number; tiltY: number }[] = [];
 
     for (let i = 0; i < N; i++) {
       const even = (i / N) * TWO_PI - Math.PI / 2;
-      // angular splay only when torn
+      // angular splay only when torn — at sym=1 every spoke sits on its even ray.
       const aw = sjit(i, 5) * broken * 0.32;
       const sway = Math.sin(t * 0.6 + i * 0.7) * broken * 0.05;
       const ang = even + aw + sway;
-      // base reach with a gentle wave modulation; uneven shrink when torn
-      const wmod = 0.86 + (wave[i] * 0.5 + 0.5) * 0.14;
-      const shrink = 1 - hash(i, 9) * broken * 0.4;
+      // Length: a clean full reach when symmetric, so the rim is a true ring.
+      // Only when torn does the waveform/hash splay the spoke lengths unevenly.
+      const wmod = 1 - (wave[i] * 0.5 + 0.5) * 0.22 * broken;
+      const shrink = 1 - hash(i, 9) * broken * 0.45;
       const len = reach * wmod * shrink;
       spokes.push({ ang, len, tiltY });
 
       const ex = cx + Math.cos(ang) * len;
       const ey = cy + Math.sin(ang) * len * tiltY;
-      // draw the spoke as a fine dotted ink line; mirror into the water.
-      const steps = Math.max(8, Math.round(len / 7));
+      // Draw the spoke as a continuous fine ink line (a straight radial),
+      // crisp when whole; mirror sparse points into the water.
+      this.seg(g, cx, cy, ex, ey, 0.9, this.thread, 0.6 + sym * 0.25);
+      const steps = Math.max(6, Math.round(len / 9));
       for (let s = 1; s <= steps; s++) {
         const u = s / steps;
         const x = cx + Math.cos(ang) * len * u;
         const y = cy + Math.sin(ang) * len * u * tiltY;
-        g.circle(x, y, 0.8).fill({ color: this.thread, alpha: 0.7 });
         if (s % 3 === 0) p.dot(x, y, 0.8, this.thread, 0.5);
       }
       // a faint anchor glint where the spoke meets the frame
@@ -297,13 +299,14 @@ export class WebRenderer implements WorldRenderer {
     p: Painter,
   ) {
     const g = this.web;
-    const loops = 5.5; // how many times round
-    const segsPerLoop = spokes.length; // land segments on spokes
-    const total = Math.round(loops * segsPerLoop);
+    const N = spokes.length;
+    const loops = 7; // how many times round (one vertex per spoke crossing)
+    const total = loops * N; // land every vertex exactly on a spoke
     const tiltY = 0.92;
     const reach = spokes.reduce((m, s) => Math.max(m, s.len), 1);
-    const inner = reach * 0.16; // clear hub zone
-    // a slow drift / breathing of the whole coil
+    const inner = reach * 0.14; // clear hub zone where the spider sits
+    const outer = reach * 0.96; // stop just shy of the frame rim
+    // a slow drift / breathing of the whole coil (only when torn)
     const drift = Math.sin(t * 0.5) * broken * 3;
 
     const col = this.ink;
@@ -312,21 +315,28 @@ export class WebRenderer implements WorldRenderer {
     let have = false;
 
     for (let i = 0; i <= total; i++) {
-      const f = i / total; // 0 -> 1 inner to outer
-      const ang = f * loops * TWO_PI - Math.PI / 2;
-      // radius grows outward; when torn it bulges directionally + wobbles.
-      let rr = inner + f * (reach - inner);
-      const lop = Math.cos(ang - 0.6) * broken * reach * 0.18; // one-sided sag
-      const wob = Math.sin(ang * 3 + i * 0.7) * broken * reach * 0.05;
-      rr = Math.max(2, rr + lop + wob);
+      const f = total === 0 ? 0 : i / total; // 0 -> 1 inner to outer
+      // The vertex sits on spoke (i mod N): take its angle so the capture
+      // thread genuinely crosses every spoke as it winds out.
+      const k = i % N;
+      const sp = spokes[k];
+      const ang = sp.ang;
+      // Radius eased from the hub clear-zone out to the rim. When symmetric
+      // it is a clean monotonic spiral; when torn it bulges + wobbles.
+      let rr = inner + f * (outer - inner);
+      const lop = Math.cos(sp.ang - 0.6) * broken * reach * 0.18; // one-sided sag
+      const wob = Math.sin(sp.ang * 3 + i * 0.7) * broken * reach * 0.05;
+      // clamp the spiral inside its own spoke so it never overshoots the rim
+      rr = Math.max(inner * 0.5, Math.min(sp.len * 0.98, rr + lop + wob));
 
       const x = cx + Math.cos(ang) * rr + drift * f;
       const y = cy + Math.sin(ang) * rr * tiltY;
 
-      // SNAPPED threads: deterministic gaps that appear only when torn.
-      const snap = hash(i, 13) < broken * 0.32;
+      // SNAPPED threads: deterministic gaps that appear only when torn; when
+      // whole the coil is fully continuous hub -> rim.
+      const snap = hash(i, 13) < broken * 0.3;
       if (have && !snap) {
-        this.seg(g, prevX, prevY, x, y, 1.2, col, 0.8);
+        this.seg(g, prevX, prevY, x, y, 1.1, col, 0.78);
         // bright silk highlight on the top-left-facing side
         const nx = Math.cos(ang);
         const ny = Math.sin(ang);
@@ -341,9 +351,9 @@ export class WebRenderer implements WorldRenderer {
       }
       // a frayed loose end where a thread snapped
       if (snap && have) {
-        const fx = x + sjit(i, 2) * 6 * broken;
-        const fy = y + sjit(i, 4) * 6 * broken;
-        this.seg(g, x, y, fx, fy, 1, mixColor(col, PALETTE.paper, 0.3), 0.4);
+        const fxp = x + sjit(i, 2) * 6 * broken;
+        const fyp = y + sjit(i, 4) * 6 * broken;
+        this.seg(g, x, y, fxp, fyp, 1, mixColor(col, PALETTE.paper, 0.3), 0.4);
       }
       prevX = x;
       prevY = y;

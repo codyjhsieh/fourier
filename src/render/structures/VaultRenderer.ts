@@ -338,7 +338,8 @@ export class VaultRenderer implements WorldRenderer {
         const a = -Math.PI / 2 + (i / segs) * Math.PI; // right half arc
         const ex = faceCx + Math.cos(a) * rxFace;
         const ey = cy + Math.sin(a) * R;
-        dr.lineTo(ex, ey);
+        if (i === 0) dr.moveTo(ex, ey);
+        else dr.lineTo(ex, ey);
       }
       // back edge
       for (let i = segs; i >= 0; i--) {

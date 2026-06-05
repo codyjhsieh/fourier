@@ -231,7 +231,10 @@ export const LEVELS: LevelDef[] = [
       { index: 5, amplitude: 0.2 },
       { index: 7, amplitude: -0.1 },
     ],
-    start: [{ index: 1, amplitude: 0.4 }],
+    start: [
+      { index: 1, amplitude: 0.6 },
+      { index: 2, amplitude: 0.3 },
+    ],
     threshold: 0.984,
   },
 
@@ -743,13 +746,13 @@ export const LEVELS: LevelDef[] = [
   {
     id: 17,
     indexLabel: "EXTREME 17",
-    title: "THE MIRRORED VEIL",
-    subtitle: "balance the aurora against its own reflection",
+    title: "THE BUTTERFLY",
+    subtitle: "match the two wings into perfect symmetry",
     instructions:
-      "the curtain and its mirror have drifted apart\nrotate the dials until they fuse — left matching right",
-    accentKey: "indigo",
-    scenery: "willow",
-    time: "night",
+      "the two wings have drifted out of true\nrotate the dials until left mirrors right and it lifts off",
+    accentKey: "rose",
+    scenery: "blossom",
+    time: "day",
     renderer: "aurora",
     targetWaveStyle: "dotted",
     scoreModel: "symmetry",
@@ -1006,10 +1009,10 @@ export const LEVELS: LevelDef[] = [
   // ---------------------------------------------------------------- L26  (SELECT, band)
   {
     id: 26, indexLabel: "EXTREME 26",
-    title: "THE SONAR",
-    subtitle: "tune to the creature's band and it surfaces",
-    instructions: "low rumble and high static hide the signal\ntap off the lowest and highest pings to keep the middle band",
-    accentKey: "creature", scenery: "dead", time: "night",
+    title: "THE BROADCAST",
+    subtitle: "tune past the static to the station",
+    instructions: "low hum and high static drown the broadcast\ntap off the lowest and highest stones to land on the station",
+    accentKey: "amber", scenery: "dead", time: "night",
     renderer: "sonar", targetWaveStyle: "dotted", scoreModel: "denoise",
     palette: [1, 2, 3, 4, 5, 6, 7, 8, 9],
     control: { indices: [1, 2, 3, 4, 5, 6, 7, 8, 9], stoneToggle: true, stoneAmplitude: false, stonePhase: false, showAmplitudeRow: false, showPhaseRow: false, amplitudeInteractive: false, phaseInteractive: false },

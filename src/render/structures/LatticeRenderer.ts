@@ -109,8 +109,10 @@ export class LatticeRenderer implements WorldRenderer {
     const staticAmt = 1 - lock; // sky static when not locked
 
     // STAGED reveal — each stage gates the next so the change is unmistakable.
-    // Below ~0.25 there is NO clear saucer and NO beam at all.
-    const materialize = clamp01((lock - 0.22) / 0.5); // saucer forms & sharpens
+    // The saucer is ALWAYS present (faint, lost in static at the start; crisp
+    // and lit when locked) — `materialize` only drives how sharp/bright it is,
+    // it NEVER fully hides the hull. The beam + abduction are the staged extras.
+    const materialize = clamp01((lock - 0.22) / 0.5); // saucer sharpens & brightens
     const beamOn = clamp01((lock - 0.4) / 0.45); // beam switches on & descends
     const abduct = clamp01((lock - 0.55) / 0.4); // cow lifts off the ground
     const payoff = clamp01((lock - 0.78) / 0.22); // final crisp surge
@@ -302,9 +304,13 @@ export class LatticeRenderer implements WorldRenderer {
       this.drawCow(target, cowX, cowY, w, h, tilt, cowCol, ca);
     }
 
-    // ---- the FLYING SAUCER (solid metallic, materializes) ----------------
-    if (materialize > 0.02) {
-      const hullA = 0.25 + 0.72 * materialize; // crispness rises as it forms
+    // ---- the FLYING SAUCER (solid metallic, ALWAYS visible) --------------
+    // The hull is drawn every frame. Even fully unsolved it stays clearly
+    // readable through the static (alpha floored at ~0.5); locking in only
+    // sharpens the rim, brightens the sheen and lights the running ring. It is
+    // never gated off, so the UFO can never disappear at the solved state.
+    {
+      const hullA = 0.55 + 0.42 * materialize; // visible from the start, crisper when locked
       // under-shadow of the disc
       this.fx.ellipse(saucerCX, saucerCY + discH * 0.5, discR * 1.02, discH * 0.7).fill({
         color: this.hullDark,
@@ -361,7 +367,7 @@ export class LatticeRenderer implements WorldRenderer {
         const chasePhase = t * 2.2 - ang;
         const chase = Math.pow(0.5 + 0.5 * Math.sin(chasePhase), 2.2); // sharp crest
         const front = 0.32 + 0.68 * (0.5 + 0.5 * Math.sin(ang));
-        const la = (0.18 + 0.72 * materialize) * (0.35 + 0.65 * chase) * front;
+        const la = (0.28 + 0.62 * materialize) * (0.35 + 0.65 * chase) * front;
         const lcol = mixColor(this.accent.accent, PALETTE.white, 0.3 + 0.45 * chase);
         this.fx.circle(lx, ly, 1.5 + materialize * 0.8 + chase * 0.7).fill({ color: lcol, alpha: la });
         if (chase > 0.55 && materialize > 0.25) {

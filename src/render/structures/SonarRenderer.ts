@@ -6,38 +6,37 @@ import { WorldRenderer } from "./common";
 import type { Species } from "./Scenery";
 import { LAYOUT } from "../Layout";
 
-// "Read the Bands" reimagined — a SUBMARINE SONAR SCOPE.
+// "Read the Bands" reimagined — a VINTAGE RADIO / wireless set.
 //
-// Level 26, "THE SONAR" (SELECT / denoise band puzzle). A round PPI sonar
-// screen fills the world: concentric RANGE RINGS, cross-hairs, a glowing
-// rotating SWEEP LINE, and a field of BLIPS — one per palette harmonic.
+// Level 26, "THE RADIO" (SELECT / band-pass denoise puzzle). A warm wooden
+// cabinet fills the world: a glowing circular TUNING DIAL with a frequency
+// scale + a needle, a SPEAKER GRILLE, and chunky knobs.
 //
-//   • Each blip is placed by FREQUENCY: LOW harmonics ping near the CENTRE,
-//     MID harmonics ride the MIDDLE RANGE RING, HIGH harmonics scatter near
-//     the rim. So the spectrum is laid out as concentric range bands.
-//   • LOW (rumble) and HIGH (static) blips are NOISE/CLUTTER — restless red
-//     pings that jitter and smear the screen. The MID band is the real
-//     CREATURE contact: those blips trace a KRAKEN silhouette on the middle
-//     ring (head + curling tentacles).
-//   • The MECHANIC (SELECT band): toggle OFF the low + high clutter pings and
-//     keep the middle band. With clutter present the scope is noisy and the
-//     creature is hidden; as the rumble and static are switched off and only
-//     the mid band survives, the rotating sweep REVEALS a clean cyan kraken
-//     contact in the middle ring.
+//   • One signal BLIP/bar per palette harmonic, placed across the dial by
+//     FREQUENCY: LOW harmonics cluster as a hum band on the LEFT, MID as the
+//     station in the MIDDLE, HIGH as static on the RIGHT.
+//   • LOW (hum) and HIGH (static) blips are NOISE. While they are present the
+//     dial is full of jittery static, the needle wanders, and the speaker
+//     emits garbled noise — no music.
+//   • The MECHANIC (SELECT band-pass): toggle OFF the low + high noise stones
+//     and keep the MIDDLE band. As the hum and static are switched off and
+//     only the mid band survives, the needle LOCKS onto the clear station: the
+//     dial glows amber, the speaker comes alive with music notes radiating,
+//     and an "ON AIR" indicator lights.
 //
-// DRAMATIC ARC, driven continuously by `score` (denoise → 1 when only the
-// mid band remains):
-//   • NOISY scope: red clutter everywhere, screen washed with static, the
-//     kraken buried under jitter.
-//   • As clutter clears the static fades, the rings sharpen, and the kraken
-//     contact firms up and glows cyan in the sweep's wake.
-//   • CLEAN lock: the kraken pulses bright, a target reticle frames it, the
-//     whole scope settles to a crisp cyan trace.
+// DRAMATIC ARC, driven continuously by `score` (denoise → 1 when only the mid
+// band remains) plus live low/mid/high band energies:
+//   • NOISY: jittery static across the dial, wandering needle, garble lines
+//     rasping out of the speaker, "ON AIR" lamp dark.
+//   • As noise clears the static thins, the needle homes in on the station,
+//     the dial warms, and music notes begin drifting from the grille.
+//   • TUNED LOCK: needle pinned to the station, dial glowing, music notes
+//     radiating, "ON AIR" lamp lit and pulsing.
 //
-// White-first CREAM base, cyan accent, night. The scope ring + ink contacts
-// read crisply on the pale screen; cyan glow marks the true contact. Light
-// from top-left. Fully deterministic (sin / hash only — no Math.random, no
-// Date). Bounded loops, 60fps.
+// Warm CREAM base, amber accent, night. Wooden cabinet reads in ink-browns;
+// the lit dial + amber glow mark the tuned signal. Light from top-left. Fully
+// deterministic (sin / hash only — no Math.random, no Date). Bounded loops,
+// 60fps.
 
 // cheap deterministic hash in [0,1)
 function hash(x: number, y: number): number {
@@ -55,11 +54,11 @@ export class SonarRenderer implements WorldRenderer {
   container = new Container();
   species: Species = "blossom";
 
-  private back = new Graphics(); // night wash, scope disc, range rings, grid
-  private clutter = new Graphics(); // red noise pings + static
-  private contact = new Graphics(); // the kraken contact (mid band)
-  private sweep = new Graphics(); // rotating sweep line + afterglow
-  private hud = new Graphics(); // bezel, reticle, readout ticks
+  private back = new Graphics(); // night wash + wooden cabinet body
+  private grille = new Graphics(); // speaker grille + knobs
+  private dial = new Graphics(); // dial face, scale, blips, needle
+  private fx = new Graphics(); // static, music notes, garble, glows
+  private hud = new Graphics(); // bezel highlights, ON AIR lamp, glass
 
   private accent: Accent;
 
@@ -67,9 +66,9 @@ export class SonarRenderer implements WorldRenderer {
     this.accent = accent;
     this.container.addChild(
       this.back,
-      this.clutter,
-      this.contact,
-      this.sweep,
+      this.grille,
+      this.dial,
+      this.fx,
       this.hud,
     );
   }
@@ -93,21 +92,20 @@ export class SonarRenderer implements WorldRenderer {
     _targetHarmonics: HarmonicComponent[],
   ): void {
     const bg = this.back;
-    const cl = this.clutter;
-    const co = this.contact;
-    const sw = this.sweep;
+    const gr = this.grille;
+    const di = this.dial;
+    const fx = this.fx;
     const hud = this.hud;
     bg.clear();
-    cl.clear();
-    co.clear();
-    sw.clear();
+    gr.clear();
+    di.clear();
+    fx.clear();
     hud.clear();
     const accent = this.accent;
 
     // ===== DRAMA DRIVERS ====================================================
-    // `score` (denoise) → 1 when only the mid band remains. Read the live band
-    // energies directly so the scene reacts the instant a ping is toggled,
-    // independent of the scoring curve.
+    // `score` (denoise) → 1 when only the mid band remains. Read live band
+    // energies directly so the scene reacts the instant a stone is toggled.
     let lowE = 0,
       midE = 0,
       highE = 0;
@@ -119,187 +117,326 @@ export class SonarRenderer implements WorldRenderer {
       else if (k <= 5) midE += a;
       else highE += a;
     }
-    const clutterE = lowE + highE;
-    // 0 = clutter still present, 1 = clutter gone → kraken locked.
+    const noiseE = lowE + highE;
     const clean = Math.max(0, Math.min(1, score));
-    // a sharper "lock" curve so the kraken stays buried until the clutter is
-    // nearly cleared, then snaps into a crisp contact.
-    const lock = smooth(0.45, 0.98, clean);
-    // residual clutter presence used to drive the noise (kept lively even at
-    // partial clears so toggling reads instantly).
-    const noise = Math.max(0, Math.min(1, clutterE / 1.6));
+    // sharp "tuned" curve — station stays buried in noise until nearly clear,
+    // then snaps into a crisp lock.
+    const tuned = smooth(0.45, 0.98, clean);
+    // residual noise presence (kept lively at partial clears for instant feel).
+    const noise = Math.max(0, Math.min(1, noiseE / 1.6));
+    const station = midE > 0.05 ? 1 : 0;
 
     const fast = 0.5 + 0.5 * Math.sin(t * 6.0); // quick shimmer
     const slow = 0.5 + 0.5 * Math.sin(t * 0.6); // slow ambient
-    const pulse = 0.5 + 0.5 * Math.sin(t * 2.2); // contact pulse
+    const pulse = 0.5 + 0.5 * Math.sin(t * 2.2); // lamp / glow pulse
 
-    // ---- submarine-sonar palette — cream base, cyan accent, night ----------
-    const screenLit = mixColor(PALETTE.paper, accent.accentSoft, 0.08); // pale screen
-    const screen = mixColor(screenLit, accent.ink, 0.06 + 0.12 * (1 - lock));
-    const screenDeep = mixColor(screen, accent.ink, 0.18);
-    const bezel = mixColor(accent.ink, PALETTE.ink, 0.45); // dark casing
-    const bezelLit = mixColor(bezel, PALETTE.white, 0.4);
-    const bezelShade = mixColor(bezel, 0x000000, 0.4);
-    const ring = mixColor(accent.ink, accent.accent, 0.3); // ink-cyan range ring
-    const ringFaint = mixColor(ring, screen, 0.55);
-    const grid = mixColor(accent.ink, screen, 0.4); // cross-hair grid
-    const sweepCol = mixColor(accent.accent, PALETTE.white, 0.2); // bright sweep
-    const sweepGlow = mixColor(accent.accentSoft, PALETTE.white, 0.4);
-    const blipCyan = accent.accent; // true contact
-    const blipCyanLit = mixColor(accent.accent, PALETTE.white, 0.5);
-    const clutterRed = mixColor(0xc14b48, accent.ink, 0.1); // hostile/noise ping
-    const krakenInk = mixColor(accent.ink, PALETTE.ink, 0.35); // contact body
-    const night = mixColor(PALETTE.paper, accent.ink, 0.14);
+    // ---- vintage-radio palette — cream base, amber accent, night ----------
+    const night = mixColor(PALETTE.paper, accent.ink, 0.16);
+    const woodMid = mixColor(accent.ink, 0x3a2c1f, 0.45); // warm cabinet wood
+    const wood = mixColor(woodMid, accent.accent, 0.1);
+    const woodLit = mixColor(wood, PALETTE.white, 0.34); // top-left lit wood
+    const woodShade = mixColor(wood, 0x000000, 0.4); // shaded wood
+    const woodGrain = mixColor(wood, 0x000000, 0.2);
+    const trim = mixColor(accent.accent, accent.ink, 0.25); // amber trim
+    const trimLit = mixColor(accent.accent, PALETTE.white, 0.4);
 
-    // ===== SCOPE GEOMETRY ===================================================
+    const dialDark = mixColor(accent.ink, PALETTE.ink, 0.5); // dark dial when off
+    const dialLit = mixColor(
+      mixColor(PALETTE.paper, accent.accentSoft, 0.5),
+      accent.accent,
+      0.12 * tuned,
+    ); // warm glowing dial face
+    const dialFace = mixColor(dialDark, dialLit, 0.25 + 0.75 * tuned);
+    const dialDeep = mixColor(dialFace, accent.ink, 0.3);
+    const scaleInk = mixColor(accent.ink, dialFace, 0.2); // scale ticks / text
+    const needleCol = mixColor(0xc14b48, accent.ink, 0.15); // red pointer
+    const needleLit = mixColor(needleCol, PALETTE.white, 0.4);
+
+    const blipAmber = accent.accent; // station signal
+    const blipAmberLit = mixColor(accent.accent, PALETTE.white, 0.5);
+    const noiseCol = mixColor(accent.ink, dialFace, 0.18); // grey hum/static bar
+    const glassCol = PALETTE.white;
+
+    // ===== CABINET GEOMETRY =================================================
     const W = LAYOUT.W;
-    const top = LAYOUT.worldTop + 4;
-    const bot = LAYOUT.waterY + 14;
+    const top = LAYOUT.worldTop + 2;
+    const bot = LAYOUT.waterY + 10;
     const cx = W / 2;
-    const cy = (top + bot) / 2;
-    const R = Math.min(W * 0.5 - 18, (bot - top) * 0.5 - 6); // scope radius
 
-    // sweep angle from t (clockwise), one revolution every ~4.2s
-    const sweepAng = (t * 1.5) % (Math.PI * 2);
+    // cabinet rectangle, rounded — fills the world width with a margin.
+    const cabX = 16;
+    const cabW = W - 32;
+    const cabY = top;
+    const cabH = bot - top;
+    const cabR = 26; // corner radius
 
-    // ===== BACKGROUND: night wash behind the scope ==========================
-    bg.rect(0, top - 8, W, bot - top + 16).fill({ color: night, alpha: 0.5 });
-    // faint stars in the dark surround
-    for (let s = 0; s < 18; s++) {
-      const sx = 8 + hash(s, 3) * (W - 16);
-      const sy = top + hash(s, 7) * (bot - top);
-      // only outside the scope disc
-      const dd = Math.hypot(sx - cx, sy - cy);
-      if (dd < R + 14) continue;
+    // ===== BACKGROUND: night wash ==========================================
+    bg.rect(0, top - 8, W, cabH + 22).fill({ color: night, alpha: 0.5 });
+    // faint warm stars / dust motes outside the cabinet
+    for (let s = 0; s < 16; s++) {
+      const sx = 4 + hash(s, 3) * (W - 8);
+      const sy = top + hash(s, 7) * cabH;
+      // skip those that fall inside the cabinet rect
+      if (sx > cabX + 6 && sx < cabX + cabW - 6 && sy > cabY + 6) continue;
       const tw = 0.5 + 0.5 * Math.sin(t * 2 + s * 1.7);
       bg.circle(sx, sy, 0.5 + hash(s, 11) * 0.8).fill({
         color: PALETTE.glow,
-        alpha: 0.06 + 0.12 * tw,
+        alpha: 0.05 + 0.1 * tw,
       });
     }
 
-    // ===== THE BEZEL: dark casing ring around the screen ====================
-    // outer shadow then a beveled metal ring, top-left lit.
-    // casing fill behind the screen (in bg) so it never covers the contact.
-    bg.circle(cx, cy + 2, R + 13).fill({ color: bezelShade, alpha: 0.45 });
-    bg.circle(cx, cy, R + 12).fill({ color: bezel, alpha: 1 });
-    // top-left lit arc / bottom-right shade for a rounded casing
-    hud.circle(cx, cy, R + 12).stroke({ width: 4, color: bezelLit, alpha: 0.35 });
-    hud.arc(cx, cy, R + 10, Math.PI * 1.05, Math.PI * 1.95).stroke({
+    // ===== THE WOODEN CABINET ==============================================
+    // drop shadow under the cabinet
+    bg.roundRect(cabX, cabY + 6, cabW, cabH, cabR).fill({
+      color: woodShade,
+      alpha: 0.4,
+    });
+    // main wood body
+    bg.roundRect(cabX, cabY, cabW, cabH, cabR).fill({ color: wood, alpha: 1 });
+    // top-left lit face (a slightly inset lighter panel offset up-left)
+    bg.roundRect(cabX + 3, cabY + 3, cabW - 6, cabH * 0.5, cabR).fill({
+      color: woodLit,
+      alpha: 0.16,
+    });
+    // bottom-right shade
+    bg.roundRect(
+      cabX + cabW * 0.4,
+      cabY + cabH * 0.45,
+      cabW * 0.6,
+      cabH * 0.55,
+      cabR,
+    ).fill({ color: woodShade, alpha: 0.18 });
+    // horizontal wood grain lines
+    for (let g = 0; g < 9; g++) {
+      const gy = cabY + 14 + ((cabH - 28) / 8) * g;
+      const wob = Math.sin(g * 1.3) * 4;
+      bg.moveTo(cabX + 12, gy + wob)
+        .bezierCurveTo(
+          cabX + cabW * 0.33,
+          gy + wob + 3,
+          cabX + cabW * 0.66,
+          gy + wob - 3,
+          cabX + cabW - 12,
+          gy + wob,
+        )
+        .stroke({ width: 1, color: woodGrain, alpha: 0.12 });
+    }
+    // amber trim bevel around the cabinet edge
+    bg.roundRect(cabX, cabY, cabW, cabH, cabR).stroke({
       width: 3,
-      color: bezelLit,
-      alpha: 0.5,
+      color: woodShade,
+      alpha: 0.6,
     });
-    hud.arc(cx, cy, R + 10, Math.PI * 0.05, Math.PI * 0.95).stroke({
-      width: 3,
-      color: bezelShade,
-      alpha: 0.5,
-    });
-    // four mounting bolts at the diagonals
-    for (let b = 0; b < 4; b++) {
-      const a = Math.PI / 4 + (b * Math.PI) / 2;
-      const bx = cx + Math.cos(a) * (R + 9);
-      const by = cy + Math.sin(a) * (R + 9);
-      hud.circle(bx, by, 2.4).fill({ color: bezelShade, alpha: 0.9 });
-      hud.circle(bx - 0.6, by - 0.6, 1).fill({ color: bezelLit, alpha: 0.7 });
-    }
-
-    // ===== THE SCREEN: pale phosphor disc ===================================
-    // radial-ish shading: brighter near top-left (light direction), deeper at
-    // the rim.
-    bg.circle(cx, cy, R).fill({ color: screen, alpha: 1 });
-    bg.circle(cx, cy, R).fill({ color: screenDeep, alpha: 0.0 });
-    // rim vignette
-    for (let k = 0; k < 4; k++) {
-      const rr = R - k * (R * 0.06);
-      bg.circle(cx, cy, rr).stroke({
-        width: R * 0.06,
-        color: screenDeep,
-        alpha: 0.06,
-      });
-    }
-    // top-left phosphor sheen
-    bg.circle(cx - R * 0.28, cy - R * 0.3, R * 0.5).fill({
-      color: mixColor(screen, PALETTE.white, 0.5),
-      alpha: 0.18,
+    bg.roundRect(cabX + 5, cabY + 5, cabW - 10, cabH - 10, cabR - 5).stroke({
+      width: 1.4,
+      color: trim,
+      alpha: 0.4 + 0.2 * tuned,
     });
 
-    // ===== RANGE RINGS + CROSS-HAIRS ========================================
-    // concentric range rings define the LOW / MID / HIGH bands. The middle
-    // ring is emphasised — that is where the creature lives.
-    const ringR = [0.32, 0.62, 0.9].map((f) => R * f);
-    // clip helper: draw grid + rings, fading the faint ones in as the scope
-    // clears.
-    const ringSharp = 0.5 + 0.5 * lock;
-    // cross-hairs
-    for (let a = 0; a < 4; a++) {
-      const ang = (a * Math.PI) / 2;
-      bg.moveTo(cx, cy).lineTo(cx + Math.cos(ang) * R, cy + Math.sin(ang) * R);
+    // ===== LAYOUT REGIONS ==================================================
+    // dial sits in the upper portion, speaker grille below-left, knobs right.
+    const dialCx = cx;
+    const dialCy = cabY + cabH * 0.34;
+    const dialR = Math.min(cabW * 0.34, cabH * 0.27);
+
+    // ===== SPEAKER GRILLE (lower band of the cabinet) ======================
+    const grY = cabY + cabH * 0.62;
+    const grH = cabH * 0.32;
+    const grX = cabX + 30;
+    const grW = cabW - 100; // leave room on the right for knobs
+    // recessed grille panel
+    gr.roundRect(grX, grY, grW, grH, 14).fill({
+      color: woodShade,
+      alpha: 0.55,
+    });
+    gr.roundRect(grX + 3, grY + 3, grW - 6, grH - 6, 11).fill({
+      color: mixColor(wood, 0x000000, 0.22),
+      alpha: 1,
+    });
+    // cloth-weave: diagonal grille slats. They "buzz" with garble when noisy.
+    const slats = 13;
+    for (let s = 0; s < slats; s++) {
+      const sx = grX + 8 + ((grW - 16) / (slats - 1)) * s;
+      // garble jitter on the slats while noise present
+      const jit = noise * Math.sin(t * 14 + s * 2.1) * 1.6;
+      const lit = mixColor(woodGrain, trimLit, 0.06 + 0.1 * tuned);
+      gr.moveTo(sx + jit, grY + 7)
+        .lineTo(sx - jit, grY + grH - 7)
+        .stroke({ width: 2, color: lit, alpha: 0.4 });
     }
-    bg.stroke({ width: 1, color: grid, alpha: 0.3 * ringSharp });
-    // diagonal bearing spokes
-    for (let a = 0; a < 4; a++) {
-      const ang = Math.PI / 4 + (a * Math.PI) / 2;
-      bg.moveTo(cx, cy).lineTo(cx + Math.cos(ang) * R, cy + Math.sin(ang) * R);
+    // horizontal weave
+    const rows = 7;
+    for (let r = 0; r < rows; r++) {
+      const ry = grY + 8 + ((grH - 16) / (rows - 1)) * r;
+      gr.moveTo(grX + 7, ry)
+        .lineTo(grX + grW - 7, ry)
+        .stroke({ width: 1.4, color: mixColor(wood, 0x000000, 0.3), alpha: 0.3 });
     }
-    bg.stroke({ width: 0.8, color: grid, alpha: 0.16 * ringSharp });
-    // the range rings
-    for (let i = 0; i < ringR.length; i++) {
-      const mid = i === 1;
-      bg.circle(cx, cy, ringR[i]).stroke({
-        width: mid ? 1.6 : 1,
-        color: mid ? ring : ringFaint,
-        alpha: (mid ? 0.45 + 0.2 * lock : 0.28) * (mid ? 1 : ringSharp),
+    // grille frame trim
+    gr.roundRect(grX, grY, grW, grH, 14).stroke({
+      width: 1.6,
+      color: trim,
+      alpha: 0.35,
+    });
+    const grilleCx = grX + grW / 2;
+    const grilleCy = grY + grH / 2;
+
+    // ===== KNOBS (right column) ============================================
+    const knobX = cabX + cabW - 38;
+    for (let kk = 0; kk < 2; kk++) {
+      const ky = grY + grH * (0.3 + 0.5 * kk);
+      const kr = 15;
+      // socket shadow
+      gr.circle(knobX, ky + 2, kr + 2).fill({ color: woodShade, alpha: 0.5 });
+      // knob body
+      gr.circle(knobX, ky, kr).fill({ color: mixColor(wood, 0x000000, 0.12) });
+      gr.circle(knobX, ky, kr).stroke({ width: 2, color: trim, alpha: 0.5 });
+      // top-left highlight
+      gr.circle(knobX - kr * 0.35, ky - kr * 0.35, kr * 0.4).fill({
+        color: woodLit,
+        alpha: 0.35,
       });
+      // pointer — the lower (tuning) knob rotates with the needle when tuned.
+      const turn =
+        kk === 1
+          ? -Math.PI * 0.5 +
+            (tuned * 0.9 - 0.45) +
+            (1 - tuned) * Math.sin(t * 3 + kk) * 0.3
+          : -Math.PI * 0.5 + Math.sin(t * 0.5) * 0.2;
+      gr.moveTo(knobX, ky)
+        .lineTo(knobX + Math.cos(turn) * kr * 0.8, ky + Math.sin(turn) * kr * 0.8)
+        .stroke({ width: 2.2, color: trimLit, alpha: 0.7 });
     }
-    // outer edge ring (the scope boundary)
-    bg.circle(cx, cy, R).stroke({ width: 1.4, color: ring, alpha: 0.5 });
-    // centre hub
-    bg.circle(cx, cy, 2.6).fill({ color: ring, alpha: 0.7 });
-    // a subtle highlight band on the emphasised mid ring once clean
-    if (lock > 0.05) {
-      bg.circle(cx, cy, ringR[1]).stroke({
+
+    // ===== THE TUNING DIAL =================================================
+    // dark bezel disc behind the dial
+    di.circle(dialCx, dialCy + 2, dialR + 11).fill({
+      color: woodShade,
+      alpha: 0.55,
+    });
+    di.circle(dialCx, dialCy, dialR + 10).fill({
+      color: mixColor(wood, 0x000000, 0.1),
+      alpha: 1,
+    });
+    // bezel highlight (top-left) / shade (bottom-right)
+    // NOTE: an arc as the first path command after clear() would draw a stray
+    // line from the path cursor's origin (0,0); seed the cursor at each arc's
+    // start point with an explicit moveTo first.
+    hud
+      .moveTo(
+        dialCx + Math.cos(Math.PI * 1.05) * (dialR + 8),
+        dialCy + Math.sin(Math.PI * 1.05) * (dialR + 8),
+      )
+      .arc(dialCx, dialCy, dialR + 8, Math.PI * 1.05, Math.PI * 1.95)
+      .stroke({
         width: 3,
-        color: mixColor(accent.accentSoft, PALETTE.white, 0.3),
-        alpha: 0.08 * lock + 0.04 * pulse,
+        color: woodLit,
+        alpha: 0.5,
+      });
+    hud
+      .moveTo(
+        dialCx + Math.cos(Math.PI * 0.05) * (dialR + 8),
+        dialCy + Math.sin(Math.PI * 0.05) * (dialR + 8),
+      )
+      .arc(dialCx, dialCy, dialR + 8, Math.PI * 0.05, Math.PI * 0.95)
+      .stroke({
+        width: 3,
+        color: woodShade,
+        alpha: 0.6,
+      });
+    // amber bezel ring
+    di.circle(dialCx, dialCy, dialR + 6).stroke({
+      width: 2,
+      color: trim,
+      alpha: 0.55 + 0.25 * tuned,
+    });
+
+    // glowing dial face — warms + brightens as the station locks.
+    di.circle(dialCx, dialCy, dialR).fill({ color: dialFace, alpha: 1 });
+    // backlight bloom from behind the scale (amber when tuned)
+    di.circle(dialCx, dialCy, dialR).fill({
+      color: mixColor(dialFace, blipAmberLit, 0.5),
+      alpha: 0.1 * tuned + 0.06 * tuned * pulse,
+    });
+    // rim vignette
+    di.circle(dialCx, dialCy, dialR).stroke({
+      width: dialR * 0.1,
+      color: dialDeep,
+      alpha: 0.12,
+    });
+    // top-left sheen on the glass
+    di.circle(dialCx - dialR * 0.3, dialCy - dialR * 0.32, dialR * 0.5).fill({
+      color: mixColor(dialFace, PALETTE.white, 0.6),
+      alpha: 0.16,
+    });
+
+    // ---- FREQUENCY SCALE: an arc across the top of the dial ----------------
+    // The scale spans from the left (low / hum) to the right (high / static),
+    // with the station seated in the middle.
+    const a0 = Math.PI * 0.86; // left end (low)
+    const a1 = Math.PI * 0.14; // right end (high), going clockwise over the top
+    const scaleR = dialR * 0.82;
+    const angAt = (u: number) => a0 + (a1 - a0) * u; // u in [0,1] left→right
+    // baseline arc (seed moveTo to the arc start so no stray line from 0,0)
+    di.moveTo(dialCx + Math.cos(a0) * scaleR, dialCy + Math.sin(a0) * scaleR)
+      .arc(dialCx, dialCy, scaleR, a0, a1, true)
+      .stroke({
+        width: 1.4,
+        color: scaleInk,
+        alpha: 0.5,
+      });
+    // ticks across the scale (majors + minors)
+    const ticks = 25;
+    for (let i = 0; i < ticks; i++) {
+      const u = i / (ticks - 1);
+      const ang = angAt(u);
+      const major = i % 4 === 0;
+      const r0 = scaleR - (major ? 9 : 5);
+      di.moveTo(
+        dialCx + Math.cos(ang) * r0,
+        dialCy + Math.sin(ang) * r0,
+      )
+        .lineTo(
+          dialCx + Math.cos(ang) * (scaleR - 1),
+          dialCy + Math.sin(ang) * (scaleR - 1),
+        )
+        .stroke({ width: major ? 1.4 : 0.8, color: scaleInk, alpha: 0.55 });
+    }
+    // three band marks under the scale: LOW (left) | STATION (mid) | HIGH (right)
+    const bandU = [0.16, 0.5, 0.84];
+    for (let b = 0; b < 3; b++) {
+      const ang = angAt(bandU[b]);
+      const isMid = b === 1;
+      const r = scaleR - 16;
+      const dotCol = isMid
+        ? mixColor(blipAmber, dialFace, (1 - tuned) * 0.5)
+        : mixColor(noiseCol, scaleInk, 0.3);
+      di.circle(
+        dialCx + Math.cos(ang) * r,
+        dialCy + Math.sin(ang) * r,
+        isMid ? 2.4 : 1.8,
+      ).fill({
+        color: dotCol,
+        alpha: isMid ? 0.5 + 0.4 * tuned : 0.4,
       });
     }
-    // bearing tick marks around the rim (compass card)
-    for (let d = 0; d < 36; d++) {
-      const ang = (d / 36) * Math.PI * 2;
-      const major = d % 9 === 0;
-      const r0 = R - (major ? 8 : 4);
-      hud
-        .moveTo(cx + Math.cos(ang) * r0, cy + Math.sin(ang) * r0)
-        .lineTo(cx + Math.cos(ang) * (R - 1), cy + Math.sin(ang) * (R - 1))
-        .stroke({ width: major ? 1.4 : 0.8, color: ring, alpha: 0.4 });
+    // station "window" — a soft amber band in the centre that lights at tune.
+    {
+      const ca = angAt(0.5);
+      const sgx = dialCx + Math.cos(ca) * (scaleR - 3);
+      const sgy = dialCy + Math.sin(ca) * (scaleR - 3);
+      di.circle(sgx, sgy, dialR * 0.18).fill({
+        color: mixColor(dialFace, blipAmberLit, 0.6),
+        alpha: 0.1 * tuned + 0.05 * tuned * pulse,
+      });
     }
 
-    // ===== STATIC: screen noise from residual clutter =======================
-    // A field of faint speckles washing the screen; thins out as clutter is
-    // cleared so a clean scope reads crisp.
-    if (noise > 0.02) {
-      const speckles = Math.round(40 * noise);
-      for (let s = 0; s < speckles; s++) {
-        const a = hash(s, 13) * Math.PI * 2 + t * 0.2;
-        const rr = hash(s, 17) * R;
-        const sx = cx + Math.cos(a) * rr;
-        const sy = cy + Math.sin(a) * rr;
-        const fl = hash(s + Math.floor(t * 12), 23); // flicker per frame-ish
-        cl.rect(sx, sy, 1, 1).fill({
-          color: mixColor(clutterRed, screen, 0.3),
-          alpha: 0.1 * noise * fl,
-        });
-      }
-    }
-
-    // ===== BLIPS: one per palette harmonic, placed by frequency =============
-    // Build kraken geometry on the mid ring so the mid-band blips trace a
-    // recognisable sea-monster contact. We map each mid harmonic to a point on
-    // the kraken outline; low/high map to noise positions in their bands.
+    // ===== SIGNAL BLIPS: one per palette harmonic, placed by frequency ======
+    // Map each harmonic to a position u in [0,1] across the scale by its
+    // frequency: low → left, mid → middle, high → right. Draw it as a vertical
+    // signal BAR rising from the baseline arc.
     const n = harmonics.length;
-
-    // ---- gather band members in palette order ------------------------------
+    // collect counts per band for nice spreading
     const lows: number[] = [];
     const mids: number[] = [];
     const highs: number[] = [];
@@ -310,360 +447,299 @@ export class SonarRenderer implements WorldRenderer {
       else highs.push(i);
     }
 
-    // ---- THE KRAKEN CONTACT (mid band) -------------------------------------
-    // The kraken is the centrepiece of the SOLVED scope: a BOLD, unmistakable
-    // sea-monster contact filling the centre/middle ring — bulbous mantle, a
-    // crown of curling tentacles, and big glowing cyan eyes. It is drawn as a
-    // high-contrast cyan silhouette that the sweep lights up as it passes; it
-    // firms up + blazes brighter as the clutter clears.
-    {
-      const krx = cx;
-      const kry = cy - ringR[1] * 0.06; // centred, riding the middle ring band
-      // MUCH bigger than before so it reads instantly at solve.
-      const headR = ringR[1] * 0.78;
-      // the contact only really "exists" once the mid band is present; its
-      // opacity climbs with lock so a noisy scope hides it. Boosted floor so
-      // the moment clutter clears it is already commanding.
-      const present = midE > 0.05 ? 1 : 0;
-      const vis = present * (0.32 + 0.68 * lock);
-
-      // how recently the sweep painted the kraken's bearing (top of screen):
-      // gives the body a phosphor "lit by the sweep" brightening as it passes.
-      const krAng0 = -Math.PI * 0.5;
-      let sweepDA = Math.abs(
-        ((sweepAng - krAng0 + Math.PI) % (Math.PI * 2)) - Math.PI,
-      );
-      const litBySweep = smooth(1.1, 0.0, sweepDA); // 1 right after the pass
-      // the body keeps a strong steady presence and brightens under the sweep.
-      const litVis = vis * (0.9 + 0.1 * litBySweep);
-
-      // solid bright-cyan body fills used at solve — high contrast against the
-      // dark screen (a dark under-core beneath gives it punch).
-      const bodyFill = mixColor(blipCyan, PALETTE.white, 0.12 + 0.18 * lock);
-      const bodyGlow = mixColor(blipCyan, screen, 0.2);
-
-      // CONTAINMENT: clamp any point so its distance from the SCOPE centre
-      // (cx, cy) never exceeds 0.95*R. Tentacles that would hang outside the
-      // round screen are pulled (curled) back inward instead of spilling into
-      // the controls area below. Returns the (possibly clamped) point.
-      const maxR = R * 0.95;
-      const clampToScope = (x: number, y: number): [number, number] => {
-        const dx = x - cx;
-        const dy = y - cy;
-        const d = Math.hypot(dx, dy);
-        if (d <= maxR || d < 1e-4) return [x, y];
-        const f = maxR / d;
-        return [cx + dx * f, cy + dy * f];
-      };
-
-      if (vis > 0.01) {
-        // big soft contact halo (sonar return bloom) — sells "something here".
-        co.circle(krx, kry, headR * 1.7).fill({
-          color: bodyGlow,
-          alpha: (0.07 + 0.1 * lock) * vis + 0.05 * lock * pulse,
-        });
-        co.circle(krx, kry, headR * 1.15).fill({
-          color: bodyGlow,
-          alpha: 0.08 * vis + 0.06 * litBySweep * lock,
-        });
-
-        // --- TENTACLES: bold curling arms radiating from the mantle ---------
-        const arms = 8;
-        for (let a = 0; a < arms; a++) {
-          // fan the arms across the lower hemisphere so they curl outward.
-          const base = Math.PI * 0.5 + (a - (arms - 1) / 2) * 0.34;
-          const seed = hash(a, 5);
-          const segs = 12;
-          // clamp the very base of the arm into the scope as well.
-          let [px, py] = clampToScope(
-            krx + Math.cos(base) * headR * 0.55,
-            kry + Math.sin(base) * headR * 0.55 + headR * 0.35,
-          );
-          for (let s = 1; s <= segs; s++) {
-            const u = s / segs;
-            // curl the arm with a travelling sine sway; arms splay then coil.
-            const curl =
-              base +
-              Math.sin(u * 3.0 + a * 1.3 + t * 0.9 * (0.4 + 0.6 * lock)) *
-                (0.4 + u * 1.1) *
-                (0.6 + 0.4 * seed);
-            const len = headR * (0.30 + 0.05 * seed);
-            // candidate next point, then clamp it strictly inside the scope so
-            // the tentacle curls back in rather than hanging out the bottom.
-            const [nx, ny] = clampToScope(
-              px + Math.cos(curl) * len,
-              py + Math.sin(curl) * len + len * 0.35, // slight droop
-            );
-            // FAT at the base, tapering to the tip — bold, readable arms.
-            const w = (1 - u * 0.78) * headR * 0.34 + 1.5;
-            // dark contact core for contrast
-            co.moveTo(px, py).lineTo(nx, ny).stroke({
-              width: w + 1.5,
-              color: krakenInk,
-              alpha: 0.55 * litVis,
-            });
-            // bright cyan body on top
-            co.moveTo(px, py).lineTo(nx, ny).stroke({
-              width: w,
-              color: bodyFill,
-              alpha: (0.5 + 0.35 * lock) * litVis,
-            });
-            // hot cyan inner highlight
-            co.moveTo(px, py).lineTo(nx, ny).stroke({
-              width: Math.max(0.8, w * 0.35),
-              color: blipCyanLit,
-              alpha: (0.25 + 0.45 * lock) * litVis,
-            });
-            px = nx;
-            py = ny;
-          }
-          // glowing suckered tip
-          co.circle(px, py, 2.0 + seed * 1.4).fill({
-            color: blipCyanLit,
-            alpha: (0.4 + 0.4 * lock) * litVis,
-          });
-        }
-
-        // --- HEAD: big bulbous mantle, top-left lit -------------------------
-        // dark contact core under the cyan body for punch.
-        co.ellipse(krx, kry, headR * 1.04, headR * 1.22).fill({
-          color: krakenInk,
-          alpha: 0.5 * litVis,
-        });
-        co.ellipse(krx, kry, headR, headR * 1.18).fill({
-          color: bodyFill,
-          alpha: (0.55 + 0.3 * lock) * litVis,
-        });
-        // mantle ridge highlight (top-left light)
-        co.ellipse(
-          krx - headR * 0.24,
-          kry - headR * 0.46,
-          headR * 0.56,
-          headR * 0.56,
-        ).fill({
-          color: blipCyanLit,
-          alpha: (0.28 + 0.25 * lock) * litVis,
-        });
-        // crisp bright cyan rim outline so the silhouette reads sharply.
-        co.ellipse(krx, kry, headR, headR * 1.18).stroke({
-          width: 2.2,
-          color: blipCyanLit,
-          alpha: (0.4 + 0.5 * lock) * vis,
-        });
-        // brow ridge between the eyes (kraken scowl) for character
-        co.ellipse(krx, kry - headR * 0.16, headR * 0.7, headR * 0.42).stroke({
-          width: 1.4,
-          color: blipCyan,
-          alpha: 0.3 * litVis,
-        });
-
-        // --- BIG GLOWING EYES: the unmistakable tell ------------------------
-        const eyeR = headR * 0.24;
-        for (const dir of [-1, 1]) {
-          const ex = krx + dir * headR * 0.44;
-          const ey = kry - headR * 0.02;
-          // dark socket
-          co.circle(ex, ey, eyeR * 1.15).fill({
-            color: krakenInk,
-            alpha: 0.7 * litVis,
-          });
-          // glowing cyan iris with an outer bloom
-          co.circle(ex, ey, eyeR * 1.5).fill({
-            color: bodyGlow,
-            alpha: (0.18 + 0.2 * lock) * vis * (0.7 + 0.3 * pulse),
-          });
-          co.circle(ex, ey, eyeR).fill({
-            color: mixColor(blipCyanLit, PALETTE.white, 0.25 + 0.3 * lock),
-            alpha: (0.6 + 0.35 * lock) * vis * (0.75 + 0.25 * pulse),
-          });
-          // bright pupil core
-          co.circle(ex, ey, eyeR * 0.45).fill({
-            color: PALETTE.white,
-            alpha: (0.5 + 0.4 * lock) * vis,
-          });
-          // top-left catchlight
-          co.circle(ex - eyeR * 0.35, ey - eyeR * 0.35, eyeR * 0.28).fill({
-            color: PALETTE.white,
-            alpha: 0.7 * vis,
-          });
-        }
-      }
-
-      // mid-band frequency BLIPS riding the kraken crown / mid ring. These are
-      // the real contact pings — bright cyan, steady, ringing the mantle.
-      for (let m = 0; m < mids.length; m++) {
-        const idx = mids[m];
-        const a = this.amp(harmonics[idx]);
-        if (a <= 0) continue;
-        const k = Math.abs(harmonics[idx].frequencyIndex);
-        // distribute around the head crown on the middle ring band
-        const ang =
-          -Math.PI * 0.5 + (m - (mids.length - 1) / 2) * 0.7 + hash(k, 9) * 0.2;
-        const wob = Math.sin(k + t * 0.3) * 0.02;
-        const [bX, bY] = clampToScope(
-          krx + Math.cos(ang) * headR * (0.95 + wob),
-          kry + Math.sin(ang) * headR * (0.95 + wob) - headR * 0.2,
-        );
-        const br = 2.4 + a * 3;
-        co.circle(bX, bY, br + 3).fill({
-          color: bodyGlow,
-          alpha: 0.2 * (0.4 + 0.6 * lock),
-        });
-        co.circle(bX, bY, br).fill({
-          color: blipCyanLit,
-          alpha: 0.7 + 0.25 * lock,
-        });
-        co.circle(bX - br * 0.3, bY - br * 0.3, br * 0.4).fill({
-          color: PALETTE.white,
-          alpha: 0.7,
-        });
-      }
-    }
-
-    // ---- CLUTTER BLIPS: low (centre) + high (rim) noise pings --------------
-    // Restless red pings that jitter and flicker. They thin / dim as the band
-    // is toggled off; while present they smear the screen and bury the kraken.
-    const drawClutter = (idx: number, bandR: number, jitter: number) => {
+    const drawBlip = (
+      idx: number,
+      u: number,
+      isStation: boolean,
+      jitter: number,
+    ) => {
       const a = this.amp(harmonics[idx]);
       if (a <= 0) return;
       const k = Math.abs(harmonics[idx].frequencyIndex);
-      // angular home for this frequency, plus a nervous jitter
-      const home = hash(k, 31) * Math.PI * 2;
-      const ang = home + Math.sin(t * 2.4 + k * 1.7) * jitter;
-      const rr = bandR + Math.sin(t * 1.8 + k) * (bandR * 0.12);
-      const bx = cx + Math.cos(ang) * rr;
-      const by = cy + Math.sin(ang) * rr;
-      const fl = 0.5 + 0.5 * Math.sin(t * 9 + k * 2.3); // hostile flicker
-      const br = 2 + a * 2;
-      // smeared trail behind the ping along the sweep direction
-      for (let s = 0; s < 3; s++) {
-        const sa = ang - 0.16 * s;
-        const sxx = cx + Math.cos(sa) * rr;
-        const syy = cy + Math.sin(sa) * rr;
-        cl.circle(sxx, syy, br * (1 - s * 0.25)).fill({
-          color: clutterRed,
-          alpha: (0.25 - s * 0.07) * (0.5 + 0.5 * fl),
+      // station bars sit steady; noise bars jitter nervously.
+      const wob = isStation
+        ? Math.sin(t * 1.2 + k) * 0.004
+        : Math.sin(t * 7 + k * 2.1) * jitter * 0.02;
+      const ang = angAt(Math.max(0.04, Math.min(0.96, u + wob)));
+      // bar grows inward from the scale baseline toward the dial centre.
+      const barLen = dialR * (0.18 + a * 0.34) * (isStation ? 1 : 0.85);
+      const bx0 = dialCx + Math.cos(ang) * (scaleR - 2);
+      const by0 = dialCy + Math.sin(ang) * (scaleR - 2);
+      const bx1 = dialCx + Math.cos(ang) * (scaleR - 2 - barLen);
+      const by1 = dialCy + Math.sin(ang) * (scaleR - 2 - barLen);
+      if (isStation) {
+        const lit = 0.5 + 0.5 * tuned;
+        // amber glow behind the station bar
+        di.moveTo(bx0, by0).lineTo(bx1, by1).stroke({
+          width: 6,
+          color: mixColor(blipAmber, dialFace, 0.4),
+          alpha: (0.12 + 0.2 * tuned) * lit,
+        });
+        di.moveTo(bx0, by0).lineTo(bx1, by1).stroke({
+          width: 3,
+          color: blipAmber,
+          alpha: 0.5 + 0.4 * tuned,
+        });
+        di.moveTo(bx0, by0).lineTo(bx1, by1).stroke({
+          width: 1.2,
+          color: blipAmberLit,
+          alpha: 0.4 + 0.5 * tuned,
+        });
+        // bright tip dot
+        di.circle(bx1, by1, 2 + a * 1.5).fill({
+          color: blipAmberLit,
+          alpha: 0.7 + 0.3 * tuned,
+        });
+      } else {
+        // noise bar — grey, flickering, fades as it is toggled off (handled by
+        // it disappearing entirely when amp hits 0).
+        const fl = 0.5 + 0.5 * Math.sin(t * 11 + k * 2.7);
+        di.moveTo(bx0, by0).lineTo(bx1, by1).stroke({
+          width: 2,
+          color: noiseCol,
+          alpha: 0.4 + 0.35 * fl,
+        });
+        di.circle(bx1, by1, 1.6).fill({
+          color: mixColor(noiseCol, needleCol, 0.3),
+          alpha: 0.45 + 0.3 * fl,
         });
       }
-      // the ping itself + red glow
-      cl.circle(bx, by, br + 2).fill({
-        color: mixColor(clutterRed, screen, 0.3),
-        alpha: 0.2 * fl,
-      });
-      cl.circle(bx, by, br).fill({
-        color: clutterRed,
-        alpha: 0.7 + 0.25 * fl,
-      });
-      // tiny "?" of distortion — a cross-glint marking it as junk
-      cl.rect(bx - br - 1, by - 0.4, br * 2 + 2, 0.8).fill({
-        color: mixColor(clutterRed, PALETTE.white, 0.4),
-        alpha: 0.4 * fl,
-      });
     };
-    // low band → near the centre (inner ring)
+    // low band → left third of the scale
     for (let i = 0; i < lows.length; i++) {
-      drawClutter(lows[i], ringR[0] * (0.45 + 0.5 * hash(i, 41)), 0.4);
+      const u = 0.06 + (lows.length > 1 ? i / (lows.length - 1) : 0.5) * 0.22;
+      drawBlip(lows[i], u, false, 0.9);
     }
-    // high band → near the rim (outer ring)
+    // mid band → centre third (the station)
+    for (let i = 0; i < mids.length; i++) {
+      const c = mids.length > 1 ? i / (mids.length - 1) : 0.5;
+      const u = 0.38 + c * 0.24;
+      drawBlip(mids[i], u, true, 0.2);
+    }
+    // high band → right third
     for (let i = 0; i < highs.length; i++) {
-      drawClutter(highs[i], ringR[2] * (0.92 + 0.06 * hash(i, 43)), 0.18);
+      const u = 0.72 + (highs.length > 1 ? i / (highs.length - 1) : 0.5) * 0.22;
+      drawBlip(highs[i], u, false, 0.7);
     }
 
-    // ===== THE SWEEP: rotating line + phosphor afterglow ====================
-    // A bright leading line with a fading trailing wedge — the classic PPI
-    // sweep. Anything it passes flashes brighter (handled implicitly by the
-    // afterglow wedge drawn behind it).
-    {
-      const ex = cx + Math.cos(sweepAng) * R;
-      const ey = cy + Math.sin(sweepAng) * R;
-      // afterglow wedge: a series of trailing spokes fading out behind.
-      const trail = 22;
-      for (let s = trail; s >= 1; s--) {
-        const a = sweepAng - s * 0.06;
-        const fade = (1 - s / trail);
-        sw.moveTo(cx, cy)
-          .lineTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R)
-          .stroke({
-            width: 1 + fade * 1.5,
-            color: sweepGlow,
-            alpha: 0.05 + 0.16 * fade * fade,
-          });
+    // ===== STATIC: jittery screen noise across the dial =====================
+    // a field of flickering specks while hum/static persist; thins to nothing
+    // as the noise stones are switched off.
+    if (noise > 0.02) {
+      const speckles = Math.round(46 * noise);
+      for (let s = 0; s < speckles; s++) {
+        const a = hash(s, 13) * Math.PI * 2;
+        const rr = hash(s, 17) * dialR * 0.92;
+        const sx = dialCx + Math.cos(a) * rr;
+        const sy = dialCy + Math.sin(a) * rr;
+        const fl = hash(s + Math.floor(t * 13), 23);
+        fx.rect(sx, sy, 1.3, 1.3).fill({
+          color: mixColor(noiseCol, PALETTE.white, 0.2),
+          alpha: 0.12 * noise * fl,
+        });
       }
-      // the bright leading sweep line
-      sw.moveTo(cx, cy).lineTo(ex, ey).stroke({
+      // horizontal noise rasp bars sweeping the dial (interference)
+      for (let r = 0; r < 3; r++) {
+        const ry =
+          dialCy +
+          ((Math.sin(t * 3 + r * 2.1) * 0.7) * dialR);
+        const half = Math.sqrt(
+          Math.max(0, dialR * dialR - (ry - dialCy) * (ry - dialCy)),
+        );
+        fx.rect(dialCx - half, ry, half * 2, 1).fill({
+          color: mixColor(noiseCol, PALETTE.white, 0.3),
+          alpha: 0.1 * noise,
+        });
+      }
+    }
+
+    // ===== THE NEEDLE: wanders in noise, locks on the station ===============
+    {
+      // target u: the station (0.5). While noisy the needle wanders; as tuned
+      // climbs it homes in and pins onto the centre.
+      const wanderU =
+        0.5 +
+        (1 - tuned) *
+          (Math.sin(t * 1.3) * 0.34 + Math.sin(t * 4.1 + 1) * 0.12) *
+          (0.4 + 0.6 * noise);
+      const needleU = Math.max(0.04, Math.min(0.96, wanderU));
+      const ang = angAt(needleU);
+      const nx = dialCx + Math.cos(ang) * scaleR;
+      const ny = dialCy + Math.sin(ang) * scaleR;
+      // pivot at the dial bottom-centre
+      const px = dialCx;
+      const py = dialCy + dialR * 0.55;
+      // glow under the needle when tuned
+      di.moveTo(px, py).lineTo(nx, ny).stroke({
+        width: 4,
+        color: mixColor(needleCol, dialFace, 0.3),
+        alpha: 0.1 + 0.18 * tuned,
+      });
+      // needle shaft
+      di.moveTo(px, py).lineTo(nx, ny).stroke({
         width: 2,
-        color: sweepCol,
+        color: needleCol,
         alpha: 0.85,
       });
-      // a hot leading edge highlight
-      sw.moveTo(cx, cy).lineTo(ex, ey).stroke({
+      // bright leading edge
+      di.moveTo(px, py).lineTo(nx, ny).stroke({
         width: 0.8,
-        color: PALETTE.white,
-        alpha: 0.5,
+        color: needleLit,
+        alpha: 0.6,
       });
-      // glowing head dot where the sweep meets the rim
-      sw.circle(ex, ey, 3).fill({ color: sweepGlow, alpha: 0.7 });
-      sw.circle(ex, ey, 1.4).fill({ color: PALETTE.white, alpha: 0.8 });
+      // needle tip marker on the scale
+      di.circle(nx, ny, 2.6).fill({ color: needleCol, alpha: 0.9 });
+      di.circle(nx - 0.8, ny - 0.8, 1).fill({ color: needleLit, alpha: 0.8 });
+      // pivot hub
+      di.circle(px, py, 4).fill({ color: mixColor(wood, 0x000000, 0.2) });
+      di.circle(px, py, 4).stroke({ width: 1.4, color: trim, alpha: 0.6 });
+      di.circle(px - 1, py - 1, 1.4).fill({ color: trimLit, alpha: 0.6 });
 
-      // when the sweep passes over the kraken (top of screen, ang ~ -PI/2),
-      // give the contact an extra flash to sell the "reveal".
-      const krAng = -Math.PI * 0.5;
-      let dA = Math.abs(((sweepAng - krAng + Math.PI) % (Math.PI * 2)) - Math.PI);
-      if (dA < 0.6 && midE > 0.05) {
-        const flash = (1 - dA / 0.6) * (0.4 + 0.6 * lock);
-        co.circle(cx, cy - ringR[1] * 0.06, ringR[1] * 0.95).fill({
-          color: mixColor(blipCyanLit, PALETTE.white, 0.3),
-          alpha: 0.16 * flash,
+      // tuned "lock" bracket framing the station window
+      if (tuned > 0.1) {
+        const sa = angAt(0.5);
+        const sgx = dialCx + Math.cos(sa) * scaleR;
+        const sgy = dialCy + Math.sin(sa) * scaleR;
+        const boxR = 9 + 2 * pulse;
+        const al = 0.3 + 0.5 * tuned;
+        for (let q = 0; q < 4; q++) {
+          const sx = q % 2 === 0 ? -1 : 1;
+          const sy = q < 2 ? -1 : 1;
+          const bx = sgx + sx * boxR;
+          const by = sgy + sy * boxR;
+          hud
+            .moveTo(bx, by)
+            .lineTo(bx - sx * boxR * 0.4, by)
+            .moveTo(bx, by)
+            .lineTo(bx, by - sy * boxR * 0.4)
+            .stroke({ width: 1.6, color: blipAmber, alpha: al });
+        }
+      }
+    }
+
+    // ===== SPEAKER OUTPUT: garble (noisy) vs music notes (tuned) ============
+    // From the centre of the grille: rasping garble lines while noisy, warm
+    // music notes radiating once the station is tuned.
+    if (station && noise > 0.06) {
+      // GARBLE — jagged grey output lines, no melody.
+      const lines = 5;
+      for (let l = 0; l < lines; l++) {
+        const baseA = -Math.PI * 0.5 + (l - (lines - 1) / 2) * 0.42;
+        let gx = grilleCx;
+        let gy = grilleCy;
+        const segs = 5;
+        for (let s = 1; s <= segs; s++) {
+          const jit = Math.sin(t * 16 + l * 3.1 + s * 2.3) * 6 * noise;
+          const len = 8;
+          const aa = baseA + jit * 0.05;
+          const nx = gx + Math.cos(aa) * len + jit;
+          const ny = gy + Math.sin(aa) * len;
+          fx.moveTo(gx, gy).lineTo(nx, ny).stroke({
+            width: 1.4,
+            color: mixColor(noiseCol, needleCol, 0.2),
+            alpha: 0.3 * noise,
+          });
+          gx = nx;
+          gy = ny;
+        }
+      }
+    }
+    if (tuned > 0.12) {
+      // MUSIC NOTES radiating up out of the speaker grille.
+      const notes = 6;
+      for (let m = 0; m < notes; m++) {
+        const seed = hash(m, 51);
+        // each note drifts upward on a looping timeline.
+        const phase = (t * 0.5 + seed) % 1;
+        const rise = phase; // 0 (at grille) → 1 (up + faded)
+        const spreadX = (seed - 0.5) * grW * 0.7 + Math.sin(t + m) * 8;
+        const nx = grilleCx + spreadX * (0.3 + 0.7 * rise);
+        const ny = grilleCy - rise * (grH * 0.7 + 22);
+        const al = tuned * smooth(0, 0.15, phase) * smooth(1, 0.7, phase);
+        if (al < 0.02) continue;
+        const ns = 3 + seed * 2;
+        const noteCol = mixColor(blipAmber, PALETTE.white, 0.2 + 0.3 * seed);
+        // note head
+        fx.ellipse(nx, ny, ns, ns * 0.78).fill({ color: noteCol, alpha: al });
+        // stem
+        fx.rect(nx + ns * 0.8, ny - ns * 2.4, 1.4, ns * 2.6).fill({
+          color: noteCol,
+          alpha: al,
+        });
+        // flag (eighth note) on alternating notes
+        if (m % 2 === 0) {
+          fx.moveTo(nx + ns * 0.8 + 1.4, ny - ns * 2.4)
+            .lineTo(nx + ns * 2.2, ny - ns * 1.4)
+            .stroke({ width: 1.4, color: noteCol, alpha: al });
+        }
+      }
+      // warm sound bloom pulsing out of the grille
+      fx.circle(grilleCx, grilleCy, grW * 0.4).fill({
+        color: mixColor(blipAmber, wood, 0.5),
+        alpha: 0.04 * tuned + 0.03 * tuned * pulse,
+      });
+    }
+
+    // ===== "ON AIR" INDICATOR LAMP =========================================
+    // a little lamp on the cabinet (top-right of the dial) — dark while noisy,
+    // glowing amber + pulsing once tuned.
+    {
+      const lx = cabX + cabW - 40;
+      const ly = cabY + 26;
+      const on = tuned;
+      const lampGlow = mixColor(blipAmber, PALETTE.white, 0.3);
+      // lamp bloom
+      if (on > 0.05) {
+        hud.circle(lx, ly, 12 + 3 * pulse).fill({
+          color: lampGlow,
+          alpha: (0.1 + 0.12 * on) * (0.6 + 0.4 * pulse),
+        });
+      }
+      // lamp body
+      hud.circle(lx, ly, 5).fill({
+        color: mixColor(dialDark, blipAmberLit, on * (0.7 + 0.3 * pulse)),
+        alpha: 1,
+      });
+      hud.circle(lx, ly, 5).stroke({ width: 1.2, color: trim, alpha: 0.6 });
+      // catchlight
+      hud.circle(lx - 1.6, ly - 1.6, 1.6).fill({
+        color: PALETTE.white,
+        alpha: 0.3 + 0.5 * on,
+      });
+      // "ON AIR" plate (two little glowing dashes flanking the lamp when lit)
+      for (const dx of [-10, 10]) {
+        hud.rect(lx + dx - 3, ly + 9, 6, 1.6).fill({
+          color: mixColor(scaleInk, blipAmberLit, on),
+          alpha: 0.3 + 0.5 * on,
         });
       }
     }
 
-    // ===== LOCK RETICLE: frames the kraken once the scope is clean ==========
-    if (lock > 0.1) {
-      const krx = cx;
-      const kry = cy - ringR[1] * 0.06;
-      const boxR = ringR[1] * 0.95 + 3 * pulse;
-      const a = 0.3 + 0.5 * lock;
-      // four corner brackets
-      for (let q = 0; q < 4; q++) {
-        const sx = q % 2 === 0 ? -1 : 1;
-        const sy = q < 2 ? -1 : 1;
-        const bx = krx + sx * boxR;
-        const by = kry + sy * boxR;
-        hud
-          .moveTo(bx, by)
-          .lineTo(bx - sx * boxR * 0.3, by)
-          .moveTo(bx, by)
-          .lineTo(bx, by - sy * boxR * 0.3)
-          .stroke({ width: 2, color: blipCyan, alpha: a });
-      }
-      // "CONTACT" lock dot pulsing top-left of the bracket
-      hud.circle(krx - boxR, kry - boxR, 2).fill({
-        color: blipCyanLit,
-        alpha: 0.4 + 0.4 * fast,
-      });
-    }
-
-    // ===== SCANLINES + GLASS: CRT overlay across the screen =================
-    // faint horizontal phosphor scanlines, clipped roughly to the disc by
-    // shrinking width near the poles.
-    for (let y = -R; y < R; y += 3) {
-      const half = Math.sqrt(Math.max(0, R * R - y * y));
-      hud.rect(cx - half, cy + y, half * 2, 1).fill({
-        color: screenDeep,
-        alpha: 0.05,
-      });
-    }
-    // curved glass glare sweeping top-left
-    hud.ellipse(cx - R * 0.32, cy - R * 0.36, R * 0.42, R * 0.22).fill({
-      color: PALETTE.white,
+    // ===== GLASS GLARE + AMBIENT GLOW ======================================
+    // curved glass glare across the dial, top-left.
+    hud.ellipse(
+      dialCx - dialR * 0.3,
+      dialCy - dialR * 0.34,
+      dialR * 0.42,
+      dialR * 0.2,
+    ).fill({
+      color: glassCol,
       alpha: 0.05 + 0.02 * slow,
     });
 
-    // ---- soft glow at the waterline base (echoes other structures) ---------
-    sw.circle(LAYOUT.glowX, LAYOUT.glowY, 64 + 26 * lock).fill({
+    // a faint amber warm-up shimmer over the whole cabinet as it tunes in
+    if (tuned > 0.05) {
+      hud.roundRect(cabX, cabY, cabW, cabH, cabR).stroke({
+        width: 2,
+        color: trimLit,
+        alpha: 0.05 * tuned + 0.04 * fast * tuned,
+      });
+    }
+
+    // soft glow at the waterline base (echoes the other structures' reflection)
+    fx.circle(LAYOUT.glowX, LAYOUT.glowY, 64 + 26 * tuned).fill({
       color: mixColor(accent.accentSoft, PALETTE.white, 0.5),
-      alpha: 0.04 + 0.09 * lock + 0.02 * slow,
+      alpha: 0.04 + 0.09 * tuned + 0.02 * slow,
     });
   }
 
