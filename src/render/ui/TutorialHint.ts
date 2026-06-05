@@ -2,21 +2,22 @@ import { Container, Graphics, Text } from "pixi.js";
 import { Accent, FONT, PALETTE } from "../../theme";
 import { LAYOUT } from "../Layout";
 
-// An ambient, non-blocking gesture hint shown the first time a new mechanic
-// appears. After a short idle it fades in over the relevant control and loops
-// the gesture (drag / rotate / tap) with a soft caption; it fades out the
-// moment the player touches anything. It never intercepts pointer input.
 export type HintGesture = "drag" | "rotate" | "tap" | "point";
 
+// Ambient tutorial: a translucent, diffuse cutout layer. A soft scrim dims the
+// whole scene except for a feathered circular hole over the control the player
+// should use, so the eye is drawn there without any hard UI. It reveals after a
+// short idle, breathes gently, and fades the instant the player touches
+// anything. It never intercepts pointer input.
 export class TutorialHint {
   container = new Container();
   private g = new Graphics();
   private caption: Text;
   private accent: Accent;
 
-  private gesture: HintGesture = "point";
   private tx = 0;
   private ty = 0;
+  private holeR = 46;
   private vis = 0; // current fade 0..1
   private target = 0; // desired fade 0..1
 
@@ -27,7 +28,7 @@ export class TutorialHint {
       style: {
         fontFamily: FONT.family,
         fontSize: 14,
-        fill: PALETTE.inkMid,
+        fill: PALETTE.ink,
         letterSpacing: 1,
         align: "center",
       },
@@ -41,8 +42,8 @@ export class TutorialHint {
     this.accent = a;
   }
 
-  set(gesture: HintGesture, x: number, y: number, caption: string) {
-    this.gesture = gesture;
+  // gesture is kept for call-site compatibility; the caption conveys the action.
+  set(_gesture: HintGesture, x: number, y: number, caption: string) {
     this.tx = x;
     this.ty = y;
     this.caption.text = caption;
@@ -57,60 +58,54 @@ export class TutorialHint {
   }
 
   update(t: number) {
-    this.vis += (this.target - this.vis) * 0.08;
+    this.vis += (this.target - this.vis) * 0.07;
     const a = this.vis;
     const g = this.g;
     g.clear();
-    if (a < 0.01) {
+    if (a < 0.012) {
       this.caption.alpha = 0;
       return;
     }
-    const ac = this.accent.accent;
-    const loop = (t % 2.2) / 2.2; // one gesture every 2.2s
-    let fx = this.tx;
-    let fy = this.ty;
 
-    // soft pulsing highlight ring on the control
-    const pulse = 0.7 + 0.3 * Math.sin(t * 4);
-    g.circle(this.tx, this.ty, 21).stroke({ width: 2, color: ac, alpha: 0.22 * a * pulse });
+    const W = LAYOUT.W;
+    const H = LAYOUT.H;
+    const cx = this.tx;
+    const cy = this.ty;
+    const A = 0.4 * a; // peak scrim opacity
+    const scrim = this.accent.ink ?? 0x4a4540;
+    const holeR = this.holeR + Math.sin(t * 1.4) * 3; // gentle breathing
+    const feather = 160;
+    const maxR = holeR + feather;
+    const N = 40;
+    const stepW = feather / N;
 
-    if (this.gesture === "drag") {
-      const e = Math.sin(loop * Math.PI * 2);
-      fy = this.ty - e * 20;
-      // up / down guide chevrons
-      g.moveTo(this.tx - 5, this.ty - 26).lineTo(this.tx, this.ty - 31).lineTo(this.tx + 5, this.ty - 26)
-        .stroke({ width: 2, color: ac, alpha: 0.35 * a });
-      g.moveTo(this.tx - 5, this.ty + 26).lineTo(this.tx, this.ty + 31).lineTo(this.tx + 5, this.ty + 26)
-        .stroke({ width: 2, color: ac, alpha: 0.35 * a });
-    } else if (this.gesture === "rotate") {
-      const r = 16;
-      const ang = loop * Math.PI * 2 - Math.PI / 2;
-      fx = this.tx + Math.cos(ang) * r;
-      fy = this.ty + Math.sin(ang) * r;
-      // circular guide track + a small arrowhead leading the finger
-      g.moveTo(this.tx + r, this.ty).arc(this.tx, this.ty, r, 0, Math.PI * 2)
-        .stroke({ width: 1.5, color: ac, alpha: 0.28 * a });
-      const ah = ang + 0.35;
-      g.moveTo(fx, fy)
-        .lineTo(this.tx + Math.cos(ah) * (r - 5), this.ty + Math.sin(ah) * (r - 5))
-        .stroke({ width: 2, color: ac, alpha: 0.5 * a });
-    } else if (this.gesture === "tap") {
-      // an expanding ripple in the first 45% of each loop = "tap"
-      const p = loop < 0.45 ? loop / 0.45 : -1;
-      if (p >= 0) {
-        g.circle(this.tx, this.ty, 7 + p * 17).stroke({ width: 2, color: ac, alpha: (1 - p) * 0.55 * a });
-      }
-      fy = this.ty - (loop < 0.12 ? (0.12 - loop) * 60 : 0); // tiny press dip
+    // diffuse falloff: transparent at the hole edge -> full dim by maxR.
+    // non-overlapping annular strokes (tiny overlap to avoid AA seams) so the
+    // alpha profile is the smoothstep curve with no accumulation.
+    for (let i = 0; i < N; i++) {
+      const u = (i + 0.5) / N;
+      const r = holeR + u * feather;
+      const e = u * u * (3 - 2 * u); // smoothstep
+      g.circle(cx, cy, r).stroke({ width: stepW + 0.7, color: scrim, alpha: A * e });
     }
+    // solid dim beyond maxR (covers the far corners)
+    const rc =
+      Math.max(
+        Math.hypot(cx, cy),
+        Math.hypot(W - cx, cy),
+        Math.hypot(cx, H - cy),
+        Math.hypot(W - cx, H - cy),
+      ) + 8;
+    g.circle(cx, cy, (maxR + rc) / 2).stroke({ width: rc - maxR + 2, color: scrim, alpha: A });
 
-    // the fingertip
-    g.circle(fx, fy, 7).fill({ color: PALETTE.white, alpha: 0.92 * a }).stroke({ width: 2, color: ac, alpha: 0.85 * a });
-    g.circle(fx, fy, 3).fill({ color: ac, alpha: 0.6 * a });
+    // a whisper-thin accent ring at the hole edge to crispen the spotlight
+    const pulse = 0.6 + 0.4 * Math.sin(t * 3);
+    g.circle(cx, cy, holeR).stroke({ width: 1.5, color: this.accent.accent, alpha: 0.22 * a * pulse });
 
-    // keep the caption on-screen (the par hint sits near the right edge)
+    // caption sits just below the lit control, clamped on-screen
     const half = this.caption.width / 2;
-    this.caption.x = Math.max(8 + half, Math.min(LAYOUT.W - 8 - half, this.tx));
-    this.caption.y = this.ty + 34;
+    this.caption.x = Math.max(8 + half, Math.min(W - 8 - half, cx));
+    this.caption.y = cy + holeR + 14;
     this.caption.alpha = 0.9 * a;
   }
 
