@@ -308,6 +308,7 @@ export class Game {
   private loadLevel(index: number) {
     this.levelIndex = index;
     this.level = LEVELS[index];
+    this.audio.setLevelProfile(this.level);
     this.accent = ACCENTS[this.level.accentKey];
     if (this.navLeft) this.drawNav();
     this.complete = false;

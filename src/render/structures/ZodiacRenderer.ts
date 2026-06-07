@@ -51,19 +51,22 @@ interface Slot {
 // Decoy stars (false) are flung into the margins, well off the spine curve.
 const SLOTS: Slot[] = [
   // ----- the clean scorpion spine (true, harmonic-owned) -----
-  { key: 2, tx: 0.20, ty: 0.30, trueStar: true, order: 0 }, // upper claw
-  { key: 3, tx: 0.33, ty: 0.50, trueStar: true, order: 1 }, // shoulder / heart (Antares)
-  { key: 6, tx: 0.55, ty: 0.40, trueStar: true, order: 2 }, // arched back
-  { key: 7, tx: 0.74, ty: 0.58, trueStar: true, order: 3 }, // tail bend
+  // Re-centered & enlarged to fill the middle of the world band: claws at the
+  // left, the heart (Antares) mid-low, the back arching up and over, then the
+  // tail curling down and the stinger flicking back up at the right.
+  { key: 2, tx: 0.22, ty: 0.40, trueStar: true, order: 0 }, // upper claw
+  { key: 3, tx: 0.36, ty: 0.62, trueStar: true, order: 1 }, // shoulder / heart (Antares)
+  { key: 6, tx: 0.55, ty: 0.46, trueStar: true, order: 2 }, // arched back
+  { key: 7, tx: 0.74, ty: 0.66, trueStar: true, order: 3 }, // tail bend
   // ----- fixed anchor joints that complete the silhouette -----
-  { key: 0, tx: 0.12, ty: 0.46, trueStar: true, order: 0 }, // lower claw tip (pre-0)
-  { key: 0, tx: 0.86, ty: 0.46, trueStar: true, order: 5 }, // raised stinger
-  // ----- decoys (false, harmonic-owned): off-pattern noise -----
-  { key: 1, tx: 0.50, ty: 0.14, trueStar: false, order: -1 }, // high above
-  { key: 4, tx: 0.42, ty: 0.80, trueStar: false, order: -1 }, // low under belly
-  { key: 5, tx: 0.66, ty: 0.20, trueStar: false, order: -1 }, // upper right gap
-  { key: 8, tx: 0.88, ty: 0.78, trueStar: false, order: -1 }, // far low right
-  { key: 9, tx: 0.30, ty: 0.70, trueStar: false, order: -1 }, // low left
+  { key: 0, tx: 0.10, ty: 0.60, trueStar: true, order: 0 }, // lower claw tip (pre-0)
+  { key: 0, tx: 0.88, ty: 0.42, trueStar: true, order: 5 }, // raised stinger
+  // ----- decoys (false, harmonic-owned): off-pattern noise in the margins -----
+  { key: 1, tx: 0.50, ty: 0.10, trueStar: false, order: -1 }, // high above
+  { key: 4, tx: 0.40, ty: 0.90, trueStar: false, order: -1 }, // low under belly
+  { key: 5, tx: 0.70, ty: 0.12, trueStar: false, order: -1 }, // upper right gap
+  { key: 8, tx: 0.94, ty: 0.88, trueStar: false, order: -1 }, // far low right
+  { key: 9, tx: 0.16, ty: 0.90, trueStar: false, order: -1 }, // low left
 ];
 
 export class ZodiacRenderer implements WorldRenderer {
@@ -100,11 +103,13 @@ export class ZodiacRenderer implements WorldRenderer {
     const botY = LAYOUT.waterY;
     const skyH = botY - topY;
 
-    // Inset the constellation a little so it never kisses the screen edges.
-    const padX = W * 0.06;
-    const padTop = skyH * 0.08;
+    // Inset the constellation a little so it never kisses the screen edges, but
+    // let it occupy nearly the full world band so the figure reads large and the
+    // frame never falls away into empty void below it.
+    const padX = W * 0.05;
+    const padTop = skyH * 0.06;
     const fieldW = W - padX * 2;
-    const fieldH = skyH * 0.84;
+    const fieldH = skyH * 0.92;
     const fieldTop = topY + padTop;
 
     const px = (tx: number) => padX + tx * fieldW;
@@ -145,16 +150,16 @@ export class ZodiacRenderer implements WorldRenderer {
       const a = spine[i];
       const b = spine[i + 1];
       if (!a.lit || !b.lit) continue; // a missing joint breaks the figure
-      // soft under-glow stroke (grows with solve), then the crisp line on top
-      const gAlpha = 0.12 + 0.4 * solved;
+      // wide soft under-glow, then the crisp bright line on top
+      const gAlpha = 0.18 + 0.5 * solved;
       this.lines
         .moveTo(a.x, a.y)
         .lineTo(b.x, b.y)
-        .stroke({ width: 4.5, color: figGlow, alpha: gAlpha });
+        .stroke({ width: 7 + 4 * solved, color: figGlow, alpha: gAlpha });
       this.lines
         .moveTo(a.x, a.y)
         .lineTo(b.x, b.y)
-        .stroke({ width: 1.6, color: figColor, alpha: 0.55 + 0.4 * solved });
+        .stroke({ width: 2.4, color: figColor, alpha: 0.7 + 0.3 * solved });
     }
 
     // The pincer fork: from the upper claw (order 0, key 2) up to the lower
@@ -166,11 +171,11 @@ export class ZodiacRenderer implements WorldRenderer {
       this.lines
         .moveTo(shoulder.x, shoulder.y)
         .lineTo(lowerClaw.x, lowerClaw.y)
-        .stroke({ width: 1.6, color: figColor, alpha: 0.5 + 0.4 * solved });
+        .stroke({ width: 7 + 4 * solved, color: figGlow, alpha: 0.18 + 0.45 * solved });
       this.lines
         .moveTo(shoulder.x, shoulder.y)
         .lineTo(lowerClaw.x, lowerClaw.y)
-        .stroke({ width: 4.5, color: figGlow, alpha: 0.12 + 0.35 * solved });
+        .stroke({ width: 2.4, color: figColor, alpha: 0.65 + 0.3 * solved });
     }
 
     // ---- WRONG / tangled lines from lit DECOY stars ----
@@ -215,8 +220,10 @@ export class ZodiacRenderer implements WorldRenderer {
     }
   }
 
-  // The pale-indigo firmament: a soft vertical gradient (deep indigo aloft,
-  // cream toward the horizon) sprinkled with faint deterministic star dust.
+  // The pale-indigo firmament. A soft vertical gradient (deeper indigo aloft,
+  // warm cream toward the horizon) that fills the WHOLE world band, overlaid
+  // with drifting nebula haze and a dense field of deterministic star dust so
+  // the frame is never empty void — there is night sky everywhere.
   private drawSky(
     topY: number,
     skyH: number,
@@ -225,40 +232,76 @@ export class ZodiacRenderer implements WorldRenderer {
     solved: number,
   ) {
     const g = this.sky;
-    const high = mixColor(PALETTE.paperDeep, this.accent.ink, 0.3); // indigo aloft
-    const low = mixColor(PALETTE.paper, this.accent.accentSoft, 0.06); // cream below
-    const bands = 28;
+    const botY = topY + skyH;
+
+    // ---- graded firmament across the full band ----
+    const high = mixColor(PALETTE.paperDeep, this.accent.ink, 0.34); // indigo aloft
+    const mid = mixColor(PALETTE.paperDeep, this.accent.accentSoft, 0.16);
+    const low = mixColor(PALETTE.paper, this.accent.accentSoft, 0.08); // cream below
+    const bands = 40;
     for (let i = 0; i < bands; i++) {
       const u = i / (bands - 1);
+      // ease so most of the band stays a soft night, lifting only near the base
+      const c =
+        u < 0.5
+          ? mixColor(high, mid, u * 2)
+          : mixColor(mid, low, (u - 0.5) * 2);
       const y = topY + u * skyH;
-      const c = mixColor(high, low, u * u);
       g.rect(0, y, W, skyH / bands + 1).fill({ color: c, alpha: 1 });
     }
 
-    // a faint top-left glow wash (light source) so the scene reads lit TL.
-    const washCount = 4;
+    // ---- nebula haze: a handful of broad, soft indigo clouds spread over the
+    // whole band (including the lower two-thirds) so the void fills with depth.
+    const nebColor = mixColor(this.accent.accent, this.accent.ink, 0.45);
+    const nebLift = mixColor(this.accent.accentSoft, PALETTE.white, 0.35);
+    const clouds = 7;
+    for (let i = 0; i < clouds; i++) {
+      const cx = (0.1 + hashUnit(i + 3, 11) * 0.8) * W;
+      // bias clouds to span the full height, with several low in the frame
+      const cy = topY + (0.12 + hashUnit(i + 4, 17) * 0.78) * skyH;
+      const drift = Math.sin(t * 0.18 + i * 1.3) * 10;
+      const baseR = skyH * (0.16 + hashUnit(i + 6, 23) * 0.18);
+      const col = i % 2 === 0 ? nebColor : nebLift;
+      // soft stacked discs => a feathered cloud
+      const layers = 4;
+      for (let k = layers; k >= 1; k--) {
+        const r = baseR * (k / layers);
+        const a = 0.018 + 0.02 * (1 - k / layers);
+        g.circle(cx + drift, cy, r).fill({ color: col, alpha: a });
+      }
+    }
+
+    // ---- a faint top-left glow wash (light source) so the scene reads lit TL.
+    const washCount = 5;
     const lit = mixColor(this.accent.accentSoft, PALETTE.white, 0.6);
     for (let i = washCount; i >= 1; i--) {
-      const r = (skyH * 0.5) * (i / washCount);
-      g.circle(W * 0.16, topY + skyH * 0.1, r).fill({
+      const r = (skyH * 0.6) * (i / washCount);
+      g.circle(W * 0.14, topY + skyH * 0.08, r).fill({
         color: lit,
-        alpha: 0.02,
+        alpha: 0.022,
       });
     }
 
-    // faint star dust — fixed positions, gentle twinkle. When solved the whole
-    // sky lifts a touch so the figure pops against a calmer ground.
-    const dust = 70;
-    const dustColor = mixColor(this.accent.accentSoft, PALETTE.white, 0.5);
+    // ---- dense star dust — fixed positions, gentle twinkle, covering the whole
+    // band edge-to-edge. A spread of sizes gives the field depth. When solved
+    // the dust calms a touch so the figure pops against a quieter ground.
+    const dust = 200;
+    const dustColor = mixColor(this.accent.accentSoft, PALETTE.white, 0.55);
+    const dustWarm = mixColor(PALETTE.glow, this.accent.accentSoft, 0.2);
     for (let i = 0; i < dust; i++) {
       const hx = hashUnit(i + 1, 7);
       const hy = hashUnit(i + 2, 13);
       const x = hx * W;
       const y = topY + hy * skyH;
+      if (y > botY) continue;
       const tw = 0.5 + 0.5 * Math.sin(t * 1.6 + i * 2.3);
-      const a = (0.05 + 0.07 * tw) * (1 - solved * 0.4);
-      const r = 0.5 + hashUnit(i + 5, 19) * 0.7;
-      g.circle(x, y, r).fill({ color: dustColor, alpha: a });
+      const big = hashUnit(i + 9, 31) > 0.9; // ~10% are brighter pinpoints
+      const a = (0.05 + (big ? 0.16 : 0.08) * tw) * (1 - solved * 0.35);
+      const r = (big ? 1.0 : 0.4) + hashUnit(i + 5, 19) * (big ? 0.9 : 0.6);
+      g.circle(x, y, r).fill({
+        color: big ? dustWarm : dustColor,
+        alpha: a,
+      });
     }
   }
 

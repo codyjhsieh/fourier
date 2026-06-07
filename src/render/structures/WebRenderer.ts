@@ -104,8 +104,9 @@ export class WebRenderer implements WorldRenderer {
 
     const p = new Painter(this.refl, this.refl, horizonY, LAYOUT.reflectionDepth, t);
 
-    // outer reach of the web inside the world band
-    const span = Math.min(W * 0.42, (horizonY - topY) * 0.46);
+    // outer reach of the web inside the world band — a LARGE orb web that fills
+    // most of the frame, spanning nearly the full width and band height.
+    const span = Math.min(W * 0.5, (horizonY - topY) * 0.6);
 
     this.drawSky(topY, horizonY - topY, W, cx, cy, sym, t);
     const anchors = this.frameAnchors(cx, cy, span, broken, t);
@@ -182,7 +183,7 @@ export class WebRenderer implements WorldRenderer {
     broken: number,
     t: number,
   ): { x: number; y: number; ang: number; r: number }[] {
-    const N = 9; // anchor points around the frame
+    const N = 11; // anchor points around the frame
     const out: { x: number; y: number; ang: number; r: number }[] = [];
     // anchors are pulled up slightly so the web hangs in an oval, like an orb
     // web strung between branches.
@@ -191,7 +192,9 @@ export class WebRenderer implements WorldRenderer {
       const even = (i / N) * TWO_PI - Math.PI / 2;
       // angular wobble + radial sag only when torn
       const aw = sjit(i, 7) * broken * 0.5;
-      const sag = (0.65 + 0.35 * hash(i, 3)) + sjit(i, 11) * broken * 0.42;
+      // When whole, the ring sits near-full reach (0.92..1.0) so the web FILLS
+      // the frame; only tearing pulls anchors in unevenly.
+      const sag = (0.92 + 0.08 * hash(i, 3)) - sjit(i, 11) * broken * 0.46;
       const sway = Math.sin(t * 0.5 + i) * broken * 4;
       const ang = even + aw;
       const r = span * sag;
@@ -216,15 +219,45 @@ export class WebRenderer implements WorldRenderer {
     const g = this.web;
     const col = this.ink;
     const N = anchors.length;
+
+    // Frame / bridge threads anchoring the web out to the corners and edges of
+    // the scene. Each anchor sends a taut guy-line off toward the nearest frame
+    // edge so the orb reads as strung across the whole world band.
+    const W = LAYOUT.W;
+    const topY = LAYOUT.worldTop;
+    const botY = LAYOUT.waterY;
+    for (let i = 0; i < N; i++) {
+      const a = anchors[i];
+      // project the anchor's outward direction onto the frame rectangle
+      const dx = Math.cos(a.ang);
+      const dy = Math.sin(a.ang) * 0.92;
+      // distance to each wall along this ray, take the nearest
+      const pad = 6;
+      const tx = dx > 0 ? (W - pad - a.x) / dx : dx < 0 ? (pad - a.x) / dx : 1e9;
+      const ty = dy > 0 ? (botY - 2 - a.y) / dy : dy < 0 ? (topY + 2 - a.y) / dy : 1e9;
+      const tt = Math.max(0, Math.min(tx, ty));
+      const ex = a.x + dx * tt;
+      const ey = a.y + dy * tt;
+      // bow the guy-line a touch when torn (slack)
+      const gmx = (a.x + ex) / 2 + sjit(i, 21) * broken * 6;
+      const gmy = (a.y + ey) / 2 + sjit(i, 23) * broken * 6;
+      this.quad(g, a.x, a.y, gmx, gmy, ex, ey, 1.1, col, 0.5 - broken * 0.15);
+      // a frame knot where the guy-line bites the edge
+      g.circle(ex, ey, 1.6).fill({ color: col, alpha: 0.55 });
+    }
+
+    // The outer boundary threads strung between adjacent anchors — the web's
+    // rim. Drawn bold so the silhouette is unmistakable.
     for (let i = 0; i < N; i++) {
       const a = anchors[i];
       const b = anchors[(i + 1) % N];
       // frame threads slacken (bow inward) when the web is torn
       const mx = (a.x + b.x) / 2 + (cx - (a.x + b.x) / 2) * broken * 0.18;
       const my = (a.y + b.y) / 2 + (cy - (a.y + b.y) / 2) * broken * 0.18;
-      this.quad(g, a.x, a.y, mx, my, b.x, b.y, 1.4, col, 0.85);
+      this.quad(g, a.x, a.y, mx, my, b.x, b.y, 2.2, col, 0.92);
       // anchor knot
-      g.circle(a.x, a.y, 1.8).fill({ color: col, alpha: 0.9 });
+      g.circle(a.x, a.y, 2.4).fill({ color: col, alpha: 0.95 });
+      g.circle(a.x - 0.8, a.y - 0.8, 1).fill({ color: this.silk, alpha: 0.5 });
     }
   }
 
@@ -245,7 +278,7 @@ export class WebRenderer implements WorldRenderer {
     p: Painter,
   ): { ang: number; len: number; tiltY: number }[] {
     const g = this.web;
-    const N = 18; // radial spokes
+    const N = 22; // radial spokes
     const tiltY = 0.92;
     const wave = resample(shape, N); // [-1,1] modulates reach (only when torn)
     const reach = anchors.reduce((m, a) => Math.max(m, a.r), 1);
@@ -266,18 +299,34 @@ export class WebRenderer implements WorldRenderer {
 
       const ex = cx + Math.cos(ang) * len;
       const ey = cy + Math.sin(ang) * len * tiltY;
-      // Draw the spoke as a continuous fine ink line (a straight radial),
-      // crisp when whole; mirror sparse points into the water.
-      this.seg(g, cx, cy, ex, ey, 0.9, this.thread, 0.6 + sym * 0.25);
+      // Draw the spoke as a bold continuous ink line (a straight radial), crisp
+      // and high-contrast when whole. A dark core stroke with a fine bright
+      // silk highlight on the top-left-facing edge makes each spoke pop.
+      this.seg(g, cx, cy, ex, ey, 1.7, this.ink, 0.55 + sym * 0.35);
+      // bright catch-light on the light-facing (top-left) spokes
+      const lit = Math.cos(ang) * -0.7 + Math.sin(ang) * -0.72;
+      if (lit > 0) {
+        this.seg(
+          g,
+          cx,
+          cy,
+          ex,
+          ey,
+          0.8,
+          this.silk,
+          (0.18 + sym * 0.32) * lit,
+        );
+      }
       const steps = Math.max(6, Math.round(len / 9));
       for (let s = 1; s <= steps; s++) {
         const u = s / steps;
         const x = cx + Math.cos(ang) * len * u;
         const y = cy + Math.sin(ang) * len * u * tiltY;
-        if (s % 3 === 0) p.dot(x, y, 0.8, this.thread, 0.5);
+        if (s % 3 === 0) p.dot(x, y, 0.9, this.ink, 0.5);
       }
-      // a faint anchor glint where the spoke meets the frame
-      g.circle(ex, ey, 1).fill({ color: this.inkSoft, alpha: 0.6 });
+      // a brighter anchor glint where the spoke meets the frame
+      g.circle(ex, ey, 1.4).fill({ color: this.inkSoft, alpha: 0.7 });
+      g.circle(ex - 0.5, ey - 0.5, 0.8).fill({ color: this.silk, alpha: 0.5 });
     }
     return spokes;
   }
@@ -300,12 +349,12 @@ export class WebRenderer implements WorldRenderer {
   ) {
     const g = this.web;
     const N = spokes.length;
-    const loops = 7; // how many times round (one vertex per spoke crossing)
+    const loops = 10; // how many times round (one vertex per spoke crossing)
     const total = loops * N; // land every vertex exactly on a spoke
     const tiltY = 0.92;
     const reach = spokes.reduce((m, s) => Math.max(m, s.len), 1);
-    const inner = reach * 0.14; // clear hub zone where the spider sits
-    const outer = reach * 0.96; // stop just shy of the frame rim
+    const inner = reach * 0.12; // clear hub zone where the spider sits
+    const outer = reach * 0.97; // stop just shy of the frame rim
     // a slow drift / breathing of the whole coil (only when torn)
     const drift = Math.sin(t * 0.5) * broken * 3;
 
@@ -336,18 +385,18 @@ export class WebRenderer implements WorldRenderer {
       // whole the coil is fully continuous hub -> rim.
       const snap = hash(i, 13) < broken * 0.3;
       if (have && !snap) {
-        this.seg(g, prevX, prevY, x, y, 1.1, col, 0.78);
-        // bright silk highlight on the top-left-facing side
+        // bold dark capture thread, crisp at sym=1
+        this.seg(g, prevX, prevY, x, y, 1.5, col, 0.82);
+        // bright silk highlight on the top-left-facing side — a continuous
+        // sheen rather than sparse dots, so the coil glints under the moon.
         const nx = Math.cos(ang);
         const ny = Math.sin(ang);
-        if (nx * -0.7 + ny * -0.72 > 0.1 && i % 2 === 0) {
-          g.circle((prevX + x) / 2, (prevY + y) / 2, 0.7).fill({
-            color: this.silk,
-            alpha: 0.5 * sym + 0.15,
-          });
+        const lit = nx * -0.7 + ny * -0.72;
+        if (lit > 0.05) {
+          this.seg(g, prevX, prevY, x, y, 0.7, this.silk, (0.18 + 0.4 * sym) * lit);
         }
         // mirror sparse points of the coil into the water
-        if (i % 4 === 0) p.dot(x, y, 0.9, col, 0.4);
+        if (i % 4 === 0) p.dot(x, y, 1.0, col, 0.42);
       }
       // a frayed loose end where a thread snapped
       if (snap && have) {
@@ -390,18 +439,22 @@ export class WebRenderer implements WorldRenderer {
         const x = cx + Math.cos(ang) * rr;
         const y = cy + Math.sin(ang) * rr * tiltY;
         // twinkle; brighter and steadier when symmetric.
-        const tw = 0.6 + 0.4 * Math.sin(t * 2 + i * 1.3 + r);
-        const a = (0.25 + sym * 0.55) * tw;
-        const rad = 0.9 + sym * 1.0;
+        const tw = 0.65 + 0.35 * Math.sin(t * 2 + i * 1.3 + r);
+        const a = (0.35 + sym * 0.6) * tw;
+        const rad = 1.3 + sym * 1.4;
         // dim, smaller dew when torn — and some drops simply vanish (snapped).
         const gone = hash(i * 3 + r, 17) < broken * 0.35;
         if (gone) continue;
-        this.fx.circle(x, y, rad + 0.6).fill({ color: this.silk, alpha: a * 0.5 });
+        // soft halo, glassy drop, bright top-left catch-light
+        this.fx.circle(x, y, rad + 1.4).fill({ color: this.silk, alpha: a * 0.4 });
         this.fx.circle(x, y, rad).fill({ color: PALETTE.white, alpha: a });
-        // top-left catch-light
         this.fx
-          .circle(x - rad * 0.3, y - rad * 0.35, rad * 0.4)
-          .fill({ color: PALETTE.glow, alpha: a * 0.9 });
+          .circle(x - rad * 0.3, y - rad * 0.35, rad * 0.45)
+          .fill({ color: PALETTE.glow, alpha: Math.min(1, a * 1.1) });
+        // sharp specular pinpoint at the top-left edge of the drop
+        this.fx
+          .circle(x - rad * 0.42, y - rad * 0.48, rad * 0.2)
+          .fill({ color: PALETTE.white, alpha: Math.min(1, a * 1.2) });
         // mirror the brighter drops into the still water
         if (sym > 0.4 && (i + r) % 2 === 0) {
           p.dot(x, y, rad, this.silk, a * 0.6);
@@ -430,7 +483,7 @@ export class WebRenderer implements WorldRenderer {
     const sy = cy + Math.sin(2.1) * off * 0.92;
 
     const bodyCol = mixColor(this.ink, this.accent.ink, 0.4);
-    const r = 3.6;
+    const r = 5.2;
 
     // a single anchor thread tethering the spider back to the hub (drag-line)
     if (broken > 0.05) {
@@ -452,8 +505,8 @@ export class WebRenderer implements WorldRenderer {
       const ky = sy + Math.sin(ang * spread) * len * 0.5 - r * 0.3;
       const fx = sx + Math.cos(ang) * len * side;
       const fy = sy + Math.sin(ang * spread) * len + r * 0.4;
-      this.seg(g, sx, sy, kx, ky, 1, bodyCol, 0.9);
-      this.seg(g, kx, ky, fx, fy, 0.9, bodyCol, 0.85);
+      this.seg(g, sx, sy, kx, ky, 1.6, bodyCol, 0.92);
+      this.seg(g, kx, ky, fx, fy, 1.3, bodyCol, 0.88);
     }
 
     // abdomen + head

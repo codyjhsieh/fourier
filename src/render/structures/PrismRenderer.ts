@@ -237,82 +237,111 @@ export class PrismRenderer implements WorldRenderer {
     const aimIdx = ((Math.floor(aimU * (m - 1)) % m) + m) % m;
     const ridgeH = wave[aimIdx] * (12 + sharp * 10);
     const tx = cx + sx; // figure is centred under the crosshair
-    const groundY = cy + R * 0.36 + sy - ridgeH; // feet sit on the ridge line
+    // The figure stands well within the scope, a touch above centre so the
+    // crosshair lands on its centre of mass — the thing you aim at sits right
+    // where the hairs cross, not buried low on the rim.
+    const groundY = cy + R * 0.18 + sy - ridgeH; // feet sit on the ridge line
 
-    const dark = mixColor(this.accent.ink, PALETTE.ink, 0.55); // strong dark silhouette
-    const figH = 17; // figure height
-    const headR = 2.6;
+    const dark = mixColor(this.accent.ink, PALETTE.ink, 0.7); // strong dark silhouette
+    // A BIG, unmistakable standing figure — roughly a fifth of the scope tall so
+    // "aim at something" reads at a glance.
+    const figH = Math.max(34, R * 0.42); // figure height
+    const headR = figH * 0.13;
     const footY = groundY;
     const headY = footY - figH;
+    const cyF = headY + figH * 0.5; // figure centre of mass
 
     // detail 0..1 = how resolved the figure is. blobShow 0..1 = the haze smear.
     const blobShow = Math.max(0, Math.min(1, (blur - 0.32) / 0.5));
     const detail = Math.max(0, Math.min(1, (sharp - 0.18) / 0.82));
+
+    // ---- A faint distant TARGET PLATE behind the figure so the whole thing
+    // reads as a deliberate thing-to-shoot: a pale stake/board the figure stands
+    // against, with a soft shadow pooling at the feet on the ridge. ----
+    const plateW = figH * 0.62;
+    const plateCol = mixColor(this.accent.ink, PALETTE.paper, 0.35);
+    // ground shadow ellipse at the feet (anchors the figure on the ridge).
+    g.ellipse(tx, footY + 1.5, plateW * 0.55, figH * 0.06 + 1).fill({
+      color: mixColor(this.accent.ink, PALETTE.paperDeep, 0.45),
+      alpha: 0.35 + detail * 0.25,
+    });
 
     // ---- A clear DARK STANDING FIGURE silhouette (head + torso + legs). ----
     // Drawn as ghost copies offset horizontally when blurry (the double image),
     // collapsing to one razor-sharp silhouette as focus locks in. Even fully
     // blurred you can tell "a person is standing there", just doubled & soft.
     const figGhosts = blur > 0.18 ? 3 : 1;
+    const s = figH / 34; // scale factor relative to the original 34px design
     const drawFigure = (fx: number, fy: number, col: number, alpha: number, fuzz: number) => {
+      const f = fuzz;
       // head
-      g.circle(fx, fy + headR, headR + fuzz).fill({ color: col, alpha });
+      g.circle(fx, fy + headR, headR + f).fill({ color: col, alpha });
+      // neck
+      g.rect(fx - 1.4 * s - f * 0.5, fy + headR * 2 - 1, 2.8 * s + f, 3 * s).fill({ color: col, alpha });
       // torso (tapered block)
-      g.rect(fx - 2.4 - fuzz, fy + headR * 2, 4.8 + fuzz * 2, 8 + fuzz).fill({ color: col, alpha });
+      g.rect(fx - 4.6 * s - f, fy + headR * 2 + 2 * s, 9.2 * s + f * 2, 14 * s + f).fill({ color: col, alpha });
       // shoulders / arms
-      g.rect(fx - 3.6 - fuzz, fy + headR * 2 + 1, 7.2 + fuzz * 2, 2.2).fill({ color: col, alpha });
+      g.rect(fx - 6.6 * s - f, fy + headR * 2 + 3 * s, 13.2 * s + f * 2, 4 * s).fill({ color: col, alpha });
       // legs (two)
-      g.rect(fx - 2.2 - fuzz * 0.5, fy + headR * 2 + 8, 1.8 + fuzz, 6 + fuzz).fill({ color: col, alpha });
-      g.rect(fx + 0.4, fy + headR * 2 + 8, 1.8 + fuzz, 6 + fuzz).fill({ color: col, alpha });
+      g.rect(fx - 3.8 * s - f * 0.5, fy + headR * 2 + 16 * s, 3.2 * s + f, 11 * s + f).fill({ color: col, alpha });
+      g.rect(fx + 0.8 * s, fy + headR * 2 + 16 * s, 3.2 * s + f, 11 * s + f).fill({ color: col, alpha });
     };
 
     for (let gi = 0; gi < figGhosts; gi++) {
       const center = (figGhosts - 1) / 2;
       const isCenter = gi === center;
       // ghost copies smear sideways AND wobble (heartbeat/breath) when unfocused.
-      const wob = Math.sin(t * 1.6 + gi * 2.0) * blur * 2.2;
-      const ox = (gi - center) * blur * 9 + wob;
-      const oy = Math.cos(t * 1.1 + gi) * blur * 2.5;
+      const wob = Math.sin(t * 1.6 + gi * 2.0) * blur * 3.0;
+      const ox = (gi - center) * blur * 13 + wob;
+      const oy = Math.cos(t * 1.1 + gi) * blur * 3.2;
       const a = figGhosts === 1
-        ? 0.6 + detail * 0.4
+        ? 0.7 + detail * 0.3
         : isCenter
-        ? (0.55 + detail * 0.45) * (0.5 + sharp * 0.5)
-        : 0.32 * blobShow;
+        ? (0.6 + detail * 0.4) * (0.5 + sharp * 0.5)
+        : 0.4 * blobShow;
       if (a < 0.01) continue;
-      const fuzz = isCenter ? blur * 1.4 : blur * 2.2;
-      drawFigure(tx + ox, headY + oy, mixColor(dark, PALETTE.paperDeep, blur * 0.35), a, fuzz);
+      const fuzz = (isCenter ? blur * 2.0 : blur * 3.2) * s;
+      drawFigure(tx + ox, headY + oy, mixColor(dark, PALETTE.paperDeep, blur * 0.3), a, fuzz);
     }
 
     if (detail < 0.01) return;
 
     // crisp dark outline pass on the true figure when sharpening — the clean lock.
+    // A bold dark re-draw with no fuzz that strengthens with focus, so the locked
+    // silhouette is unmistakably solid and dark against the bright sky.
+    if (detail > 0.25) {
+      drawFigure(tx, headY, dark, (detail - 0.25) / 0.75 * 0.85, 0);
+    }
     // top-left rim light (pale-luminous, light from top-left) on the head/torso.
-    g.circle(tx - headR * 0.4, headY + headR * 0.6, headR * 0.45).fill({
+    g.circle(tx - headR * 0.4, headY + headR * 0.6, headR * 0.5).fill({
       color: PALETTE.white,
-      alpha: (0.12 + detail * 0.28) * detail,
+      alpha: (0.14 + detail * 0.3) * detail,
+    });
+    g.rect(tx - 4.4 * s, headY + headR * 2 + 2 * s, 1.6 * s, 11 * s).fill({
+      color: mixColor(PALETTE.white, this.accent.accentSoft, 0.4),
+      alpha: detail * 0.25,
     });
     // a tiny bright aim-point glint on the centre of mass — sharpest detail.
-    g.circle(tx, headY + headR * 2 + 3, 0.9 + detail * 0.4).fill({
+    g.circle(tx, cyF, 1.2 + detail * 0.6).fill({
       color: mixColor(this.accent.accent, PALETTE.white, 0.2),
-      alpha: detail * 0.8,
+      alpha: detail * 0.85,
     });
 
     // LOCK BRACKET: four crisp corner ticks framing the figure — the unmistakable
     // "target acquired" feel. Tightens snugly onto the silhouette as focus locks.
-    if (detail > 0.3) {
-      const la = (detail - 0.3) / 0.7;
+    if (detail > 0.25) {
+      const la = (detail - 0.25) / 0.75;
       const settle = 1 - Math.max(0, Math.min(1, sc)); // breathe-in while unsolved
-      const halfW = 6 + settle * 4; // bracket eases inward as it locks
-      const halfH = figH * 0.6 + settle * 4;
-      const cyF = headY + figH * 0.5;
-      const len = 2.6 + la * 1.4;
+      const halfW = plateW * 0.5 + 5 + settle * 7; // bracket eases inward as it locks
+      const halfH = figH * 0.56 + 4 + settle * 7;
+      const len = 5 + la * 4;
       const lac = this.accent.accent;
-      const lw = 1.1;
+      const lw = 1.4 + la * 0.6;
       const corner = (sgnX: number, sgnY: number) => {
         const x = tx + sgnX * halfW;
         const y = cyF + sgnY * halfH;
-        g.moveTo(x, y).lineTo(x - sgnX * len, y).stroke({ width: lw, color: lac, alpha: 0.7 * la });
-        g.moveTo(x, y).lineTo(x, y - sgnY * len).stroke({ width: lw, color: lac, alpha: 0.7 * la });
+        g.moveTo(x, y).lineTo(x - sgnX * len, y).stroke({ width: lw, color: lac, alpha: 0.85 * la });
+        g.moveTo(x, y).lineTo(x, y - sgnY * len).stroke({ width: lw, color: lac, alpha: 0.85 * la });
       };
       corner(-1, -1);
       corner(1, -1);
@@ -323,10 +352,10 @@ export class PrismRenderer implements WorldRenderer {
     // when fully focused & solved, a "locked" ring pulses around the figure.
     if (sc > 0.7) {
       const pulse = 0.5 + 0.5 * Math.sin(t * 4);
-      g.ellipse(tx, headY + figH * 0.5, 9 + pulse * 1.5, figH * 0.7 + pulse * 1.5).stroke({
-        width: 0.9,
+      g.ellipse(tx, cyF, plateW * 0.6 + pulse * 2, figH * 0.66 + pulse * 2).stroke({
+        width: 1.1,
         color: this.accent.accent,
-        alpha: (sc - 0.7) / 0.3 * 0.5 * pulse,
+        alpha: (sc - 0.7) / 0.3 * 0.6 * pulse,
       });
     }
   }

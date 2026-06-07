@@ -273,9 +273,9 @@ export class AuroraRenderer implements WorldRenderer {
     const mir = (i: number) => wave[N - 1 - i];
 
     // wing fill tones (pastel-on-cream), edge & vein ink, eyespot glow.
-    const fillBase = mixColor(this.accent.accentSoft, PALETTE.paper, 0.22);
-    const fillUpper = mixColor(this.accent.accentSoft, PALETTE.white, 0.4);
-    const fillLower = mixColor(this.accent.accentSoft, this.accent.ink, 0.22);
+    const fillBase = mixColor(this.accent.accentSoft, PALETTE.paper, 0.28);
+    const fillUpper = mixColor(this.accent.accentSoft, PALETTE.white, 0.46);
+    const fillLower = mixColor(this.accent.accentSoft, this.accent.ink, 0.18);
     const ink = mixColor(this.accent.ink, 0x000000, 0.45);
     const inkSoft = mixColor(this.accent.ink, 0x000000, 0.2);
     const bandC = mixColor(this.accent.accent, this.accent.ink, 0.25);
@@ -283,8 +283,8 @@ export class AuroraRenderer implements WorldRenderer {
     // wing breathing: spread angle of the wings about the body. On the clash
     // each wing breathes at a slightly different rate (lopsided flutter); as
     // sym -> 1 they lock to a single shared, slow breath.
-    const openL = 0.86 + breathe * 0.16 + Math.sin(t * 7 + 0.4) * clash * 0.08;
-    const openR = 0.86 + breathe * 0.16 + Math.sin(t * 6.3) * clash * 0.08;
+    const openL = 0.92 + breathe * 0.1 + Math.sin(t * 7 + 0.4) * clash * 0.07;
+    const openR = 0.92 + breathe * 0.1 + Math.sin(t * 6.3) * clash * 0.07;
 
     const cosT = Math.cos(tilt);
     const sinT = Math.sin(tilt);
@@ -292,111 +292,123 @@ export class AuroraRenderer implements WorldRenderer {
     const wx = (lx: number, ly: number) => cx + lx * cosT - ly * sinT;
     const wy = (lx: number, ly: number) => cy + lx * sinT + ly * cosT;
 
-    // ---- draw a single wing as a filled scalloped lobe + veins + eyespot ----
-    // side = -1 (left) or +1 (right). `prof(k)` gives the per-step radial wobble
-    // [in -1..1] that scallops the outer edge; left uses live, right uses mirror.
+    // ---- draw a single wing as a smooth filled scalloped lobe + veins + eyespot
+    // side = -1 (left) or +1 (right). `prof(k)` gives a gentle per-step radial
+    // modulation [in -1..1] that softly scallops the outer edge; left uses live,
+    // right uses mirror — so the two wings only match when the wave is even.
+    //
+    // A wing is a closed teardrop lobe described in body-local space: its centre
+    // sits out at (cxLobe, cyLobe), and the outline is an ellipse swept once
+    // around, gently rippled by the waveform. Forewings are large and lean
+    // outward-and-up; hindwings are smaller, rounder, and sit outward-and-down —
+    // never pinched into claws.
     const drawWing = (
       side: number,
       open: number,
       fore: boolean, // forewing (upper, bigger) vs hindwing (lower)
       prof: (k: number) => number,
     ) => {
-      const baseLX = side * 6; // wing root just off the body centre line
-      const baseLY = fore ? -6 : 14;
-      // wing reaches out + up (fore) or out + down (hind).
-      const reach = fore ? 116 : 92;
-      const span = fore ? 1.0 : 0.86;
-      const upBias = fore ? -0.62 : 0.5; // vertical lean of the lobe
+      // lobe centre + ellipse radii in body-local space (x: outward, y: down).
+      const lobeCX = side * (fore ? 70 : 50) * open;
+      const lobeCY = fore ? -34 : 44;
+      const rxBase = fore ? 56 : 40;
+      const ryBase = fore ? 60 : 36;
+      // forewings lean their long axis up-and-out; hindwings hang down-and-out.
+      const lean = (fore ? -0.5 : 0.45) * side;
 
-      // build the lobe outline as an arc of points from root, sweeping the
-      // outer edge, back to root. The radius is modulated by `prof` (the
-      // waveform) so the scalloped edge depends on symmetry.
       const M = N;
       const outline: { x: number; y: number }[] = [];
+      let topK = 0; // remember the highest (most up-and-out) edge sample
+      let topVal = Infinity;
       for (let k = 0; k < M; k++) {
-        const u = k / (M - 1); // 0 .. 1 along the lobe
-        // base elliptical lobe angle sweep
-        const ang = (-0.15 + u * 1.25) * Math.PI * 0.62 * open;
-        // radial profile: a fat lobe tapering at both ends, scalloped by wave.
-        const lobe = Math.sin(u * Math.PI);
-        const scallop = 1 + prof(k) * 0.26; // waveform ripples the edge
-        const rad = reach * (0.32 + 0.68 * lobe) * scallop;
-        const lx = baseLX + side * Math.cos(ang) * rad * span;
-        const ly = baseLY + upBias * rad - Math.sin(ang) * rad * 0.45 + (fore ? 0 : 26);
-        outline.push({ x: wx(lx, ly), y: wy(lx, ly) });
+        const u = k / (M - 1); // 0 .. 1 around the lobe
+        const ang = u * Math.PI * 2;
+        // soft, bounded scallop: a gentle ripple, strongest on the outer margin
+        // and fading to nothing where the wing meets the body (cos(ang) > 0 is
+        // the inner side). Keeps the silhouette a clean teardrop, never spiky.
+        const outer = 0.5 + 0.5 * Math.cos(ang); // 1 outer .. 0 inner
+        const scallop = 1 + prof(k) * 0.14 * outer;
+        // teardrop: fuller on the outer side, tapering toward the body root.
+        const taper = 0.78 + 0.22 * Math.cos(ang);
+        const ex = Math.cos(ang) * rxBase * scallop * taper;
+        const ey = Math.sin(ang) * ryBase * scallop;
+        // apply the lobe lean (shear the ellipse along its long axis).
+        const lx = lobeCX + side * ex + ey * lean;
+        const ly = lobeCY + ey + ex * lean * 0.4 * side;
+        const X = wx(lx, ly);
+        const Y = wy(lx, ly);
+        outline.push({ x: X, y: Y });
+        if (Y < topVal) {
+          topVal = Y;
+          topK = k;
+        }
       }
 
-      // FILL: shade the lobe top-lit. Build a fan of triangles from the root.
-      const rootX = wx(baseLX, baseLY);
-      const rootY = wy(baseLY * 0 + baseLX, baseLY);
-      const poly: number[] = [rootX, rootY];
+      // root anchor near the body where the wing attaches.
+      const rootX = wx(side * 5, fore ? -8 : 16);
+      const rootY = wy(side * 5, fore ? -8 : 16);
+
+      // FILL: the closed lobe outline, a smooth pastel-on-cream teardrop.
+      const poly: number[] = [];
       for (const o of outline) poly.push(o.x, o.y);
       const fillC = fore
-        ? mixColor(fillBase, fillUpper, 0.4)
-        : mixColor(fillBase, fillLower, 0.35);
-      g.poly(poly).fill({ color: fillC, alpha: 0.96 });
+        ? mixColor(fillBase, fillUpper, 0.42)
+        : mixColor(fillBase, fillLower, 0.3);
+      g.poly(poly).fill({ color: fillC, alpha: 0.97 });
 
-      // top-left light wash over the upper half of the lobe.
-      const litPoly: number[] = [rootX, rootY];
-      for (let k = 0; k < Math.floor(M * 0.55); k++) {
-        litPoly.push(outline[k].x, outline[k].y);
-      }
-      g.poly(litPoly).fill({
-        color: mixColor(fillC, PALETTE.glow, 0.4),
-        alpha: 0.4,
-      });
+      // top-left light wash: a soft glow blob over the upper-outer quadrant.
+      const top = outline[topK];
+      g.circle(
+        top.x * 0.5 + rootX * 0.5,
+        top.y * 0.5 + rootY * 0.5,
+        fore ? 34 : 24,
+      ).fill({ color: mixColor(fillC, PALETTE.glow, 0.5), alpha: 0.3 });
 
-      // a colour BAND sweeping the outer wing (pattern), parallel to the edge.
-      for (let k = 1; k < M - 1; k++) {
+      // a colour BAND following the outer margin (pattern), pulled inward.
+      for (let k = 0; k < M; k++) {
         const a = outline[k];
-        // pull the band point inward toward the root by ~24%.
-        const bx = a.x + (rootX - a.x) * 0.24;
-        const by = a.y + (rootY - a.y) * 0.24;
-        g.circle(bx, by, fore ? 4.2 : 3.4).fill({ color: bandC, alpha: 0.5 });
+        const u = k / (M - 1);
+        if (0.5 + 0.5 * Math.cos(u * Math.PI * 2) < 0.5) continue; // outer only
+        const bx = a.x + (rootX - a.x) * 0.22;
+        const by = a.y + (rootY - a.y) * 0.22;
+        g.circle(bx, by, fore ? 4 : 3.2).fill({ color: bandC, alpha: 0.45 });
       }
 
-      // VEINS: radial dark-ink lines from the root out to edge nodes.
-      const veinN = fore ? 6 : 5;
+      // VEINS: dark-ink lines fanning from the root toward outer-margin nodes.
+      const veinN = fore ? 5 : 4;
       for (let vI = 1; vI <= veinN; vI++) {
-        const k = Math.round((vI / (veinN + 1)) * (M - 1));
+        // distribute vein tips across the OUTER margin arc only.
+        const u = 0.12 + (vI / (veinN + 1)) * 0.76;
+        const k = Math.round(u * (M - 1));
         const tip = outline[k];
-        const steps = 10;
+        const steps = 11;
         for (let j = 1; j <= steps; j++) {
           const jt = j / steps;
           const x = rootX + (tip.x - rootX) * jt;
           const y = rootY + (tip.y - rootY) * jt;
           g.rect(x - 1, y - 1, 2, 2).fill({
             color: mixColor(inkSoft, ink, jt),
-            alpha: 0.55 * (0.5 + 0.5 * jt),
+            alpha: 0.5 * (0.5 + 0.5 * jt),
           });
         }
       }
 
-      // SCALLOPED DARK EDGE: trace the outline with ink dabs; little notches
-      // between edge nodes give the scalloped (toothed) wing margin.
+      // SMOOTH DARK MARGIN: trace the lobe outline with overlapping ink dabs to
+      // ink in the wing edge — no outward spikes, just a clean rounded rim.
       for (let k = 0; k < M; k++) {
-        const o = outline[k];
-        g.circle(o.x, o.y, 2.4).fill({ color: ink, alpha: 0.9 });
-        if (k % 3 === 0) {
-          // a notch cusp poking outward from the margin.
-          const inX = o.x + (rootX - o.x) * 0.06;
-          const inY = o.y + (rootY - o.y) * 0.06;
-          const nx = o.x + (o.x - inX) * 1.4;
-          const ny = o.y + (o.y - inY) * 1.4;
-          g.circle(nx, ny, 1.5).fill({ color: ink, alpha: 0.7 });
-        }
+        g.circle(outline[k].x, outline[k].y, 2.2).fill({ color: ink, alpha: 0.85 });
       }
 
       // EYESPOT: a glowing rose ring with a dark pupil + white catchlight, set
-      // in the mid-outer wing. Its position is steady on a symmetric wing and
-      // drifts when the wing clashes (so left/right spots visibly mismatch).
-      const ek = Math.round(M * (fore ? 0.52 : 0.46));
-      const eo = outline[ek];
-      const exRaw = eo.x + (rootX - eo.x) * 0.42;
-      const eyRaw = eo.y + (rootY - eo.y) * 0.42;
+      // in the mid-outer wing. Steady on a symmetric wing; drifts on a clash so
+      // the left/right spots visibly mismatch until the mirror is achieved.
+      const exRaw = lobeCX * 0.62;
+      const eyRaw = lobeCY + (fore ? 6 : 2);
       const drift = clash * (fore ? 6 : 5);
-      const ex = exRaw + side * Math.sin(t * 5 + (fore ? 0 : 2)) * drift;
-      const ey = eyRaw + Math.cos(t * 4.4 + side) * drift;
+      const exL = exRaw + side * Math.sin(t * 5 + (fore ? 0 : 2)) * drift;
+      const eyL = eyRaw + Math.cos(t * 4.4 + side) * drift;
+      const ex = wx(exL, eyL);
+      const ey = wy(exL, eyL);
       const eR = fore ? 9 : 7;
       // outer glow
       g.circle(ex, ey, eR + 4).fill({
@@ -414,8 +426,6 @@ export class AuroraRenderer implements WorldRenderer {
         alpha: 0.95,
       });
 
-      // mark eyespot on the front layer for a soft glow pulse later via stored
-      // values is unnecessary — glow is drawn here, kept simple.
       return { ex, ey, eR };
     };
 
@@ -440,20 +450,28 @@ export class AuroraRenderer implements WorldRenderer {
       });
     }
 
-    // ---- BODY: a slender, segmented dark thorax + abdomen, top-lit ----
-    const bodyTop = wy(0, -34);
-    const bodyBot = wy(0, 46);
-    const segs = 11;
+    // ---- BODY: a slim, tidy dark thorax + tapering abdomen, top-lit ----
+    // Built as a smooth spindle: a rounded thorax near the top that narrows to
+    // a fine point at the tail. Drawn as a stack of dabs so the silhouette is
+    // continuous (no lumps), with a top-left fur highlight down its lit side.
+    const bodyTopLy = -36;
+    const bodyBotLy = 48;
+    const bodyBot = wy(0, bodyBotLy);
+    const segs = 26;
     for (let i = 0; i <= segs; i++) {
       const u = i / segs;
-      const ly = -34 + u * 80;
-      const bw = (1 - Math.abs(u - 0.32) * 1.1) * 7 + 2; // fattest at thorax
+      const ly = bodyTopLy + u * (bodyBotLy - bodyTopLy);
+      // half-width profile: a smooth spindle — fullest in the thorax (~0.22),
+      // easing to a slim abdomen and a fine tail point.
+      const thorax = Math.exp(-Math.pow((u - 0.22) / 0.26, 2)); // rounded bulge
+      const taper = Math.pow(1 - u, 0.7); // overall narrowing to the tail
+      const bw = 1.4 + (3.2 * thorax + 2.0 * taper);
       const x = wx(0, ly);
       const y = wy(0, ly);
       const c = mixColor(ink, PALETTE.white, 0.16 * (1 - u) + 0.06);
-      g.rect(x - bw / 2, y - 3, bw, 6).fill({ color: c, alpha: 0.97 });
-      // top-left fur highlight
-      g.rect(x - bw / 2, y - 3, bw * 0.4, 2).fill({
+      g.circle(x, y, bw).fill({ color: c, alpha: 0.97 });
+      // top-left fur highlight along the lit edge.
+      g.circle(x - bw * 0.42, y - bw * 0.42, bw * 0.34).fill({
         color: mixColor(c, PALETTE.glow, 0.5),
         alpha: 0.4,
       });
@@ -462,23 +480,29 @@ export class AuroraRenderer implements WorldRenderer {
     p.dot(wx(0, 0), bodyBot + 4, 5, mixColor(ink, PALETTE.water, 0.4), 0.12 * sym);
 
     // ---- HEAD + two ANTENNAE with clubbed tips ----
-    const headX = wx(0, -38);
-    const headY = wy(0, -38);
-    g.circle(headX, headY, 5).fill({ color: ink, alpha: 0.97 });
-    g.circle(headX - 1.6, headY - 1.6, 1.6).fill({
+    // a small round head just above the thorax.
+    const headX = wx(0, -44);
+    const headY = wy(0, -44);
+    g.circle(headX, headY, 4.2).fill({ color: ink, alpha: 0.97 });
+    g.circle(headX - 1.4, headY - 1.4, 1.4).fill({
       color: mixColor(ink, PALETTE.glow, 0.5),
       alpha: 0.5,
     });
+    // two antennae sweeping up-and-out in a gentle curve, clubbed at the tips.
     for (const side of [-1, 1]) {
-      const steps = 9;
-      const sway = Math.sin(t * 2 + side) * (0.6 + clash * 1.2);
+      const steps = 10;
+      const sway = Math.sin(t * 2 + side) * (0.5 + clash * 1.0);
       let px = headX;
       let py = headY;
       for (let j = 1; j <= steps; j++) {
         const jt = j / steps;
-        const ax = headX + side * (4 + jt * 16) + sway * jt;
-        const ay = headY - (6 + jt * 20);
-        g.rect(ax - 1, ay - 1, 2, 2).fill({ color: ink, alpha: 0.85 });
+        // ease-out curve: rises fast then flares outward near the tip.
+        const out = jt * jt * 16; // outward sweep grows toward the tip
+        const up = jt * 26; // steady rise
+        const ax = headX + side * (3 + out) + sway * jt;
+        const ay = headY - (3 + up);
+        const r = 1.4 - jt * 0.4;
+        g.circle(ax, ay, r).fill({ color: ink, alpha: 0.85 });
         px = ax;
         py = ay;
       }
