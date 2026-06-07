@@ -102,11 +102,26 @@ export class TutorialHint {
     const pulse = 0.6 + 0.4 * Math.sin(t * 3);
     g.circle(cx, cy, holeR).stroke({ width: 1.5, color: this.accent.accent, alpha: 0.22 * a * pulse });
 
-    // caption sits just below the lit control, clamped on-screen
-    const half = this.caption.width / 2;
-    this.caption.x = Math.max(8 + half, Math.min(W - 8 - half, cx));
-    this.caption.y = cy + holeR + 14;
-    this.caption.alpha = 0.9 * a;
+    // caption just below the lit control, clamped on-screen, sitting on a soft
+    // feathered paper plate so it stays legible over any text behind the dim
+    // layer (control labels / bottom instructions).
+    const cw = this.caption.width;
+    const ch = this.caption.height;
+    const capX = Math.max(10 + cw / 2, Math.min(W - 10 - cw / 2, cx));
+    const capY = Math.min(cy + holeR + 14, H - ch - 12);
+    for (let i = 2; i >= 0; i--) {
+      const grow = i * 5;
+      g.roundRect(
+        capX - cw / 2 - 12 - grow,
+        capY - 6 - grow,
+        cw + 24 + grow * 2,
+        ch + 12 + grow * 2,
+        9 + grow,
+      ).fill({ color: PALETTE.paper, alpha: (i === 0 ? 0.92 : 0.28) * a });
+    }
+    this.caption.x = capX;
+    this.caption.y = capY;
+    this.caption.alpha = 0.95 * a;
   }
 
   destroy() {
